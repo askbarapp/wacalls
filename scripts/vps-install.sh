@@ -27,4 +27,14 @@ else
 fi
 
 chmod +x "${APP_DIR}/setup.sh" "${APP_DIR}/scripts/"*.sh
+
+if [[ ! -t 0 ]]; then
+  echo
+  echo "Code is in ${APP_DIR}."
+  echo "Do not pipe this installer into bash — SSL and admin prompts need a real terminal."
+  echo "Now run:"
+  echo "  sudo bash ${APP_DIR}/scripts/setup.sh"
+  exit 0
+fi
+
 exec "${APP_DIR}/scripts/setup.sh"

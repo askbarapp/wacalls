@@ -17,13 +17,27 @@ Sessions must not live only in an ephemeral container filesystem.
 
 ## SSL
 
-`scripts/setup.sh` uses Certbot webroot + Nginx. Renewal is a cron `certbot renew`. You can verify with:
+`scripts/setup.sh` issues Let's Encrypt after the stack is healthy, writes `nginx/default.conf` from `nginx/ssl.conf.tpl`, runs `nginx -t`, reloads, and installs a daily renew cron.
+
+If HTTPS was skipped (DNS/firewall) on first install:
 
 ```bash
-docker run --rm -v /opt/wacalls/certbot-certs:/etc/letsencrypt certbot/certbot renew --dry-run
+cd /opt/wacalls
+sudo bash scripts/enable-ssl.sh
+# or
+wacalls ssl
 ```
 
-HTTP is redirected to HTTPS once certificates exist (`nginx/ssl.conf.tpl`).
+Verify:
+
+```bash
+curl -fsS https://YOUR-DOMAIN/health
+curl -I https://YOUR-DOMAIN/login
+```
+
+Git tracks HTTP-only `nginx/default.conf` (ACME + app proxy). `enable-ssl.sh` overwrites it from `nginx/ssl.conf.tpl` after certs exist. `scripts/update.sh` restores that SSL file after `git pull` so HTTPS is not wiped.
+
+`setup.sh` keeps an existing `POSTGRES_PASSWORD` when `.env` already exists, so a re-run does not break the Postgres volume (P1000).
 
 ## Firewall
 
@@ -43,7 +57,7 @@ Daily cron retains 7 days (configurable). Restores are manual: gunzip SQL into p
 sudo /opt/wacalls/scripts/update.sh
 ```
 
-Pulls git (if present), backups, rebuilds, migrates, health-checks.
+Pulls git (if present), re-applies SSL nginx config when certs exist, backups, rebuilds, migrates, health-checks.
 
 ## Uninstall
 

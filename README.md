@@ -35,19 +35,26 @@ If the WASM adapter is not loaded, the dialer will show **FAILED** with `UNSUPPO
 ## Quick start (Ubuntu VPS)
 
 ```bash
-chmod +x scripts/setup.sh
-sudo ./scripts/setup.sh
+curl -fsSL https://raw.githubusercontent.com/askbarapp/wacalls/main/scripts/vps-install.sh | sudo bash
+sudo bash /opt/wacalls/scripts/setup.sh
+```
+
+The curl pipe only clones (no TTY). `setup.sh` prompts for admin, domain, and SSL.
+
+If HTTPS was skipped on first install (HTTP works, browser HTTPS does not):
+
+```bash
+sudo bash /opt/wacalls/scripts/enable-ssl.sh
 ```
 
 Or after copying this repository to the server:
 
 ```bash
-sudo ./setup.sh
+chmod +x scripts/*.sh
+sudo ./scripts/setup.sh
 ```
 
-(`setup.sh` lives in `scripts/` and is the installer. You may `cp scripts/setup.sh .` if you prefer.)
-
-A convenience copy is also referenced as `scripts/setup.sh`. Fresh VPS target: Ubuntu 22.04 or 24.04, 2 CPU / 4 GB RAM / 40 GB disk recommended.
+Root `setup.sh` just execs `scripts/setup.sh`. Fresh VPS: Ubuntu 22.04 or 24.04, 2 CPU / 4 GB RAM / 40 GB disk recommended.
 
 ## Development
 
@@ -65,7 +72,7 @@ apps/api          Fastify API + WebSocket
 services/whatsapp CallingEngine process (Baileys / WASM / mock)
 services/worker   BullMQ (calls, campaigns, webhooks)
 packages/*        shared, database, auth, queue, calling-engine, audio-engine
-scripts/          setup, backup, update, uninstall
+scripts/          setup, enable-ssl, backup, update, uninstall, vps-install
 docs/             architecture and limitations
 ```
 

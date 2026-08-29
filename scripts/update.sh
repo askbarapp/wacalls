@@ -4,7 +4,19 @@ APP_DIR="${WACALLS_DIR:-/opt/wacalls}"
 cd "${APP_DIR}"
 "${APP_DIR}/scripts/backup.sh"
 if [[ -d .git ]]; then
+  # Live HTTPS writes nginx/default.conf; reset it so git pull is not blocked.
+  git checkout -- nginx/default.conf 2>/dev/null || true
   git pull --ff-only
+fi
+# Repo tracks HTTP-only nginx/default.conf. Re-apply SSL if certs already exist.
+if [[ -f .env ]]; then
+  # shellcheck source=/dev/null
+  set -a
+  . ./.env
+  set +a
+fi
+if [[ -n "${DOMAIN:-}" && -f "${APP_DIR}/certbot-certs/live/${DOMAIN}/fullchain.pem" ]]; then
+  sed "s/\${DOMAIN}/${DOMAIN}/g" "${APP_DIR}/nginx/ssl.conf.tpl" > "${APP_DIR}/nginx/default.conf"
 fi
 docker compose build
 docker compose up -d

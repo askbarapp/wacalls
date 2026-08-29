@@ -25,9 +25,34 @@ Read `failure_reason` on the call. Typical: `UNSUPPORTED_CAPABILITY` because bai
 
 That is a bug. Confirm Redis lock keys `lock:whatsapp-channel:*` and that only one worker processed `place-call` with the lock held. Re-run `packages/queue` tests.
 
-## SSL failed
+## SSL failed / site only works on HTTP
 
-DNS A record must point at the VPS **before** certbot. The installer does not change DNS. App may still be on HTTP until you retry certbot.
+`curl -I http://127.0.0.1/` returning 200 while `curl -kI https://127.0.0.1/` fails with `SSL_ERROR_SYSCALL` means nginx is HTTP-only. Confirm with:
+
+```bash
+cd /opt/wacalls
+docker compose exec nginx nginx -T 2>&1 | grep -E "listen|server_name|ssl_certificate"
+```
+
+If you only see `listen 80` and no `ssl_certificate`, certificates were never activated. Check:
+
+1. DNS: `getent hosts your.domain` must match the VPS public IP
+2. Hosting-panel firewall as well as UFW: 80 and 443
+3. Cert files: `/opt/wacalls/certbot-certs/live/your.domain/fullchain.pem`
+
+Then run:
+
+```bash
+sudo bash /opt/wacalls/scripts/enable-ssl.sh
+```
+
+Do not regenerate `POSTGRES_PASSWORD` in `.env` while the existing Postgres volume is still there — that causes Prisma `P1000`. Re-run `setup.sh` keeps the existing password.
+
+After `git pull` / `wacalls update`, HTTPS is re-applied automatically if certs already exist. If you pulled by hand and login is HTTP-only again:
+
+```bash
+wacalls ssl
+```
 
 ## Migrations failed
 

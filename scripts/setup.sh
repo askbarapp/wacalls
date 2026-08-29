@@ -81,13 +81,29 @@ copy_app() {
 }
 
 prompt_config() {
+  if [[ ! -t 0 ]] && [[ ! -e /dev/tty ]]; then
+    red "Installer needs an interactive terminal (email/password/domain)."
+    red "Run: sudo bash ${APP_DIR}/scripts/setup.sh"
+    exit 1
+  fi
+  read_tty() {
+    local prompt="$1" var="$2" silent="${3:-}"
+    if [[ -n "${silent}" ]]; then
+      if [[ -e /dev/tty ]]; then read -r -s -p "${prompt}" "${var}" </dev/tty; echo >/dev/tty
+      else read -r -s -p "${prompt}" "${var}"; echo
+      fi
+    else
+      if [[ -e /dev/tty ]]; then read -r -p "${prompt}" "${var}" </dev/tty
+      else read -r -p "${prompt}" "${var}"
+      fi
+    fi
+  }
+
   echo
-  read -r -p "Admin email: " ADMIN_EMAIL
+  read_tty "Admin email: " ADMIN_EMAIL
   local ADMIN_PASSWORD ADMIN_PASSWORD2
-  read -r -s -p "Admin password: " ADMIN_PASSWORD
-  echo
-  read -r -s -p "Confirm admin password: " ADMIN_PASSWORD2
-  echo
+  read_tty "Admin password: " ADMIN_PASSWORD silent
+  read_tty "Confirm admin password: " ADMIN_PASSWORD2 silent
   if [[ "${ADMIN_PASSWORD}" != "${ADMIN_PASSWORD2}" ]]; then
     red "Passwords do not match"
     exit 1
@@ -96,10 +112,10 @@ prompt_config() {
     red "Password must be at least 10 characters"
     exit 1
   fi
-  read -r -p "Enter your domain (e.g. wacalls.example.com): " DOMAIN
-  read -r -p "Let's Encrypt email [${ADMIN_EMAIL}]: " LE_EMAIL
+  read_tty "Enter your domain (e.g. wacalls.example.com): " DOMAIN
+  read_tty "Let's Encrypt email [${ADMIN_EMAIL}]: " LE_EMAIL
   LE_EMAIL="${LE_EMAIL:-${ADMIN_EMAIL}}"
-  read -r -p "Organization name [WaCalls]: " ORG_NAME
+  read_tty "Organization name [WaCalls]: " ORG_NAME
   ORG_NAME="${ORG_NAME:-WaCalls}"
 
   SERVER_IP="$(curl -4 -fsS https://ifconfig.me || hostname -I | awk '{print $1}')"
@@ -108,12 +124,21 @@ prompt_config() {
   echo "  A    ${DOMAIN}        ${SERVER_IP}"
   echo "  A    www.${DOMAIN}    ${SERVER_IP}"
   echo "DNS is not configured automatically."
-  read -r -p "Press Enter once DNS is pointed here (or skip SSL later)..."
+  read_tty "Press Enter once DNS is pointed here (or skip SSL later)..." _
 
   POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+  if [[ -f "${APP_DIR}/.env" ]] && grep -q '^POSTGRES_PASSWORD=' "${APP_DIR}/.env"; then
+    yellow "Keeping existing PostgreSQL password so the data volume still authenticates."
+    POSTGRES_PASSWORD="$(grep '^POSTGRES_PASSWORD=' "${APP_DIR}/.env" | cut -d= -f2-)"
+  fi
   JWT_SECRET="$(openssl rand -hex 48)"
   ENCRYPTION_KEY="$(openssl rand -hex 32)"
   INTERNAL_TOKEN="$(openssl rand -hex 32)"
+  if [[ -f "${APP_DIR}/.env" ]]; then
+    JWT_SECRET="$(grep '^JWT_SECRET=' "${APP_DIR}/.env" | cut -d= -f2- || echo "${JWT_SECRET}")"
+    ENCRYPTION_KEY="$(grep '^ENCRYPTION_KEY=' "${APP_DIR}/.env" | cut -d= -f2- || echo "${ENCRYPTION_KEY}")"
+    INTERNAL_TOKEN="$(grep '^INTERNAL_TOKEN=' "${APP_DIR}/.env" | cut -d= -f2- || echo "${INTERNAL_TOKEN}")"
+  fi
 
   cat > "${APP_DIR}/.env" <<EOF
 APP_NAME=WaCalls
@@ -170,25 +195,11 @@ configure_firewall() {
 }
 
 configure_ssl() {
-  # shellcheck source=/dev/null
-  . "${APP_DIR}/.env"
-  mkdir -p /var/www/certbot
-  cd "${APP_DIR}"
-  docker compose up -d nginx
-  if docker run --rm \
-    -v "${APP_DIR}/certbot-www:/var/www/certbot" \
-    -v "${APP_DIR}/certbot-certs:/etc/letsencrypt" \
-    certbot/certbot certonly --webroot -w /var/www/certbot \
-    -d "${DOMAIN}" --agree-tos -m "${LE_EMAIL}" --non-interactive; then
-    sed "s/\${DOMAIN}/${DOMAIN}/g" "${APP_DIR}/nginx/ssl.conf.tpl" > "${APP_DIR}/nginx/default.conf"
-    docker compose restart nginx
-    (crontab -l 2>/dev/null | grep -v wacalls-certbot; echo "0 3 * * * docker run --rm -v ${APP_DIR}/certbot-certs:/etc/letsencrypt -v ${APP_DIR}/certbot-www:/var/www/certbot certbot/certbot renew --quiet && docker compose -f ${APP_DIR}/docker-compose.yml exec -T nginx nginx -s reload") | crontab -
-    SSL_STATUS="Enabled"
-  else
-    yellow "Certificate issuance failed. HTTP is live. Re-run after DNS: sudo ${APP_DIR}/scripts/setup.sh is not required; use certbot manually."
-    SSL_STATUS="Pending (HTTP only)"
+  chmod +x "${APP_DIR}/scripts/enable-ssl.sh"
+  if ! "${APP_DIR}/scripts/enable-ssl.sh"; then
+    yellow "SSL not fully activated. HTTP may still work. Later run: ${APP_DIR}/scripts/enable-ssl.sh"
+    echo "Pending (HTTP only)" > /tmp/wacalls-ssl-status
   fi
-  echo "${SSL_STATUS}" > /tmp/wacalls-ssl-status
 }
 
 install_cli() {
@@ -206,7 +217,8 @@ case "${cmd}" in
   update) sudo "${APP_DIR}/scripts/update.sh" ;;
   backup) sudo "${APP_DIR}/scripts/backup.sh" ;;
   health) curl -fsS "http://127.0.0.1/health" || curl -fsS "https://127.0.0.1/health" -k ;;
-  *) echo "Usage: wacalls status|logs|restart|update|backup|health" ;;
+  ssl) sudo "${APP_DIR}/scripts/enable-ssl.sh" ;;
+  *) echo "Usage: wacalls status|logs|restart|update|backup|health|ssl" ;;
 esac
 EOF
   chmod +x /usr/local/bin/wacalls
@@ -236,6 +248,11 @@ start_stack() {
       api sh -c 'cd /app/packages/database && npx tsx src/seed.ts'
   unset ADMIN_PASSWORD
   sed -i '/^ADMIN_PASSWORD=/d' "${APP_DIR}/.env"
+  echo "Waiting for HTTP health..."
+  for _ in $(seq 1 20); do
+    curl -fsS --max-time 5 http://127.0.0.1/health >/dev/null && break
+    sleep 3
+  done
 }
 
 cron_backup() {
@@ -284,7 +301,7 @@ Firewall:
 Enabled
 ========================================
 
-Commands: wacalls status | logs | restart | update | backup | health
+Commands: wacalls status | logs | restart | update | backup | health | ssl
 EOF
 }
 
