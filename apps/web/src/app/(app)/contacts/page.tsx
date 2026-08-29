@@ -27,7 +27,8 @@ export default function ContactsPage() {
     const fd = new FormData();
     fd.append("file", file);
     const token = localStorage.getItem("wacalls_token");
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/contacts/import/preview`, {
+    const base = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+    const res = await fetch(`${base}/api/v1/contacts/import/preview`, {
       method: "POST",
       headers: token ? { authorization: `Bearer ${token}` } : {},
       body: fd,
@@ -51,7 +52,7 @@ export default function ContactsPage() {
   return (
     <div>
       <h1 className="mb-6 text-2xl font-semibold">Contacts</h1>
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         <input placeholder="New list name" id="listName" />
         <button
           className="rounded-lg bg-white/10 px-4"
@@ -64,17 +65,24 @@ export default function ContactsPage() {
         >
           Create list
         </button>
-      </div>
         <input placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
         <button onClick={load} className="rounded-lg bg-white/10 px-4">
           Search
         </button>
-        <a href={`${process.env.NEXT_PUBLIC_API_URL}/api/v1/contacts/export`} className="rounded-lg bg-white/10 px-4 py-2 text-sm">
+        <a
+          href={`${typeof window !== "undefined" ? window.location.origin : ""}/api/v1/contacts/export`}
+          className="rounded-lg bg-white/10 px-4 py-2 text-sm"
+        >
           Export CSV
         </a>
         <label className="rounded-lg bg-brand-500/20 px-4 py-2 text-sm text-brand-400">
           Import CSV
-          <input type="file" accept=".csv" className="hidden" onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])} />
+          <input
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])}
+          />
         </label>
       </div>
       {preview?.data ? (
