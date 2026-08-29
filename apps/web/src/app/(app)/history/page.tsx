@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 
 export default function HistoryPage() {
   const [rows, setRows] = useState<any[]>([]);
@@ -10,7 +12,7 @@ export default function HistoryPage() {
   }, []);
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Call history</h1>
+      <PageHeader title="Call history" subtitle="Recent dialer and campaign calls for this organization." />
       <div className="overflow-auto">
         <table className="w-full text-left text-sm">
           <thead className="text-slate-400">
@@ -35,7 +37,9 @@ export default function HistoryPage() {
                 <td>{c.agent?.name}</td>
                 <td>{c.channel?.displayName}</td>
                 <td>{c.campaign?.name}</td>
-                <td>{c.status}</td>
+                <td>
+                  <StatusBadge status={c.status} />
+                </td>
                 <td>{Math.round((c.durationMs ?? 0) / 1000)}s</td>
                 <td>{c.outcome}</td>
               </tr>

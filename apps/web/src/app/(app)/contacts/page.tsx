@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { PageHeader } from "@/components/page-header";
 
 export default function ContactsPage() {
   const [rows, setRows] = useState<any[]>([]);
@@ -51,7 +52,10 @@ export default function ContactsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Contacts</h1>
+      <PageHeader
+        title="Contacts"
+        subtitle="Add people or import CSV, then group them into lists for sequential campaigns."
+      />
       <div className="mb-4 flex flex-wrap gap-2">
         <input placeholder="New list name" id="listName" />
         <button

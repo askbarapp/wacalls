@@ -93,8 +93,20 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       where: { id, organizationId: auth.orgId },
     });
     if (!campaign) throw new NotFoundError();
+    const channel = await prisma.whatsAppChannel.findFirst({
+      where: { id: campaign.channelId, organizationId: auth.orgId },
+    });
+    if (!channel || channel.status !== "CONNECTED") {
+      throw new ConflictError(
+        "Connect WhatsApp on this channel before starting a campaign. Scan the QR from WhatsApp → Linked Devices.",
+      );
+    }
     await prisma.campaign.update({ where: { id }, data: { status: "RUNNING" } });
-    await campaignQueue.add("run", { campaignId: id, organizationId: auth.orgId }, { jobId: `camp-${id}` });
+    await campaignQueue.add(
+      "run",
+      { campaignId: id, organizationId: auth.orgId },
+      { jobId: `camp-${id}-${Date.now()}` },
+    );
     await enqueueWebhook(auth.orgId, "campaign.started", { campaign_id: id });
     return ok({ status: "RUNNING" });
   });

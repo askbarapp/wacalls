@@ -12,6 +12,7 @@ import {
   type CallEventHandler,
   type CallingEngine,
   type CallSession,
+  type ConnectOptions,
   type EngineCapabilities,
   type EngineName,
   type InitiateCallOptions,
@@ -96,7 +97,24 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     return this.caps;
   }
 
-  async connect(channelId: string): Promise<void> {
+  async connect(channelId: string, options?: ConnectOptions): Promise<void> {
+    const forceQr = Boolean(options?.forceQr);
+    const existing = this.channels.get(channelId);
+    if (existing?.sock) {
+      try {
+        existing.sock.end?.();
+      } catch (err) {
+        logger.warn({ err, channelId }, "previous socket end");
+      }
+    }
+    if (forceQr && existing?.voip) {
+      try {
+        existing.voip.disconnect();
+      } catch (err) {
+        logger.warn({ err, channelId }, "previous voip disconnect");
+      }
+    }
+
     const baileys = await this.loadBaileys();
     if (!baileys) {
       throw new Error(
@@ -111,11 +129,13 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     const sessionReady = await fileExists(path.join(authDir, "creds.json"));
     const voip = await this.loadVoip();
 
-    if (sessionReady && voip) {
+    // Existing session can reconnect without a QR unless the operator asked for pairing.
+    if (!forceQr && sessionReady && voip) {
       await this.connectVoip(channelId, authDir, voip);
       return;
     }
 
+    logger.info({ channelId, forceQr, sessionReady }, "starting WhatsApp Web pairing");
     await this.connectBaileys(channelId, authDir, baileys, Boolean(voip));
   }
 
@@ -278,6 +298,7 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     sock.ev.on("creds.update", saveCreds);
     sock.ev.on("connection.update", async (update: any) => {
       if (update.qr) {
+        logger.info({ channelId }, "WhatsApp QR received from Baileys");
         const qrDataUrl = await QRCode.toDataURL(update.qr, { margin: 1, width: 320 });
         this.setChannel(channelId, {
           ...(this.channels.get(channelId) as ChannelRuntime),

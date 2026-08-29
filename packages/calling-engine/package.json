@@ -19,11 +19,9 @@
   },
   "dependencies": {
     "@wacalls/shared": "workspace:*",
+    "@whiskeysockets/baileys": "^7.0.0-rc.11",
     "pino": "^9.6.0",
     "qrcode": "^1.5.4"
-  },
-  "optionalDependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc.11"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

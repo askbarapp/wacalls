@@ -6,6 +6,7 @@ import {
   type CallEventHandler,
   type CallingEngine,
   type CallSession,
+  type ConnectOptions,
   type EngineCapabilities,
   type EngineName,
   type InitiateCallOptions,
@@ -31,14 +32,14 @@ export class MockEngine implements CallingEngine {
   private readonly qrs = new Map<string, string>();
   private readonly calls = new Map<string, Active>();
 
-  async connect(channelId: string): Promise<void> {
+  async connect(channelId: string, _options?: ConnectOptions): Promise<void> {
     this.channels.set(channelId, "CONNECTING");
     this.emit({ type: "channel_status", channelId, timestamp: now(), status: "CONNECTING" });
     this.qrs.set(
       channelId,
       "data:image/svg+xml," +
         encodeURIComponent(
-          `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="#fff"/><text x="12" y="84" font-size="12">DEV QR ${channelId.slice(0, 6)}</text></svg>`,
+          `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240"><rect width="240" height="240" fill="#fff"/><rect x="16" y="16" width="48" height="48" fill="#111"/><rect x="176" y="16" width="48" height="48" fill="#111"/><rect x="16" y="176" width="48" height="48" fill="#111"/><text x="40" y="130" font-size="14" fill="#111">DEV QR</text></svg>`,
         ),
     );
     this.emit({
@@ -46,18 +47,21 @@ export class MockEngine implements CallingEngine {
       channelId,
       timestamp: now(),
       qrDataUrl: this.qrs.get(channelId),
+      status: "CONNECTING",
     });
-    await delay(400);
-    this.channels.set(channelId, "CONNECTED");
-    this.qrs.delete(channelId);
-    this.emit({
-      type: "channel_status",
-      channelId,
-      timestamp: now(),
-      status: "CONNECTED",
-      phoneNumber: "+10000000000",
-      displayName: "Mock WhatsApp",
-    });
+    // Keep QR visible long enough for the UI to poll, then mark connected.
+    setTimeout(() => {
+      this.channels.set(channelId, "CONNECTED");
+      this.qrs.delete(channelId);
+      this.emit({
+        type: "channel_status",
+        channelId,
+        timestamp: now(),
+        status: "CONNECTED",
+        phoneNumber: "+10000000000",
+        displayName: "Mock WhatsApp",
+      });
+    }, 12_000);
   }
 
   async disconnect(channelId: string): Promise<void> {
@@ -131,8 +135,4 @@ export class MockEngine implements CallingEngine {
 
 function now() {
   return new Date().toISOString();
-}
-
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }

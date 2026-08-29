@@ -14,13 +14,13 @@
   "dependencies": {
     "@wacalls/calling-engine": "workspace:*",
     "@wacalls/database": "workspace:*",
+    "@whiskeysockets/baileys": "^7.0.0-rc.11",
     "fastify": "^5.2.1",
     "ioredis": "^5.4.2",
     "pino": "^9.6.0",
     "zod": "^3.24.1"
   },
   "optionalDependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc.11",
     "baileys-caller": "github:SheIITear/baileys-caller"
   },
   "devDependencies": {

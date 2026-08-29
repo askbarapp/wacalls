@@ -33,6 +33,12 @@ engine.onCallEvent(async (event) => {
     : null;
 
   if (event.type === "qr" || event.type === "channel_status") {
+    if (event.type === "qr" && event.channelId && event.qrDataUrl) {
+      await redis.set(`wacalls:qr:${event.channelId}`, event.qrDataUrl, "EX", 180);
+    }
+    if (event.type === "channel_status" && event.channelId && event.status === "CONNECTED") {
+      await redis.del(`wacalls:qr:${event.channelId}`);
+    }
     if (channel && event.status) {
       await prisma.whatsAppChannel.update({
         where: { id: channel.id },
@@ -117,8 +123,31 @@ app.get("/internal/capabilities", async () => ({
 
 app.post("/internal/channels/:id/connect", async (req) => {
   const { id } = req.params as { id: string };
-  await engine.connect(id);
-  return { ok: true };
+  const forceQr = (req.body as { forceQr?: boolean } | undefined)?.forceQr !== false;
+  const channel = await prisma.whatsAppChannel.findUnique({ where: { id } });
+  // Return immediately so the UI can poll for QR while Baileys starts pairing.
+  void engine.connect(id, { forceQr }).catch(async (err) => {
+    const message = err instanceof Error ? err.message : "connect failed";
+    app.log.error({ err, id }, "channel connect failed");
+    if (channel) {
+      await prisma.whatsAppChannel.update({
+        where: { id },
+        data: { status: "ERROR", sessionStatus: "ERROR", lastError: message },
+      });
+      await redis.publish(
+        "wacalls:events",
+        JSON.stringify({
+          type: "channel_status",
+          channelId: id,
+          organizationId: channel.organizationId,
+          status: "ERROR",
+          reason: message,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    }
+  });
+  return { ok: true, started: true };
 });
 
 app.post("/internal/channels/:id/disconnect", async (req) => {
@@ -129,7 +158,15 @@ app.post("/internal/channels/:id/disconnect", async (req) => {
 
 app.get("/internal/channels/:id/qr", async (req) => {
   const { id } = req.params as { id: string };
-  return { qr: await engine.getQr(id), status: await engine.getStatus(id) };
+  const live = await engine.getQr(id);
+  const cached = live ?? (await redis.get(`wacalls:qr:${id}`));
+  const channel = await prisma.whatsAppChannel.findUnique({ where: { id } });
+  return {
+    qr: cached,
+    status: await engine.getStatus(id),
+    lastError: channel?.lastError ?? null,
+    engine: engine.name,
+  };
 });
 
 app.get("/internal/channels/:id/status", async (req) => {

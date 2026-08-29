@@ -108,6 +108,13 @@ const campaignWorker = new Worker(
     });
     if (!campaign || campaign.status !== "RUNNING") return { skipped: true };
 
+    const channel = await prisma.whatsAppChannel.findUnique({ where: { id: campaign.channelId } });
+    if (!channel || channel.status !== "CONNECTED") {
+      await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
+      log.warn({ campaignId }, "campaign paused: WhatsApp channel is not CONNECTED");
+      return { skipped: true, reason: "channel_not_connected" };
+    }
+
     const next = await prisma.campaignContact.findFirst({
       where: {
         campaignId,

@@ -26,6 +26,11 @@ export async function enqueueCall(input: {
     where: { id: input.channelId, organizationId: input.organizationId },
   });
   if (!channel) throw new NotFoundError("Channel not found");
+  if (channel.status !== "CONNECTED") {
+    throw new ConflictError(
+      "WhatsApp is not connected. Open WhatsApp → QR / Reconnect, scan with Linked Devices, then call again.",
+    );
+  }
 
   if (input.contactId) {
     const contact = await prisma.contact.findFirst({

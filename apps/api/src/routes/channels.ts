@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "@wacalls/database";
-import { ok, NotFoundError } from "@wacalls/shared";
+import { ok, NotFoundError, ConflictError } from "@wacalls/shared";
 import { whatsappClient } from "../services/whatsapp-client.js";
 import { ChannelWaitQueue } from "@wacalls/queue";
 import { redis } from "../redis.js";
@@ -61,9 +61,18 @@ export const channelRoutes: FastifyPluginAsync = async (app) => {
     if (!channel) throw new NotFoundError("Channel not found");
     await prisma.whatsAppChannel.update({
       where: { id },
-      data: { status: "CONNECTING" },
+      data: { status: "CONNECTING", lastError: null },
     });
-    await whatsappClient.connect(id);
+    try {
+      await whatsappClient.connect(id, { forceQr: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "WhatsApp engine unreachable";
+      await prisma.whatsAppChannel.update({
+        where: { id },
+        data: { status: "ERROR", lastError: message },
+      });
+      throw new ConflictError(message);
+    }
     return ok({ started: true });
   });
 
@@ -75,8 +84,22 @@ export const channelRoutes: FastifyPluginAsync = async (app) => {
       where: { id, organizationId: auth.orgId },
     });
     if (!channel) throw new NotFoundError();
-    const qr = await whatsappClient.qr(id);
-    return ok(qr);
+    try {
+      const qr = await whatsappClient.qr(id);
+      return ok({
+        qr: qr.qr,
+        status: qr.status,
+        lastError: qr.lastError ?? channel.lastError,
+        engine: qr.engine,
+      });
+    } catch (err) {
+      return ok({
+        qr: null,
+        status: channel.status,
+        lastError: err instanceof Error ? err.message : "WhatsApp engine unreachable",
+        engine: null,
+      });
+    }
   });
 
   app.post("/channels/:id/disconnect", async (req) => {

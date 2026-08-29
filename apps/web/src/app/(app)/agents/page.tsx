@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { PageHeader } from "@/components/page-header";
 
 export default function AgentsPage() {
   const [rows, setRows] = useState<any[]>([]);
@@ -15,7 +16,7 @@ export default function AgentsPage() {
   }, []);
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Agents</h1>
+      <PageHeader title="Agents" subtitle="Invite team members. Agents can use the dialer; admins manage WhatsApp lines." />
       <div className="mb-6 grid gap-2 md:grid-cols-5">
         <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />

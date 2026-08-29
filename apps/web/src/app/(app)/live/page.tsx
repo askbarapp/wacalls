@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 
 export default function LivePage() {
   const [channels, setChannels] = useState<any[]>([]);
@@ -27,7 +29,7 @@ export default function LivePage() {
   const call = live?.currentCall;
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Live call monitor</h1>
+      <PageHeader title="Live call monitor" subtitle="Current call and wait queue on one WhatsApp line." />
       <select className="mb-6 max-w-sm" value={id} onChange={(e) => setId(e.target.value)}>
         {channels.map((c) => (
           <option key={c.id} value={c.id}>
@@ -38,15 +40,17 @@ export default function LivePage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-white/10 bg-ink-900 p-6">
           <div className="text-sm text-slate-400">WhatsApp Channel</div>
-          <div className="mt-2 text-xl">
-            {ch?.status === "CONNECTED" ? "🟢 Connected" : ch?.status}
+          <div className="mt-2">
+            <StatusBadge status={ch?.status ?? "DISCONNECTED"} />
           </div>
           <div className="mt-6 text-sm text-slate-400">Current Call</div>
           {call ? (
             <div className="mt-2 space-y-1">
               <div>Customer: {call.contactName ?? call.phone}</div>
               <div>Agent: {call.agent?.name ?? "—"}</div>
-              <div>Status: {call.status}</div>
+              <div className="flex items-center gap-2">
+                Status: <StatusBadge status={call.status} />
+              </div>
             </div>
           ) : (
             <p className="mt-2 text-slate-500">No active call</p>

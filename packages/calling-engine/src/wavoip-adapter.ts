@@ -6,6 +6,7 @@ import {
   type CallSession,
   type EngineCapabilities,
   type EngineName,
+  type ConnectOptions,
   type InitiateCallOptions,
 } from "./types.js";
 import type { ChannelStatus } from "@wacalls/shared";
@@ -18,7 +19,7 @@ export class WavoipAdapter implements CallingEngine {
   readonly name: EngineName = "wavoip";
   readonly capabilities: EngineCapabilities = WAVOIP_CAPABILITIES;
 
-  async connect(_channelId: string): Promise<void> {
+  async connect(_channelId: string, _options?: ConnectOptions): Promise<void> {
     throw new UnsupportedCapabilityError("connect", this.name);
   }
 

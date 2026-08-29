@@ -27,6 +27,11 @@ export type InitiateCallOptions = {
   silence?: boolean;
 };
 
+export type ConnectOptions = {
+  /** Start WhatsApp Web pairing so a QR can be shown (used by QR / Reconnect). */
+  forceQr?: boolean;
+};
+
 export type CallEventType =
   | "connecting"
   | "ringing"
@@ -59,7 +64,7 @@ export interface CallingEngine {
   readonly name: EngineName;
   readonly capabilities: EngineCapabilities;
 
-  connect(channelId: string): Promise<void>;
+  connect(channelId: string, options?: ConnectOptions): Promise<void>;
   disconnect(channelId: string): Promise<void>;
   getStatus(channelId: string): Promise<ChannelStatus>;
   getQr(channelId: string): Promise<string | null>;

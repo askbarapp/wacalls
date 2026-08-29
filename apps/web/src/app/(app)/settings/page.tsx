@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { PageHeader } from "@/components/page-header";
 
 export default function SettingsPage() {
   const [current, setCurrent] = useState("");
@@ -9,7 +10,7 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState("");
   return (
     <div className="max-w-xl">
-      <h1 className="mb-6 text-2xl font-semibold">Settings</h1>
+      <PageHeader title="Settings" subtitle="Account security. Engine, SMTP, and session storage stay on the server." />
       <section className="rounded-xl border border-white/10 bg-ink-900 p-5">
         <h2 className="mb-4 font-medium">Change password</h2>
         <input className="mb-2" type="password" placeholder="Current" value={current} onChange={(e) => setCurrent(e.target.value)} />

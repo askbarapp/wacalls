@@ -71,8 +71,10 @@ export default function LoginPage() {
         >
           {loading ? "Signing in…" : "Sign in"}
         </button>
-        <p className="mt-6 text-center text-xs text-slate-500">
+        <p className="mt-6 text-center text-xs leading-relaxed text-slate-500">
           Unofficial WhatsApp Web linking. Not the Meta Cloud API.
+          <br />
+          After sign-in: WhatsApp → QR / Reconnect → Dialer.
         </p>
       </form>
     </main>
