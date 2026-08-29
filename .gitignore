@@ -9,7 +9,8 @@ coverage
 .env.*.local
 .DS_Store
 sessions
-recordings
+/recordings
+/data/recordings
 backups
 uploads
 *.pem
