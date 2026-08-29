@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # One-line VPS bootstrap: clone WaCalls and run the full installer.
 # Usage (as root on Ubuntu 22.04 / 24.04):
-#   curl -fsSL https://raw.githubusercontent.com/REPO_OWNER/wacalls/main/scripts/vps-install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/askbarapp/wacalls/main/scripts/vps-install.sh | sudo bash
 set -euo pipefail
 
-REPO_URL="${WACALLS_REPO:-https://github.com/REPO_OWNER/wacalls.git}"
+REPO_URL="${WACALLS_REPO:-https://github.com/askbarapp/wacalls.git}"
 BRANCH="${WACALLS_BRANCH:-main}"
 APP_DIR="${WACALLS_DIR:-/opt/wacalls}"
 
