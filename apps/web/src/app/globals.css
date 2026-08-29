@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(16, 185, 129, 0.12), transparent 50%),
+    radial-gradient(900px 400px at 100% 0%, rgba(56, 189, 248, 0.08), transparent 45%),
+    #07111c;
+}
+
+input,
+select,
+textarea {
+  @apply w-full rounded-lg border border-white/10 bg-ink-800 px-3 py-2 text-sm text-white outline-none ring-brand-500/0 transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30;
+}
+
+button {
+  @apply disabled:opacity-50;
+}

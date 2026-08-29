@@ -1,0 +1,4 @@
+-- WaCalls initial schema is managed by Prisma.
+-- This file exists so `migrations/` is present in the repository root
+-- as specified. Runtime migrations live in packages/database/prisma/migrations
+-- and are applied with: pnpm --filter @wacalls/database migrate
