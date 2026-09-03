@@ -166,15 +166,29 @@ func (h *Hub) ensureStore(ctx context.Context) error {
 	if err := h.db.QueryRowContext(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM information_schema.tables
-  WHERE table_schema = 'public' AND table_name = 'whatsmeow_device'
+  WHERE table_schema = current_schema() AND table_name = 'whatsmeow_device'
 )`).Scan(&exists); err != nil {
 		return err
 	}
 	if exists {
 		return nil
 	}
-	h.log.Warn("whatsmeow_device missing; upgrading store")
-	return h.container.Upgrade(ctx)
+	h.log.Warn("whatsmeow_device missing; forcing store upgrade")
+	_, _ = h.db.ExecContext(ctx, `DROP TABLE IF EXISTS whatsmeow_version CASCADE`)
+	if err := h.container.Upgrade(ctx); err != nil {
+		return err
+	}
+	if err := h.db.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = current_schema() AND table_name = 'whatsmeow_device'
+)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("whatsmeow_device still missing after upgrade")
+	}
+	return nil
 }
 
 func (h *Hub) makeChannel(id string, device *store.Device) *Channel {

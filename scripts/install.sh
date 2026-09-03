@@ -372,9 +372,10 @@ case "\${cmd}" in
   backup)  sudo "\${APP_DIR}/scripts/backup.sh" ;;
   ssl)     sudo "\${APP_DIR}/scripts/enable-ssl.sh" ;;
   ports)   sudo "\${APP_DIR}/scripts/open-ports.sh" ;;
+  repair-wa) sudo "\${APP_DIR}/scripts/repair-whatsmeow.sh" ;;
   health)  curl -fsS "https://\$(grep '^DOMAIN=' \${APP_DIR}/.env | cut -d= -f2)/health" || curl -kfsS https://127.0.0.1/health ;;
   shell)   docker compose exec "\${1:-api}" sh ;;
-  *) echo "Usage: wacalls  status | logs [service] | restart [service] | update | backup | ssl | ports | health | shell [service]" ;;
+  *) echo "Usage: wacalls  status | logs [service] | restart [service] | update | backup | ssl | ports | repair-wa | health | shell [service]" ;;
 esac
 CLIEOF
   chmod +x /usr/local/bin/wacalls

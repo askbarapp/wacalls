@@ -100,40 +100,61 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-// upgradeWhatsmeowStore creates whatsmeow_* tables. Re-runs if schema was wiped
-// (e.g. fresh migrate / DROP SCHEMA) while this process was already up.
+// upgradeWhatsmeowStore creates whatsmeow_* tables.
+// If whatsmeow_version exists but whatsmeow_device was wiped (common after
+// DROP SCHEMA / migrate reset while the bridge stayed up), Upgrade is a no-op —
+// so we clear the version marker and force a full recreate.
 func upgradeWhatsmeowStore(ctx context.Context, db *sql.DB, container *sqlstore.Container, log *slog.Logger) error {
-	if err := container.Upgrade(ctx); err != nil {
+	if err := forceWhatsmeowUpgrade(ctx, db, container, log); err != nil {
 		return err
 	}
 	var exists bool
-	err := db.QueryRowContext(ctx, `
+	if err := db.QueryRowContext(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM information_schema.tables
-  WHERE table_schema = 'public' AND table_name = 'whatsmeow_device'
-)`).Scan(&exists)
-	if err != nil {
+  WHERE table_schema = current_schema() AND table_name = 'whatsmeow_device'
+)`).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
-		log.Warn("whatsmeow_device missing after upgrade; retrying")
-		if err := container.Upgrade(ctx); err != nil {
-			return err
-		}
-		err = db.QueryRowContext(ctx, `
-SELECT EXISTS (
-  SELECT 1 FROM information_schema.tables
-  WHERE table_schema = 'public' AND table_name = 'whatsmeow_device'
-)`).Scan(&exists)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			return fmt.Errorf("whatsmeow_device table still missing after upgrade")
-		}
+		return fmt.Errorf("whatsmeow_device still missing after upgrade")
 	}
 	log.Info("whatsmeow store ready")
 	return nil
+}
+
+func forceWhatsmeowUpgrade(ctx context.Context, db *sql.DB, container *sqlstore.Container, log *slog.Logger) error {
+	var exists bool
+	_ = db.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = current_schema() AND table_name = 'whatsmeow_device'
+)`).Scan(&exists)
+	if !exists {
+		log.Warn("whatsmeow_device missing — resetting version marker and upgrading")
+		_, _ = db.ExecContext(ctx, `DROP TABLE IF EXISTS whatsmeow_version CASCADE`)
+	}
+	if err := container.Upgrade(ctx); err != nil {
+		return err
+	}
+	_ = db.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = current_schema() AND table_name = 'whatsmeow_device'
+)`).Scan(&exists)
+	if exists {
+		return nil
+	}
+	// Last resort: wipe all whatsmeow tables and upgrade again
+	log.Warn("upgrade did not create whatsmeow_device — wiping whatsmeow_* and retrying")
+	_, _ = db.ExecContext(ctx, `
+DO $$ DECLARE r RECORD;
+BEGIN
+  FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename LIKE 'whatsmeow_%') LOOP
+    EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+  END LOOP;
+END $$;`)
+	return container.Upgrade(ctx)
 }
 
 func mustEnv(key string) string {
