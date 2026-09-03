@@ -282,6 +282,8 @@ run_migrations() {
   docker compose exec -T api sh -c 'cd /app && pnpm --filter @wacalls/database migrate' \
     || { red "Migrations failed after schema reset"; return 1; }
   green "✔ Migrations applied after reset"
+  docker compose up -d --force-recreate whatsapp
+  sleep 5
 }
 
 seed_admin() {
@@ -331,6 +333,8 @@ start_stack() {
   sleep 10
 
   run_migrations || return 1
+  docker compose up -d --force-recreate whatsapp
+  sleep 4
   seed_admin || return 1
   wait_health
 }
@@ -419,6 +423,8 @@ resume_install() {
   docker compose up -d postgres redis api worker whatsapp web nginx
   sleep 8
   run_migrations || exit 1
+  docker compose up -d --force-recreate whatsapp
+  sleep 4
   seed_admin || exit 1
   wait_health
   configure_ssl || true

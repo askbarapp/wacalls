@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -49,7 +50,7 @@ func main() {
 	}
 
 	container := sqlstore.NewWithDB(db, "postgres", waLog.Noop)
-	if err := container.Upgrade(ctx); err != nil {
+	if err := upgradeWhatsmeowStore(ctx, db, container, log); err != nil {
 		log.Error("whatsmeow store upgrade failed", "err", err)
 		os.Exit(1)
 	}
@@ -97,6 +98,42 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// upgradeWhatsmeowStore creates whatsmeow_* tables. Re-runs if schema was wiped
+// (e.g. fresh migrate / DROP SCHEMA) while this process was already up.
+func upgradeWhatsmeowStore(ctx context.Context, db *sql.DB, container *sqlstore.Container, log *slog.Logger) error {
+	if err := container.Upgrade(ctx); err != nil {
+		return err
+	}
+	var exists bool
+	err := db.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'whatsmeow_device'
+)`).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		log.Warn("whatsmeow_device missing after upgrade; retrying")
+		if err := container.Upgrade(ctx); err != nil {
+			return err
+		}
+		err = db.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'whatsmeow_device'
+)`).Scan(&exists)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("whatsmeow_device table still missing after upgrade")
+		}
+	}
+	log.Info("whatsmeow store ready")
+	return nil
 }
 
 func mustEnv(key string) string {

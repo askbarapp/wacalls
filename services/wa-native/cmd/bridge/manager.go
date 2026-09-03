@@ -161,6 +161,22 @@ func (h *Hub) getChannel(id string) *Channel {
 	return h.channels[id]
 }
 
+func (h *Hub) ensureStore(ctx context.Context) error {
+	var exists bool
+	if err := h.db.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'whatsmeow_device'
+)`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	h.log.Warn("whatsmeow_device missing; upgrading store")
+	return h.container.Upgrade(ctx)
+}
+
 func (h *Hub) makeChannel(id string, device *store.Device) *Channel {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -183,6 +199,9 @@ func (h *Hub) makeChannel(id string, device *store.Device) *Channel {
 }
 
 func (h *Hub) Connect(ctx context.Context, channelID string, forceQR bool) error {
+	if err := h.ensureStore(ctx); err != nil {
+		return fmt.Errorf("whatsmeow store: %w", err)
+	}
 	org, err := h.channelOrg(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("unknown channel")
@@ -209,6 +228,9 @@ func (h *Hub) Connect(ctx context.Context, channelID string, forceQR bool) error
 }
 
 func (h *Hub) PairWithCode(ctx context.Context, channelID, phone string) (string, error) {
+	if err := h.ensureStore(ctx); err != nil {
+		return "", fmt.Errorf("whatsmeow store: %w", err)
+	}
 	phone = digitsOnly(phone)
 	if len(phone) < 8 {
 		return "", fmt.Errorf("enter the WhatsApp number with country code, e.g. 9198xxxxxxxx")
@@ -295,12 +317,12 @@ func (ch *Channel) shutdown() {
 }
 
 func pairingPNG(code string) (string, error) {
-	q, err := qrcode.New(code, qrcode.Low)
+	q, err := qrcode.New(code, qrcode.Medium)
 	if err != nil {
 		return "", err
 	}
 	q.DisableBorder = false
-	png, err := q.PNG(512)
+	png, err := q.PNG(720)
 	if err != nil {
 		return "", err
 	}
