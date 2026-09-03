@@ -24,6 +24,7 @@ server {
   client_max_body_size 60m;
 
   location /widget.js { proxy_pass http://web/widget.js; }
+  location /sdk/wacalls.js { proxy_pass http://web/sdk/wacalls.js; }
   location /widget/ { proxy_pass http://api; }
   location /api/ {
     proxy_pass http://api;

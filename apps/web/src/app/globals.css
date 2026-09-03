@@ -4,20 +4,58 @@
 
 :root {
   color-scheme: dark;
+  --background: 210 64% 7%;
+  --foreground: 210 40% 96%;
+  --card: 210 48% 10%;
+  --card-foreground: 210 40% 96%;
+  --popover: 210 48% 10%;
+  --popover-foreground: 210 40% 96%;
+  --primary: 160 84% 39%;
+  --primary-foreground: 210 64% 7%;
+  --secondary: 210 40% 16%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 210 32% 16%;
+  --muted-foreground: 213 20% 72%;
+  --accent: 187 92% 42%;
+  --accent-foreground: 210 64% 7%;
+  --destructive: 350 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 210 28% 22%;
+  --input: 210 28% 22%;
+  --ring: 160 84% 39%;
+  --radius: 0.9rem;
 }
 
-body {
-  min-height: 100vh;
-  background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(16, 185, 129, 0.14), transparent 50%),
-    radial-gradient(900px 400px at 100% 0%, rgba(56, 189, 248, 0.08), transparent 45%),
-    #07111c;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply antialiased;
+  }
+  body {
+    min-height: 100vh;
+    color: hsl(var(--foreground));
+    background:
+      radial-gradient(1100px 520px at 8% -12%, rgba(16, 185, 129, 0.22), transparent 55%),
+      radial-gradient(900px 420px at 100% -8%, rgba(56, 189, 248, 0.16), transparent 50%),
+      radial-gradient(700px 380px at 70% 110%, rgba(167, 139, 250, 0.12), transparent 55%),
+      #07111c;
+  }
+  label {
+    @apply text-sm font-medium text-slate-200;
+  }
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
 select,
 textarea {
-  @apply w-full rounded-lg border border-white/10 bg-ink-800 px-3 py-2 text-sm text-white outline-none ring-brand-500/0 transition placeholder:text-slate-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30;
+  @apply w-full rounded-xl border border-white/15 bg-ink-800/90 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-400/30;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  @apply h-4 w-4 accent-brand-500;
 }
 
 button {
@@ -25,10 +63,143 @@ button {
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.45), rgba(56, 189, 248, 0.28));
   border-radius: 999px;
 }
+
+@layer components {
+  .surface {
+    @apply rounded-2xl border border-white/10 bg-ink-900/75 shadow-card backdrop-blur-xl;
+  }
+  .surface-muted {
+    @apply rounded-2xl border border-white/10 bg-white/[0.03];
+  }
+}
+
+html.light {
+  color-scheme: light;
+  --background: 210 40% 97%;
+  --foreground: 215 28% 17%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 28% 17%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 28% 17%;
+  --secondary: 210 30% 94%;
+  --secondary-foreground: 215 28% 17%;
+  --muted: 210 24% 93%;
+  --muted-foreground: 215 16% 40%;
+  --border: 214 20% 86%;
+  --input: 214 20% 86%;
+}
+
+html.light body {
+  color: #1e293b;
+  background:
+    radial-gradient(1100px 520px at 8% -12%, rgba(16, 185, 129, 0.14), transparent 55%),
+    radial-gradient(900px 420px at 100% -8%, rgba(56, 189, 248, 0.1), transparent 50%),
+    radial-gradient(700px 380px at 70% 110%, rgba(167, 139, 250, 0.08), transparent 55%),
+    #f4f7fb;
+}
+
+html.light label {
+  color: #334155;
+}
+
+html.light .text-white {
+  color: #0f172a;
+}
+
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #1e293b;
+}
+
+html.light .text-slate-300 {
+  color: #334155;
+}
+
+html.light .text-slate-400 {
+  color: #64748b;
+}
+
+html.light .text-slate-500 {
+  color: #64748b;
+}
+
+html.light .hover\:text-white:hover {
+  color: #0f172a;
+}
+
+html.light .bg-ink-950,
+html.light .bg-ink-950\/70,
+html.light .bg-ink-950\/50,
+html.light .bg-ink-950\/40 {
+  background-color: #f4f7fb;
+}
+
+html.light .bg-ink-900,
+html.light .bg-ink-900\/80,
+html.light .bg-ink-900\/75,
+html.light .bg-ink-900\/70,
+html.light .bg-ink-900\/60,
+html.light .bg-ink-900\/50 {
+  background-color: #ffffff;
+}
+
+html.light .bg-ink-800,
+html.light .bg-ink-800\/90 {
+  background-color: #eef3f8;
+}
+
+html.light .border-white\/10,
+html.light .border-white\/15 {
+  border-color: rgb(15 23 42 / 0.1);
+}
+
+html.light .bg-white\/5,
+html.light .bg-white\/10,
+html.light .bg-white\/\[0\.03\] {
+  background-color: rgb(15 23 42 / 0.05);
+}
+
+html.light .hover\:bg-white\/5:hover,
+html.light .hover\:bg-white\/10:hover,
+html.light .hover\:bg-white\/15:hover {
+  background-color: rgb(15 23 42 / 0.08);
+}
+
+html.light .bg-black\/20,
+html.light .bg-black\/70 {
+  background-color: rgb(15 23 42 / 0.06);
+}
+
+html.light input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
+html.light select,
+html.light textarea {
+  border-color: rgb(15 23 42 / 0.12);
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8;
+}
+
+html.light .text-ink-950 {
+  color: #07111c;
+}
+
+html.light .ring-white\/10 {
+  --tw-ring-color: rgb(15 23 42 / 0.1);
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.55), rgba(56, 189, 248, 0.35));
+}
+

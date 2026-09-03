@@ -19,6 +19,7 @@
     "@fastify/rate-limit": "^10.2.2",
     "@fastify/websocket": "^11.0.2",
     "@wacalls/auth": "workspace:*",
+    "@wacalls/audio-engine": "workspace:*",
     "@wacalls/database": "workspace:*",
     "@wacalls/queue": "workspace:*",
     "@wacalls/shared": "workspace:*",

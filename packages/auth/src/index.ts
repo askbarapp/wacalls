@@ -9,6 +9,7 @@ export type AccessClaims = {
   orgId: string;
   role: Role;
   superAdmin: boolean;
+  scopes?: string[];
 };
 
 const encoder = new TextEncoder();
@@ -56,8 +57,8 @@ export function assertPermission(role: Role, permission: string): void {
   }
 }
 
-export function newApiKey(): { plaintext: string; prefix: string } {
+export function newApiKey(kind: "secret" | "publishable" = "secret"): { plaintext: string; prefix: string } {
   const raw = randomBytes(24).toString("base64url");
-  const plaintext = `wc_live_${raw}`;
+  const plaintext = kind === "publishable" ? `wc_pub_${raw}` : `wc_live_${raw}`;
   return { plaintext, prefix: plaintext.slice(0, 16) };
 }

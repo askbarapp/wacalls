@@ -12,6 +12,7 @@ export type EngineCapabilities = {
   recordedPlayback: boolean;
   realtimeAi: boolean;
   experimental: boolean;
+  sendText: boolean;
 };
 
 export type CallSession = {
@@ -25,6 +26,10 @@ export type CallSession = {
 export type InitiateCallOptions = {
   audioFilePath?: string;
   silence?: boolean;
+  /** Prisma / API call id so events and live audio stay on the same record. */
+  clientCallId?: string;
+  hangupAfterPlayback?: boolean;
+  aiConfigId?: string;
 };
 
 export type ConnectOptions = {
@@ -42,6 +47,8 @@ export type CallEventType =
   | "no_answer"
   | "rejected"
   | "audio"
+  | "recording"
+  | "playback_done"
   | "qr"
   | "channel_status";
 
@@ -56,6 +63,8 @@ export type CallEvent = {
   status?: ChannelStatus;
   phoneNumber?: string;
   displayName?: string;
+  pcm?: Float32Array;
+  recordingPath?: string;
 };
 
 export type CallEventHandler = (event: CallEvent) => void;
@@ -78,8 +87,13 @@ export interface CallingEngine {
   hangup(callId: string): Promise<void>;
   mute(callId: string, muted: boolean): Promise<void>;
   sendAudio(callId: string, pcm: Float32Array): Promise<void>;
+  sendText(channelId: string, phoneNumber: string, text: string): Promise<{ id?: string }>;
+  getProfilePicture?(channelId: string, phoneNumber: string): Promise<string | null>;
 
   onCallEvent(handler: CallEventHandler): () => void;
+
+  /** Probe optional modules such as baileys-caller so capabilities.outboundVoice is accurate. */
+  warmup?(): Promise<void>;
 }
 
 export class UnsupportedCapabilityError extends Error {
@@ -110,6 +124,7 @@ export const MOCK_CAPABILITIES: EngineCapabilities = {
   recordedPlayback: true,
   realtimeAi: false,
   experimental: true,
+  sendText: true,
 };
 
 export const SELFHOSTED_BASE_CAPABILITIES: EngineCapabilities = {
@@ -122,18 +137,20 @@ export const SELFHOSTED_BASE_CAPABILITIES: EngineCapabilities = {
   recordedPlayback: false,
   realtimeAi: false,
   experimental: true,
+  sendText: true,
 };
 
 export const SELFHOSTED_VOIP_CAPABILITIES: EngineCapabilities = {
   qrConnect: true,
   outboundVoice: true,
-  inboundVoice: false,
+  inboundVoice: true,
   callEvents: true,
   audioInject: true,
   audioCapture: true,
   recordedPlayback: true,
   realtimeAi: true,
   experimental: true,
+  sendText: true,
 };
 
 export const WAVOIP_CAPABILITIES: EngineCapabilities = {
@@ -146,4 +163,5 @@ export const WAVOIP_CAPABILITIES: EngineCapabilities = {
   recordedPlayback: false,
   realtimeAi: false,
   experimental: true,
+  sendText: false,
 };

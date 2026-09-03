@@ -23,6 +23,9 @@
     "pino": "^9.6.0",
     "qrcode": "^1.5.4"
   },
+  "optionalDependencies": {
+    "baileys-caller": "github:SheIITear/baileys-caller"
+  },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "@types/qrcode": "^1.5.5",

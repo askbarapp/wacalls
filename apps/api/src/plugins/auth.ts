@@ -6,7 +6,7 @@ import {
   verifyAccessToken,
   type AccessClaims,
 } from "@wacalls/auth";
-import { ForbiddenError, UnauthorizedError, roleHas, type Role } from "@wacalls/shared";
+import { AppError, ForbiddenError, UnauthorizedError, roleHas, type Role } from "@wacalls/shared";
 import { env } from "../env.js";
 
 declare module "fastify" {
@@ -16,6 +16,7 @@ declare module "fastify" {
   interface FastifyInstance {
     authenticate: (req: FastifyRequest) => Promise<AccessClaims>;
     requirePermission: (permission: string) => (req: FastifyRequest) => Promise<void>;
+    requireScope: (scope: string) => (req: FastifyRequest) => Promise<void>;
   }
 }
 
@@ -25,13 +26,24 @@ async function authenticate(req: FastifyRequest): Promise<AccessClaims> {
   const cookie = req.cookies?.access_token;
   const apiKey = req.headers["x-api-key"];
 
-  if (typeof apiKey === "string" && apiKey.startsWith("wc_live_")) {
+  if (typeof apiKey === "string" && (apiKey.startsWith("wc_live_") || apiKey.startsWith("wc_pub_"))) {
     const prefix = apiKey.slice(0, 16);
     const row = await prisma.apiKey.findFirst({
       where: { prefix, revokedAt: null },
     });
     if (!row || sha256(apiKey) !== row.keyHash) {
       throw new UnauthorizedError("Invalid API key");
+    }
+    const org = await prisma.organization.findUnique({
+      where: { id: row.organizationId },
+      include: { plan: true },
+    });
+    if (!org) throw new UnauthorizedError("Invalid API key");
+    if (org.status === "SUSPENDED") {
+      throw new ForbiddenError("This account is suspended.");
+    }
+    if (org.plan && !org.plan.allowSdk) {
+      throw new ForbiddenError("API / SDK access is not included in the current plan.");
     }
     await prisma.apiKey.update({
       where: { id: row.id },
@@ -47,6 +59,7 @@ async function authenticate(req: FastifyRequest): Promise<AccessClaims> {
       orgId: row.organizationId,
       role: "ORG_ADMIN",
       superAdmin: false,
+      scopes: row.scopes ?? ["calls:write", "messages:write", "channels:read"],
     };
     req.auth = claims;
     return claims;
@@ -56,9 +69,19 @@ async function authenticate(req: FastifyRequest): Promise<AccessClaims> {
   if (!token) throw new UnauthorizedError();
   try {
     const claims = await verifyAccessToken(token, env.JWT_SECRET);
+    if (claims.orgId && !claims.superAdmin) {
+      const org = await prisma.organization.findUnique({
+        where: { id: claims.orgId },
+        select: { status: true },
+      });
+      if (org?.status === "SUSPENDED") {
+        throw new ForbiddenError("This account is suspended.");
+      }
+    }
     req.auth = claims;
     return claims;
-  } catch {
+  } catch (err) {
+    if (err instanceof AppError) throw err;
     throw new UnauthorizedError("Invalid or expired token");
   }
 }
@@ -70,6 +93,13 @@ export const registerAuth = fp(async (app: FastifyInstance) => {
     if (auth.superAdmin) return;
     if (!roleHas(auth.role as Role, permission)) {
       throw new ForbiddenError();
+    }
+  });
+  app.decorate("requireScope", (scope: string) => async (req: FastifyRequest) => {
+    const auth = await authenticate(req);
+    if (auth.superAdmin || !auth.scopes?.length) return;
+    if (!auth.scopes.includes(scope) && !auth.scopes.includes("*")) {
+      throw new ForbiddenError(`API key is missing scope ${scope}`);
     }
   });
 });

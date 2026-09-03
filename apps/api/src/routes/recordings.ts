@@ -1,10 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { prisma } from "@wacalls/database";
-import { ConflictError, ok } from "@wacalls/shared";
+import { ConflictError, NotFoundError, ok } from "@wacalls/shared";
 import { env } from "../env.js";
 import { z } from "zod";
 
@@ -41,6 +41,23 @@ export const recordingRoutes: FastifyPluginAsync = async (app) => {
       },
     });
     return ok(rec);
+  });
+
+  app.get("/recordings/:id/file", async (req, reply) => {
+    const auth = await app.authenticate(req);
+    const { id } = req.params as { id: string };
+    const rec = await prisma.recording.findFirst({
+      where: { id, organizationId: auth.orgId },
+      select: { filePath: true, mimeType: true, name: true },
+    });
+    if (!rec || !existsSync(rec.filePath)) throw new NotFoundError();
+    const stat = statSync(rec.filePath);
+    const safeName = rec.name.replace(/[^\w.\- ]+/g, "_") || `recording-${id}`;
+    reply.header("content-type", rec.mimeType || "audio/wav");
+    reply.header("content-length", String(stat.size));
+    reply.header("content-disposition", `inline; filename="${safeName}"`);
+    reply.header("accept-ranges", "bytes");
+    return reply.send(createReadStream(rec.filePath));
   });
 
   app.patch("/recordings/:id", async (req) => {

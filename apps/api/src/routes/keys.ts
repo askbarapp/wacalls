@@ -10,7 +10,7 @@ export const keyRoutes: FastifyPluginAsync = async (app) => {
     await app.requirePermission("api_keys.manage")(req);
     const keys = await prisma.apiKey.findMany({
       where: { organizationId: auth.orgId },
-      select: { id: true, name: true, prefix: true, lastUsedAt: true, revokedAt: true, createdAt: true },
+      select: { id: true, name: true, prefix: true, scopes: true, lastUsedAt: true, revokedAt: true, createdAt: true },
     });
     return ok(keys);
   });
@@ -18,17 +18,30 @@ export const keyRoutes: FastifyPluginAsync = async (app) => {
   app.post("/api-keys", async (req) => {
     const auth = await app.authenticate(req);
     await app.requirePermission("api_keys.manage")(req);
-    const body = z.object({ name: z.string() }).parse(req.body);
-    const generated = newApiKey();
+    const body = z
+      .object({
+        name: z.string().min(1),
+        kind: z.enum(["secret", "publishable"]).default("secret"),
+        scopes: z.array(z.string()).optional(),
+      })
+      .parse(req.body);
+    const generated = newApiKey(body.kind);
+    const scopes =
+      body.scopes?.length
+        ? body.scopes
+        : body.kind === "publishable"
+          ? ["calls:write", "messages:write"]
+          : ["calls:write", "messages:write", "channels:read"];
     const row = await prisma.apiKey.create({
       data: {
         organizationId: auth.orgId,
         name: body.name,
         prefix: generated.prefix,
         keyHash: sha256(generated.plaintext),
+        scopes,
       },
     });
-    return ok({ ...row, key: generated.plaintext });
+    return ok({ ...row, key: generated.plaintext, kind: body.kind });
   });
 
   app.delete("/api-keys/:id", async (req) => {

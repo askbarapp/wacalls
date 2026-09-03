@@ -4,7 +4,7 @@
 
 Self-hosted, multi-tenant platform for linking a WhatsApp account (QR / Linked Devices) and placing outbound WhatsApp voice calls from a browser dialer, with a one-call-per-channel queue shared by office agents.
 
-This is **not** the official WhatsApp Business Cloud API. It uses the WhatsApp Web / multi-device protocol (Baileys) and, for real voice media, an experimental WhatsApp Web VoIP WASM adapter. Read `docs/FEASIBILITY.md` and `docs/CALLING_ENGINE.md` before production use.
+This is **not** the official WhatsApp Business Cloud API. Outbound voice uses a native Go stack (`whatsmeow` + Meta MLow + pion WebRTC to WhatsApp relays), not the experimental WASM adapter.
 
 ## What it does
 
@@ -25,7 +25,7 @@ This is **not** the official WhatsApp Business Cloud API. It uses the WhatsApp W
 | Feature | Status |
 | --- | --- |
 | QR + session persist | Supported (Baileys) |
-| Outbound WhatsApp voice | Experimental (optional `baileys-caller` WASM stack) |
+| Outbound WhatsApp voice | Native Go (`whatsmeow` + MLow + pion), service `wa-native` |
 | Ringing / answered / ended | Only when the engine emits those events |
 | Audio file into call | Experimental, capability-flagged |
 | Mock ringing in production | **Disabled** |
@@ -56,7 +56,32 @@ sudo ./scripts/setup.sh
 
 Root `setup.sh` just execs `scripts/setup.sh`. Fresh VPS: Ubuntu 22.04 or 24.04, 2 CPU / 4 GB RAM / 40 GB disk recommended.
 
-## Development
+## Local testing (Windows)
+
+Do **not** use XAMPP Apache/MySQL for this app. It needs Docker (Postgres + Redis + Node). Do **not** use production `docker-compose.yml` on this PC — that binds ports 80/443 and will clash with XAMPP.
+
+1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/), then restart Windows.
+2. From the repo:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/local-up.ps1
+```
+
+3. Open `http://localhost:3000/login`  
+   Email: `admin@localhost`  
+   Password: `LocalDev!2345`
+
+That stack uses the **real** WhatsApp QR engine (`selfhosted`). After QR works, test the dialer keypad and campaigns locally.
+
+UI-only mock (fake QR, auto-connect):
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+When local testing is done: push `main`, then on the VPS `sudo bash /opt/wacalls/scripts/update.sh`.
+
+## Development (mock engine)
 
 ```bash
 docker compose -f docker-compose.dev.yml up --build

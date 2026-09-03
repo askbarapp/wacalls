@@ -78,8 +78,16 @@ Open `https://your.domain/login`, create a WhatsApp channel, scan QR, open the d
 
 ## Development
 
+**Windows local (real QR, ports 3000/3001, safe with XAMPP):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/local-up.ps1
+```
+
+Login: `admin@localhost` / `LocalDev!2345` at http://localhost:3000/login
+
+Mock engine only (do not use in production):
+
 ```bash
 docker compose -f docker-compose.dev.yml up --build
 ```
-
-Mock engine only. Do not use this compose file in production.

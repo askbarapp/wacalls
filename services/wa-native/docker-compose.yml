@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brandall
+      POSTGRES_PASSWORD: "Hansol1974+"
+      POSTGRES_DB: wacall
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brandall -d wacall"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  wacalls:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - TZ=America/Argentina/Buenos_Aires
+      - DATABASE_URL=postgresql://brandall:Hansol1974%2B@basededato-6cfbai:5432/wacall?sslmode=disable
+    volumes:
+      - recordings:/data/recordings
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  recordings:

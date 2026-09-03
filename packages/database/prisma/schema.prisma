@@ -49,11 +49,46 @@ enum CallOutcome {
   DO_NOT_CALL
 }
 
+enum AutoReplyTrigger {
+  ANSWERED
+  NO_ANSWER
+  REJECTED
+  NOT_CONNECTED
+}
+
 enum CampaignType {
   MANUAL
   SEQUENTIAL
   RECORDED
+  TTS
   AI_VOICE
+  MESSAGE
+}
+
+enum AppointmentStatus {
+  BOOKED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum OrgStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+}
+
+enum ChannelProvider {
+  WEB
+  CLOUD
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
 }
 
 enum CampaignStatus {
@@ -78,13 +113,41 @@ enum RecordingAfterAction {
   TRANSFER_TO_AGENT
 }
 
-model Organization {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+model Plan {
+  id                 String   @id @default(uuid())
+  name               String
+  slug               String   @unique
+  description        String   @default("")
+  maxChannels        Int      @default(1) @map("max_channels")
+  maxAgents          Int      @default(3) @map("max_agents")
+  maxKnowledgeBases  Int      @default(1) @map("max_knowledge_bases")
+  maxAiAgents        Int      @default(1) @map("max_ai_agents")
+  maxMessagesPerDay  Int      @default(200) @map("max_messages_per_day")
+  maxCallsPerDay     Int      @default(50) @map("max_calls_per_day")
+  allowCloudApi      Boolean  @default(false) @map("allow_cloud_api")
+  allowSdk           Boolean  @default(true) @map("allow_sdk")
+  priceMonthly       Int      @default(0) @map("price_monthly")
+  isPublic           Boolean  @default(true) @map("is_public")
+  isDefault          Boolean  @default(false) @map("is_default")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
+  organizations Organization[]
+
+  @@map("plans")
+}
+
+model Organization {
+  id           String    @id @default(uuid())
+  name         String
+  slug         String    @unique
+  status       OrgStatus @default(TRIAL)
+  planId       String?   @map("plan_id")
+  billingEmail String?   @map("billing_email")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  plan             Plan?               @relation(fields: [planId], references: [id])
   users            OrganizationUser[]
   channels         WhatsAppChannel[]
   contacts         Contact[]
@@ -92,7 +155,12 @@ model Organization {
   campaigns        Campaign[]
   calls            Call[]
   recordings       Recording[]
+  voiceTemplates   VoiceTemplate[]
+  messageTemplates MessageTemplate[]
+  knowledgeBases   KnowledgeBase[]
   aiConfigs        AiConfig[]
+  appointments     Appointment[]
+  appointmentSlots AppointmentSlot[]
   apiKeys          ApiKey[]
   webhooks         Webhook[]
   auditLogs        AuditLog[]
@@ -100,7 +168,19 @@ model Organization {
   passwordResets   PasswordReset[]
   invitations      Invitation[]
   callbackTasks    CallbackTask[]
+  messages         Message[]
+  visits              Visit[]
+  visitLeads          VisitLead[]
+  visitDepartments    VisitDepartment[]
+  visitSessions       VisitSession[]
+  visitPageViews      VisitPageView[]
+  visitConversations  VisitConversation[]
+  visitChatMessages   VisitChatMessage[]
+  incomingAnswers     IncomingAnswerConfig[]
+  autoReplyRules      AutoReplyRule[]
 
+  @@index([planId])
+  @@index([status])
   @@map("organizations")
 }
 
@@ -109,6 +189,8 @@ model User {
   email          String         @unique
   passwordHash   String         @map("password_hash")
   name           String
+  phone          String?
+  avatarPath     String?        @map("avatar_path")
   isSuperAdmin   Boolean        @default(false) @map("is_super_admin")
   isActive       Boolean        @default(true) @map("is_active")
   createdAt      DateTime       @default(now()) @map("created_at")
@@ -191,23 +273,33 @@ model Invitation {
 }
 
 model WhatsAppChannel {
-  id              String        @id @default(uuid())
-  organizationId  String        @map("organization_id")
-  phoneNumber     String?       @map("phone_number")
-  displayName     String        @map("display_name")
-  status          ChannelStatus @default(DISCONNECTED)
-  sessionStatus   String        @default("DISCONNECTED") @map("session_status")
-  callingEngine   String        @default("selfhosted") @map("calling_engine")
-  lastConnectedAt DateTime?     @map("last_connected_at")
-  lastSeenAt      DateTime?     @map("last_seen_at")
-  lastError       String?       @map("last_error")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  id                 String          @id @default(uuid())
+  organizationId     String          @map("organization_id")
+  phoneNumber        String?         @map("phone_number")
+  displayName        String          @map("display_name")
+  status             ChannelStatus   @default(DISCONNECTED)
+  sessionStatus      String          @default("DISCONNECTED") @map("session_status")
+  callingEngine      String          @default("selfhosted") @map("calling_engine")
+  provider           ChannelProvider @default(WEB)
+  cloudPhoneNumberId String?         @map("cloud_phone_number_id")
+  cloudAccessToken   String?         @map("cloud_access_token")
+  lastConnectedAt    DateTime?       @map("last_connected_at")
+  lastSeenAt         DateTime?       @map("last_seen_at")
+  lastError          String?         @map("last_error")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  session      WhatsAppSession?
-  campaigns    Campaign[]
-  calls        Call[]
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session           WhatsAppSession?
+  campaigns         Campaign[]
+  campaignChannels  CampaignChannel[]
+  calls             Call[]
+  messages          Message[]
+  appointments      Appointment[]
+  visits             Visit[]
+  visitDepartments   VisitDepartment[]
+  visitConversations VisitConversation[]
+  incomingAnswer     IncomingAnswerConfig?
 
   @@index([organizationId])
   @@index([status])
@@ -241,6 +333,8 @@ model Contact {
   notes          String?
   status         String    @default("active")
   doNotCall      Boolean   @default(false) @map("do_not_call")
+  whatsappOn     Boolean?  @map("whatsapp_on")
+  whatsappCheckedAt DateTime? @map("whatsapp_checked_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -248,6 +342,8 @@ model Contact {
   listMembers      ContactListMember[]
   campaignContacts CampaignContact[]
   calls            Call[]
+  messages         Message[]
+  appointments     Appointment[]
 
   @@unique([organizationId, phone])
   @@index([organizationId])
@@ -299,24 +395,51 @@ model Campaign {
   retryDelayMin   Int                  @default(30) @map("retry_delay_min")
   callMode        String               @default("SEQUENTIAL") @map("call_mode")
   recordingId     String?              @map("recording_id")
+  voiceTemplateId String?              @map("voice_template_id")
   aiConfigId      String?              @map("ai_config_id")
   afterRecording  RecordingAfterAction @default(HANGUP) @map("after_recording")
+  messageBody     String?              @map("message_body")
+  messageTemplateId String?            @map("message_template_id")
+  rotationLimit   Int                  @default(0) @map("rotation_limit")
+  delayBetweenCallsSec Int             @default(5) @map("delay_between_calls_sec")
+  ringTimeoutSec  Int                  @default(60) @map("ring_timeout_sec")
+  batchSize       Int                  @default(0) @map("batch_size")
+  sleepAfterBatchSec Int               @default(0) @map("sleep_after_batch_sec")
   createdAt       DateTime             @default(now()) @map("created_at")
   updatedAt       DateTime             @updatedAt @map("updated_at")
 
   organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channel          WhatsAppChannel    @relation(fields: [channelId], references: [id])
+  campaignChannels CampaignChannel[]
   contactList      ContactList?       @relation(fields: [contactListId], references: [id])
   recording        Recording?         @relation(fields: [recordingId], references: [id])
+  voiceTemplate    VoiceTemplate?     @relation(fields: [voiceTemplateId], references: [id])
+  messageTemplate  MessageTemplate?   @relation(fields: [messageTemplateId], references: [id])
   aiConfig         AiConfig?          @relation(fields: [aiConfigId], references: [id])
   campaignContacts CampaignContact[]
   calls            Call[]
+  messages         Message[]
+  autoReplyRules   AutoReplyRule[]
 
   @@index([organizationId])
   @@index([channelId])
   @@index([status])
   @@index([createdAt])
   @@map("campaigns")
+}
+
+model CampaignChannel {
+  id         String @id @default(uuid())
+  campaignId String @map("campaign_id")
+  channelId  String @map("channel_id")
+  sortOrder  Int    @default(0) @map("sort_order")
+
+  campaign Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  channel  WhatsAppChannel @relation(fields: [channelId], references: [id])
+
+  @@unique([campaignId, channelId])
+  @@index([channelId])
+  @@map("campaign_channels")
 }
 
 model CampaignContact {
@@ -361,6 +484,8 @@ model Call {
   durationMs        Int          @default(0) @map("duration_ms")
   failureReason     String?      @map("failure_reason")
   notes             String?
+  recordingPath     String?      @map("recording_path")
+  transcript        Json?
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
@@ -418,21 +543,14 @@ model Recording {
   @@map("recordings")
 }
 
-model AiConfig {
+model VoiceTemplate {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
   name           String
-  provider       String
-  model          String
-  voice          String?
-  language       String   @default("en")
-  systemPrompt   String   @map("system_prompt")
-  greeting       String?
-  objective      String?
-  questions      String?
-  disallowed     String?
-  temperature    Float    @default(0.4)
-  maxTokens      Int      @default(400) @map("max_tokens")
+  body           String
+  language       String   @default("hi-IN")
+  speaker        String   @default("shubh")
+  pace           Float    @default(1.0)
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -440,7 +558,243 @@ model AiConfig {
   campaigns    Campaign[]
 
   @@index([organizationId])
+  @@map("voice_templates")
+}
+
+model MessageTemplate {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  kind           String   @default("TEXT")
+  body           String
+  header         String?
+  footer         String?
+  mediaPath      String?  @map("media_path")
+  mediaMime      String?  @map("media_mime")
+  buttons        Json?
+  listButton     String?  @map("list_button")
+  sections       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaigns    Campaign[]
+  autoReplyRules AutoReplyRule[]
+
+  @@index([organizationId])
+  @@map("message_templates")
+}
+
+model KnowledgeBase {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  description    String   @default("")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documents    KnowledgeBaseDocument[]
+  aiConfigs    AiConfig[]
+
+  @@index([organizationId])
+  @@map("knowledge_bases")
+}
+
+model KnowledgeBaseDocument {
+  id              String   @id @default(uuid())
+  knowledgeBaseId String   @map("knowledge_base_id")
+  title           String
+  content         String
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeBaseId])
+  @@map("knowledge_base_documents")
+}
+
+model AiConfig {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  knowledgeBaseId String?  @map("knowledge_base_id")
+  name            String
+  provider        String   @default("sarvam")
+  model           String   @default("sarvam-105b-conversations")
+  voice           String?  @default("shubh")
+  language        String   @default("hi-IN")
+  systemPrompt    String   @map("system_prompt")
+  greeting        String?
+  objective       String?
+  questions       String?
+  disallowed      String?
+  temperature     Float    @default(0.4)
+  maxTokens       Int      @default(400) @map("max_tokens")
+  appointmentMessage String? @map("appointment_message")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  knowledgeBase    KnowledgeBase?     @relation(fields: [knowledgeBaseId], references: [id], onDelete: SetNull)
+  campaigns        Campaign[]
+  appointmentSlots AppointmentSlot[]
+  appointments     Appointment[]
+  incomingAnswers  IncomingAnswerConfig[]
+  visits           Visit[]
+
+  @@index([organizationId])
+  @@index([knowledgeBaseId])
   @@map("ai_configs")
+}
+
+model IncomingAnswerConfig {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  channelId      String   @unique @map("channel_id")
+  enabled        Boolean  @default(false)
+  aiConfigId     String?  @map("ai_config_id")
+  sendMessage    Boolean  @default(false) @map("send_message")
+  messageBody    String?  @map("message_body")
+  messageWhen    String   @default("answered") @map("message_when")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  aiConfig     AiConfig?      @relation(fields: [aiConfigId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@map("incoming_answer_configs")
+}
+
+model AppointmentSlot {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  aiConfigId     String   @map("ai_config_id")
+  weekday        Int
+  startMinute    Int      @map("start_minute")
+  endMinute      Int      @map("end_minute")
+  durationMin    Int      @default(30) @map("duration_min")
+  timezone       String   @default("Asia/Kolkata")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  aiConfig     AiConfig      @relation(fields: [aiConfigId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
+  @@index([organizationId])
+  @@index([aiConfigId])
+  @@map("appointment_slots")
+}
+
+model Appointment {
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  aiConfigId     String            @map("ai_config_id")
+  slotId         String?           @map("slot_id")
+  channelId      String            @map("channel_id")
+  contactId      String?           @map("contact_id")
+  callId         String?           @map("call_id")
+  phone          String
+  contactName    String?           @map("contact_name")
+  startsAt       DateTime          @map("starts_at")
+  endsAt         DateTime          @map("ends_at")
+  status         AppointmentStatus @default(BOOKED)
+  notes          String?
+  reminderSentAt DateTime?         @map("reminder_sent_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  aiConfig     AiConfig           @relation(fields: [aiConfigId], references: [id], onDelete: Cascade)
+  slot         AppointmentSlot?   @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  channel      WhatsAppChannel    @relation(fields: [channelId], references: [id])
+  contact      Contact?           @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([aiConfigId])
+  @@index([phone])
+  @@index([startsAt])
+  @@index([status])
+  @@map("appointments")
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  organizationId String        @map("organization_id")
+  channelId      String        @map("channel_id")
+  contactId      String?       @map("contact_id")
+  campaignId     String?       @map("campaign_id")
+  phone          String
+  body           String
+  status         MessageStatus @default(QUEUED)
+  provider       String        @default("WEB")
+  externalId     String?       @map("external_id")
+  error          String?
+  sentAt         DateTime?     @map("sent_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel @relation(fields: [channelId], references: [id])
+  contact      Contact?        @relation(fields: [contactId], references: [id])
+  campaign     Campaign?       @relation(fields: [campaignId], references: [id])
+
+  @@index([organizationId])
+  @@index([channelId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+model AutoReplyRule {
+  id              String           @id @default(uuid())
+  organizationId  String           @map("organization_id")
+  campaignId      String?          @map("campaign_id")
+  name            String
+  trigger         AutoReplyTrigger
+  body            String
+  imagePath       String?          @map("image_path")
+  imageMime       String?          @map("image_mime")
+  delaySeconds    Int              @default(3) @map("delay_seconds")
+  cooldownMinutes Int              @default(1440) @map("cooldown_minutes")
+  showTyping      Boolean          @default(true) @map("show_typing")
+  typingSeconds   Int              @default(2) @map("typing_seconds")
+  enabled            Boolean          @default(true)
+  messageTemplateId  String?          @map("message_template_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign        Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  messageTemplate MessageTemplate? @relation(fields: [messageTemplateId], references: [id], onDelete: SetNull)
+  sends           AutoReplySend[]
+
+  @@index([organizationId, enabled])
+  @@index([organizationId, trigger])
+  @@index([campaignId])
+  @@index([messageTemplateId])
+  @@map("auto_reply_rules")
+}
+
+model AutoReplySend {
+  id        String    @id @default(uuid())
+  ruleId    String    @map("rule_id")
+  callId    String    @map("call_id")
+  phone     String
+  status    String    @default("QUEUED")
+  error     String?
+  sentAt    DateTime? @map("sent_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  rule AutoReplyRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, callId])
+  @@index([ruleId, phone, createdAt])
+  @@map("auto_reply_sends")
 }
 
 model ApiKey {
@@ -449,6 +803,7 @@ model ApiKey {
   name           String
   prefix         String
   keyHash        String    @map("key_hash")
+  scopes         String[]  @default(["calls:write", "messages:write", "channels:read"])
   lastUsedAt     DateTime? @map("last_used_at")
   revokedAt      DateTime? @map("revoked_at")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -544,6 +899,173 @@ model CallbackTask {
 
   @@index([organizationId])
   @@map("callback_tasks")
+}
+
+model Visit {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  channelId      String   @map("channel_id")
+  name           String
+  publicKey      String   @unique @map("public_key")
+  targetPhone    String   @map("target_phone")
+  buttonLabel    String   @default("Chat with us") @map("button_label")
+  greeting       String   @default("Talk to us on WhatsApp")
+  purposes       String[] @default(["Sales", "Support", "Partnership", "Other"])
+  enabled        Boolean  @default(true)
+  chatEnabled    Boolean  @default(true) @map("chat_enabled")
+  callEnabled    Boolean  @default(true) @map("call_enabled")
+  aiEnabled      Boolean  @default(false) @map("ai_enabled")
+  aiConfigId     String?  @map("ai_config_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel       WhatsAppChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  aiConfig      AiConfig?            @relation(fields: [aiConfigId], references: [id], onDelete: SetNull)
+  leads         VisitLead[]
+  departments   VisitDepartment[]
+  sessions      VisitSession[]
+  pageViews     VisitPageView[]
+  conversations VisitConversation[]
+
+  @@index([organizationId])
+  @@index([channelId])
+  @@index([aiConfigId])
+  @@map("visits")
+}
+
+model VisitDepartment {
+  id             String   @id @default(uuid())
+  visitId        String   @map("visit_id")
+  organizationId String   @map("organization_id")
+  channelId      String   @map("channel_id")
+  name           String
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  visit         Visit                @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel       WhatsAppChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sessions      VisitSession[]
+  conversations VisitConversation[]
+
+  @@index([visitId])
+  @@index([organizationId])
+  @@index([channelId])
+  @@map("visit_departments")
+}
+
+model VisitSession {
+  id             String   @id @default(uuid())
+  visitId        String   @map("visit_id")
+  organizationId String   @map("organization_id")
+  sessionKey     String   @map("session_key")
+  departmentId   String?  @map("department_id")
+  name           String?
+  phone          String?
+  email          String?
+  currentUrl     String   @default("") @map("current_url")
+  currentTitle   String   @default("") @map("current_title")
+  referrer       String   @default("")
+  userAgent      String   @default("") @map("user_agent")
+  firstSeenAt    DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt     DateTime @default(now()) @map("last_seen_at")
+
+  visit         Visit              @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department    VisitDepartment?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  pageViews     VisitPageView[]
+  conversations VisitConversation[]
+
+  @@unique([visitId, sessionKey])
+  @@index([visitId, lastSeenAt])
+  @@index([organizationId])
+  @@map("visit_sessions")
+}
+
+model VisitPageView {
+  id             String   @id @default(uuid())
+  visitId        String   @map("visit_id")
+  sessionId      String   @map("session_id")
+  organizationId String   @map("organization_id")
+  url            String
+  title          String   @default("")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  visit        Visit        @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  session      VisitSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([visitId, createdAt])
+  @@index([sessionId])
+  @@map("visit_page_views")
+}
+
+model VisitConversation {
+  id             String   @id @default(uuid())
+  visitId        String   @map("visit_id")
+  organizationId String   @map("organization_id")
+  sessionId      String   @map("session_id")
+  departmentId   String   @map("department_id")
+  channelId      String   @map("channel_id")
+  phone          String
+  name           String   @default("")
+  status         String   @default("open")
+  lastMessageAt  DateTime @default(now()) @map("last_message_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  visit        Visit             @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session      VisitSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  department   VisitDepartment   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  messages     VisitChatMessage[]
+
+  @@index([visitId, lastMessageAt])
+  @@index([organizationId])
+  @@index([channelId, phone])
+  @@index([sessionId])
+  @@map("visit_conversations")
+}
+
+model VisitChatMessage {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  organizationId String   @map("organization_id")
+  sender         String
+  body           String
+  whatsappId     String?  @map("whatsapp_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation VisitConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([organizationId])
+  @@map("visit_chat_messages")
+}
+
+model VisitLead {
+  id             String   @id @default(uuid())
+  visitId        String   @map("visit_id")
+  organizationId String   @map("organization_id")
+  name           String
+  phone          String
+  email          String
+  purpose        String
+  messageId      String?  @map("message_id")
+  callId         String?  @map("call_id")
+  status         String   @default("submitted")
+  error          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  visit        Visit        @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([visitId])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@map("visit_leads")
 }
 
 model CsvImport {

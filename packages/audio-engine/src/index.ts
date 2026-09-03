@@ -171,3 +171,7 @@ export function createAIProvider(): AIProvider {
   if (!key || !provider) return new UnconfiguredAIProvider();
   return new OpenAICompatibleProvider(key, process.env.AI_BASE_URL, process.env.AI_MODEL);
 }
+
+export * from "./sarvam.js";
+export * from "./wav.js";
+export * from "./voice-agent-prompt.js";

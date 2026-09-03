@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Radio } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
-import { StatusBadge } from "@/components/status-badge";
+import { ConnectionBadge, StatusBadge } from "@/components/status-badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LivePage() {
   const [channels, setChannels] = useState<any[]>([]);
@@ -29,7 +31,11 @@ export default function LivePage() {
   const call = live?.currentCall;
   return (
     <div>
-      <PageHeader title="Live call monitor" subtitle="Current call and wait queue on one WhatsApp line." />
+      <PageHeader
+        title="Live call monitor"
+        subtitle="Watch the current call and wait queue on one WhatsApp line."
+        tone="from-cyan-400 to-sky-400"
+      />
       <select className="mb-6 max-w-sm" value={id} onChange={(e) => setId(e.target.value)}>
         {channels.map((c) => (
           <option key={c.id} value={c.id}>
@@ -38,35 +44,44 @@ export default function LivePage() {
         ))}
       </select>
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-xl border border-white/10 bg-ink-900 p-6">
-          <div className="text-sm text-slate-400">WhatsApp Channel</div>
-          <div className="mt-2">
-            <StatusBadge status={ch?.status ?? "DISCONNECTED"} />
-          </div>
-          <div className="mt-6 text-sm text-slate-400">Current Call</div>
-          {call ? (
-            <div className="mt-2 space-y-1">
-              <div>Customer: {call.contactName ?? call.phone}</div>
-              <div>Agent: {call.agent?.name ?? "—"}</div>
-              <div className="flex items-center gap-2">
-                Status: <StatusBadge status={call.status} />
+        <Card className="ring-1 ring-cyan-400/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-cyan-300" />
+              WhatsApp line
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ConnectionBadge status={ch?.status ?? "DISCONNECTED"} />
+            <div className="mt-6 text-sm font-medium text-slate-300">Current call</div>
+            {call ? (
+              <div className="mt-2 space-y-2 text-sm text-white">
+                <div>Customer: {call.contactName ?? call.phone}</div>
+                <div>Agent: {call.agent?.name ?? "—"}</div>
+                <div className="flex items-center gap-2">
+                  Status: <StatusBadge status={call.status} />
+                </div>
               </div>
-            </div>
-          ) : (
-            <p className="mt-2 text-slate-500">No active call</p>
-          )}
-        </section>
-        <section className="rounded-xl border border-white/10 bg-ink-900 p-6">
-          <div className="mb-3 font-medium">Queue</div>
-          <ol className="space-y-2 text-sm">
-            {(live?.queue ?? []).map((q: any) => (
-              <li key={q.callId}>
-                #{q.position} {q.callId.slice(0, 8)}
-              </li>
-            ))}
-            {(live?.queue ?? []).length === 0 ? <li className="text-slate-500">Empty</li> : null}
-          </ol>
-        </section>
+            ) : (
+              <p className="mt-2 text-slate-400">No active call on this line.</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="ring-1 ring-violet-400/20">
+          <CardHeader>
+            <CardTitle>Wait queue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="space-y-2 text-sm">
+              {(live?.queue ?? []).map((q: any) => (
+                <li key={q.callId} className="rounded-xl bg-white/[0.04] px-3 py-2">
+                  #{q.position} {q.callId.slice(0, 8)}
+                </li>
+              ))}
+              {(live?.queue ?? []).length === 0 ? <li className="text-slate-400">Queue is empty.</li> : null}
+            </ol>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

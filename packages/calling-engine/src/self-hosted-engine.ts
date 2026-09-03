@@ -17,6 +17,7 @@ import {
   type EngineName,
   type InitiateCallOptions,
 } from "./types.js";
+import { attachVoipToSocket, type AttachedVoip, type VoipCallHandle } from "./voip-attach.js";
 
 const logger = pino({ name: "selfhosted-engine", level: process.env.LOG_LEVEL ?? "info" });
 
@@ -28,32 +29,21 @@ type BaileysSock = {
   ws?: { on: (event: string, cb: (...args: any[]) => void) => void };
   end?: (err?: Error) => void;
   logout?: () => Promise<void>;
+  sendMessage?: (jid: string, content: { text: string }) => Promise<{ key?: { id?: string } }>;
+  onWhatsApp?: (jid: string | string[]) => Promise<Array<{ jid: string; exists: boolean; lid?: string }>>;
+  sendPresenceUpdate?: (type: string, jid?: string) => Promise<void>;
   user?: { id?: string; name?: string };
-  authState?: { creds?: { me?: { id?: string; name?: string } } };
+  authState?: { creds?: { me?: { id?: string; name?: string; lid?: string } } };
 };
 
 type ChannelRuntime = {
   status: ChannelStatus;
   qrDataUrl: string | null;
   sock?: BaileysSock;
-  voip?: VoipHandle;
+  voip?: AttachedVoip;
+  voipReady?: Promise<AttachedVoip | null>;
   phoneNumber?: string;
   displayName?: string;
-};
-
-type VoipHandle = {
-  call: (
-    phone: string,
-    opts?: { audioSource?: string; durationMs?: number },
-  ) => Promise<VoipCall>;
-  disconnect: () => void;
-};
-
-type VoipCall = {
-  callId: string;
-  end: () => void;
-  mute: (muted: boolean) => void;
-  on: (event: string, cb: (...args: any[]) => void) => void;
 };
 
 type ActiveCall = {
@@ -62,7 +52,7 @@ type ActiveCall = {
   channelId: string;
   phoneNumber: string;
   startedAt: number;
-  voipCall?: VoipCall;
+  voipCall?: VoipCallHandle;
 };
 
 export type SelfHostedEngineOptions = {
@@ -71,14 +61,9 @@ export type SelfHostedEngineOptions = {
 };
 
 /**
- * Self-hosted engine.
- *
- * Phase A: Baileys QR + multi-file auth (production-capable).
- * Phase B: Optional baileys-caller VoipClient handoff after session exists
- *          so outbound media uses WhatsApp Web's WASM stack.
- *
- * If VoipClient cannot be loaded, initiateCall throws UnsupportedCapabilityError.
- * Call statuses are never invented.
+ * One WhatsApp Web session per channel (Baileys).
+ * Voice uses baileys-caller's WASM stack attached to that same socket.
+ * Never opens a second session — that is what caused conflict/replaced / Connection Closed.
  */
 export class SelfHostedWhatsAppEngine implements CallingEngine {
   readonly name: EngineName = "selfhosted";
@@ -86,20 +71,45 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
   private readonly events = new EventEmitter();
   private readonly channels = new Map<string, ChannelRuntime>();
   private readonly callsById = new Map<string, ActiveCall>();
-  private voipModule: any | null | undefined;
+  private readonly pairing = new Set<string>();
+  private voipAvailable: boolean | undefined;
   private baileysModule: any | null | undefined;
 
   constructor(private readonly options: SelfHostedEngineOptions) {
     this.events.setMaxListeners(100);
+    void this.warmup();
   }
 
   get capabilities(): EngineCapabilities {
     return this.caps;
   }
 
+  async warmup(): Promise<void> {
+    await this.probeVoip();
+    await this.loadBaileys();
+  }
+
   async connect(channelId: string, options?: ConnectOptions): Promise<void> {
     const forceQr = Boolean(options?.forceQr);
     const existing = this.channels.get(channelId);
+    if (!forceQr && existing?.sock && existing.status === "CONNECTED") {
+      if (!existing.voip && !existing.voipReady) {
+        this.beginVoipAttach(channelId);
+      }
+      return;
+    }
+    if (!forceQr && this.pairing.has(channelId)) {
+      logger.info({ channelId }, "WhatsApp pairing already in progress");
+      return;
+    }
+    this.pairing.add(channelId);
+    if (existing?.voip) {
+      try {
+        existing.voip.destroy();
+      } catch (err) {
+        logger.warn({ err, channelId }, "previous voip teardown");
+      }
+    }
     if (existing?.sock) {
       try {
         existing.sock.end?.();
@@ -107,42 +117,38 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
         logger.warn({ err, channelId }, "previous socket end");
       }
     }
-    if (forceQr && existing?.voip) {
-      try {
-        existing.voip.disconnect();
-      } catch (err) {
-        logger.warn({ err, channelId }, "previous voip disconnect");
-      }
-    }
 
     const baileys = await this.loadBaileys();
     if (!baileys) {
+      this.pairing.delete(channelId);
       throw new Error(
         "Baileys is not installed. QR connection cannot start. Install @whiskeysockets/baileys.",
       );
     }
 
     const authDir = await this.ensureAuthDir(channelId);
-    this.setChannel(channelId, { status: "CONNECTING", qrDataUrl: null });
+    this.setChannel(channelId, {
+      status: "CONNECTING",
+      qrDataUrl: null,
+      phoneNumber: existing?.phoneNumber,
+      displayName: existing?.displayName,
+    });
     this.emit({ type: "channel_status", channelId, timestamp: iso(), status: "CONNECTING" });
 
     const sessionReady = await fileExists(path.join(authDir, "creds.json"));
-    const voip = await this.loadVoip();
-
-    // Existing session can reconnect without a QR unless the operator asked for pairing.
-    if (!forceQr && sessionReady && voip) {
-      await this.connectVoip(channelId, authDir, voip);
-      return;
-    }
-
     logger.info({ channelId, forceQr, sessionReady }, "starting WhatsApp Web pairing");
-    await this.connectBaileys(channelId, authDir, baileys, Boolean(voip));
+    try {
+      await this.connectBaileys(channelId, authDir, baileys);
+    } catch (err) {
+      this.pairing.delete(channelId);
+      throw err;
+    }
   }
 
   async disconnect(channelId: string): Promise<void> {
     const runtime = this.channels.get(channelId);
     try {
-      runtime?.voip?.disconnect();
+      runtime?.voip?.destroy();
     } catch (err) {
       logger.warn({ err, channelId }, "voip disconnect");
     }
@@ -169,10 +175,12 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     options?: InitiateCallOptions,
   ): Promise<CallSession> {
     const runtime = this.channels.get(channelId);
-    if (!runtime || runtime.status !== "CONNECTED") {
+    if (!runtime || runtime.status !== "CONNECTED" || !runtime.sock) {
       throw new Error("WhatsApp channel is not CONNECTED");
     }
-    if (!runtime.voip) {
+
+    const voip = await this.ensureVoip(channelId);
+    if (!voip) {
       throw new UnsupportedCapabilityError(
         "outbound WhatsApp voice media (WASM VoIP stack)",
         this.name,
@@ -180,10 +188,10 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     }
 
     const digits = digitsOnly(phoneNumber);
-    const callId = cryptoRandom();
+    const callId = options?.clientCallId || cryptoRandom();
     this.emit({ type: "connecting", callId, channelId, timestamp: iso() });
 
-    const voipCall = await runtime.voip.call(digits, {
+    const voipCall = await voip.call(digits, {
       audioSource: options?.audioFilePath ?? (options?.silence === false ? undefined : "silence"),
       durationMs: 0,
     });
@@ -205,6 +213,12 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     voipCall.on("connected", () => {
       this.emit({ type: "answered", callId, channelId, timestamp: iso() });
     });
+    voipCall.on("recording", (filePath: string) => {
+      this.emit({ type: "recording", callId, channelId, timestamp: iso(), recordingPath: filePath });
+    });
+    voipCall.on("playback_done", () => {
+      this.emit({ type: "playback_done", callId, channelId, timestamp: iso() });
+    });
     voipCall.on("ended", (reason: string) => {
       const durationMs = Date.now() - active.startedAt;
       const mapped = mapEndReason(reason);
@@ -212,8 +226,9 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
       this.callsById.delete(voipCall.callId);
       this.emit({ type: mapped, callId, channelId, timestamp: iso(), reason, durationMs });
     });
-    voipCall.on("audio", () => {
-      this.emit({ type: "audio", callId, channelId, timestamp: iso() });
+    voipCall.on("audio", (pcm: Float32Array) => {
+      const copy = Float32Array.from(pcm);
+      this.emit({ type: "audio", callId, channelId, timestamp: iso(), pcm: copy });
     });
     voipCall.on("error", (err: Error) => {
       this.emit({
@@ -224,6 +239,9 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
         reason: err.message,
       });
     });
+    if (voipCall._progressed) {
+      this.emit({ type: "ringing", callId, channelId, timestamp: iso() });
+    }
 
     return {
       callId,
@@ -235,23 +253,83 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
   }
 
   async hangup(callId: string): Promise<void> {
-    this.callsById.get(callId)?.voipCall?.end();
+    const active = this.callsById.get(callId);
+    if (!active?.voipCall) return;
+    try {
+      active.voipCall.end();
+    } catch (err) {
+      logger.warn({ err, callId }, "hangup end() threw");
+    }
   }
 
   async mute(callId: string, muted: boolean): Promise<void> {
     this.callsById.get(callId)?.voipCall?.mute(muted);
   }
 
-  async sendAudio(_callId: string, _pcm: Float32Array): Promise<void> {
-    if (!this.caps.audioInject) {
-      throw new UnsupportedCapabilityError("sendAudio", this.name);
+  async sendAudio(callId: string, pcm: Float32Array): Promise<void> {
+    const active = this.callsById.get(callId);
+    if (!active) return;
+    if (active.voipCall?.pushMic) {
+      active.voipCall.pushMic(Float32Array.from(pcm));
+      return;
     }
-    // baileys-caller feeds audio from file/silence via AudioFeeder.
-    // Live mic PCM injection requires a feeder hook not exported by VoipClient.
-    throw new UnsupportedCapabilityError(
-      "live microphone PCM inject (file playback is supported via initiateCall audioFilePath)",
-      this.name,
-    );
+    const voip = this.channels.get(active.channelId)?.voip;
+    voip?.pushMic(Float32Array.from(pcm));
+  }
+
+  async getProfilePicture(channelId: string, phoneNumber: string): Promise<string | null> {
+    const sock = this.channels.get(channelId)?.sock as
+      | (BaileysSock & {
+          profilePictureUrl?: (jid: string, type?: "image" | "preview") => Promise<string>;
+        })
+      | undefined;
+    if (!sock?.profilePictureUrl) return null;
+    const digits = digitsOnly(phoneNumber);
+    const jids: string[] = [`${digits}@s.whatsapp.net`];
+    try {
+      const listed = await sock.onWhatsApp?.(digits);
+      const hit = listed?.find((row) => row.exists);
+      if (hit?.jid && !jids.includes(hit.jid)) jids.unshift(hit.jid);
+      if (hit?.lid) {
+        const lid = hit.lid.includes("@") ? hit.lid : `${hit.lid}@lid`;
+        if (!jids.includes(lid)) jids.push(lid);
+      }
+    } catch {
+      /* PN jid is enough when LID lookup fails */
+    }
+    for (const jid of jids) {
+      for (const type of ["preview", "image"] as const) {
+        try {
+          const url = await sock.profilePictureUrl(jid, type);
+          if (!url) continue;
+          const res = await fetch(url);
+          if (!res.ok) {
+            logger.warn({ jid, type, status: res.status }, "profile picture HTTP failed");
+            continue;
+          }
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.byteLength < 32) continue;
+          const mime = res.headers.get("content-type") || "image/jpeg";
+          logger.info({ jid, type, bytes: buf.byteLength }, "profile picture loaded");
+          return `data:${mime};base64,${buf.toString("base64")}`;
+        } catch (err) {
+          logger.warn({ jid, type, err }, "profile picture lookup failed");
+        }
+      }
+    }
+    return null;
+  }
+
+  async sendText(channelId: string, phoneNumber: string, text: string): Promise<{ id?: string }> {
+    const runtime = this.channels.get(channelId);
+    if (!runtime?.sock?.sendMessage) {
+      throw new Error(
+        "WhatsApp Web session is not CONNECTED. Open WhatsApp → Reconnect, scan QR if asked, then send again.",
+      );
+    }
+    const digits = digitsOnly(phoneNumber);
+    const result = await runtime.sock.sendMessage(`${digits}@s.whatsapp.net`, { text });
+    return { id: result?.key?.id };
   }
 
   onCallEvent(handler: CallEventHandler): () => void {
@@ -259,12 +337,7 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     return () => this.events.off("event", handler);
   }
 
-  private async connectBaileys(
-    channelId: string,
-    authDir: string,
-    baileys: any,
-    handoffVoip: boolean,
-  ): Promise<void> {
+  private async connectBaileys(channelId: string, authDir: string, baileys: any): Promise<void> {
     const {
       default: makeWASocket,
       useMultiFileAuthState,
@@ -286,7 +359,9 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
       auth: state,
       version,
       printQRInTerminal: false,
-      browser: Browsers?.ubuntu?.("Chrome") ?? ["WaCalls", "Chrome", "1.0"],
+      emitOwnEvents: true,
+      markOnlineOnConnect: true,
+      browser: Browsers?.ubuntu?.("Chrome") ?? ["Ubuntu", "Chrome", "22.04.4"],
       syncFullHistory: false,
     });
 
@@ -309,6 +384,7 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
       }
 
       if (update.connection === "open") {
+        this.pairing.delete(channelId);
         const me = sock.user ?? sock.authState?.creds?.me;
         const jid = String(me?.id ?? "");
         const phoneNumber = jidToPhone(jid);
@@ -316,6 +392,7 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
           ...(this.channels.get(channelId) as ChannelRuntime),
           status: "CONNECTED",
           qrDataUrl: null,
+          sock,
           phoneNumber,
           displayName: me?.name,
         });
@@ -327,22 +404,18 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
           phoneNumber,
           displayName: me?.name,
         });
-
-        if (handoffVoip) {
-          logger.info({ channelId }, "session saved; handing off to VoipClient for calling");
-          try {
-            sock.end?.();
-          } catch {
-            /* ignore */
-          }
-          const voip = await this.loadVoip();
-          if (voip) {
-            await this.connectVoip(channelId, authDir, voip);
-          }
-        }
+        this.beginVoipAttach(channelId);
       }
 
       if (update.connection === "close") {
+        this.pairing.delete(channelId);
+        if (this.channels.get(channelId)?.sock !== sock) return;
+        const current = this.channels.get(channelId);
+        try {
+          current?.voip?.destroy();
+        } catch {
+          /* ignore */
+        }
         const code = update.lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason?.loggedOut;
         if (loggedOut) {
@@ -373,30 +446,51 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     });
   }
 
-  private async connectVoip(channelId: string, authDir: string, voipMod: any): Promise<void> {
-    const VoipClient = voipMod.VoipClient;
-    if (!VoipClient) {
-      this.caps = { ...SELFHOSTED_BASE_CAPABILITIES };
-      throw new Error("baileys-caller loaded but VoipClient export is missing");
+  private beginVoipAttach(channelId: string) {
+    const runtime = this.channels.get(channelId);
+    if (!runtime?.sock || runtime.voipReady) return;
+    runtime.voipReady = this.attachVoip(channelId, runtime.sock);
+    this.setChannel(channelId, { ...runtime, voipReady: runtime.voipReady });
+  }
+
+  private async attachVoip(channelId: string, sock: BaileysSock): Promise<AttachedVoip | null> {
+    const available = await this.probeVoip();
+    if (!available) return null;
+    try {
+      const voip = await attachVoipToSocket(sock);
+      const prev = this.channels.get(channelId);
+      if (!prev || prev.sock !== sock) {
+        voip.destroy();
+        return null;
+      }
+      this.caps = { ...SELFHOSTED_VOIP_CAPABILITIES };
+      this.setChannel(channelId, { ...prev, voip, voipReady: Promise.resolve(voip) });
+      logger.info({ channelId }, "outbound voice ready on existing WhatsApp session");
+      return voip;
+    } catch (err) {
+      logger.error({ err, channelId }, "failed to attach WASM voice to WhatsApp socket");
+      const prev = this.channels.get(channelId);
+      if (prev) {
+        this.setChannel(channelId, { ...prev, voip: undefined, voipReady: Promise.resolve(null) });
+      }
+      return null;
     }
-    const client = new VoipClient({ authDir });
-    await client.connect();
-    this.caps = { ...SELFHOSTED_VOIP_CAPABILITIES };
-    this.setChannel(channelId, {
-      status: "CONNECTED",
-      qrDataUrl: null,
-      voip: client,
-      phoneNumber: this.channels.get(channelId)?.phoneNumber,
-      displayName: this.channels.get(channelId)?.displayName,
-    });
-    this.emit({
-      type: "channel_status",
-      channelId,
-      timestamp: iso(),
-      status: "CONNECTED",
-      phoneNumber: this.channels.get(channelId)?.phoneNumber,
-    });
-    logger.info({ channelId }, "VoipClient connected; outbound voice capability enabled");
+  }
+
+  private async ensureVoip(channelId: string): Promise<AttachedVoip | null> {
+    const runtime = this.channels.get(channelId);
+    if (!runtime) return null;
+    if (runtime.voip) return runtime.voip;
+    if (runtime.voipReady) {
+      const ready = await runtime.voipReady;
+      if (ready) return ready;
+    }
+    if (runtime.sock) {
+      runtime.voipReady = this.attachVoip(channelId, runtime.sock);
+      this.setChannel(channelId, { ...runtime, voipReady: runtime.voipReady });
+      return runtime.voipReady;
+    }
+    return null;
   }
 
   private async loadBaileys(): Promise<any | null> {
@@ -411,19 +505,24 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     }
   }
 
-  private async loadVoip(): Promise<any | null> {
-    if (this.voipModule !== undefined) return this.voipModule;
+  private async probeVoip(): Promise<boolean> {
+    if (this.voipAvailable !== undefined) {
+      if (this.voipAvailable) this.caps = { ...this.caps, ...SELFHOSTED_VOIP_CAPABILITIES, qrConnect: true };
+      return this.voipAvailable;
+    }
     try {
-      this.voipModule = await import("baileys-caller");
+      await import("baileys-caller");
+      this.voipAvailable = true;
       this.caps = { ...this.caps, ...SELFHOSTED_VOIP_CAPABILITIES, qrConnect: true };
-      return this.voipModule;
-    } catch {
+      return true;
+    } catch (err) {
       logger.warn(
+        { err },
         "baileys-caller not installed; QR/session works, outbound voice media is unavailable",
       );
-      this.voipModule = null;
+      this.voipAvailable = false;
       this.caps = { ...SELFHOSTED_BASE_CAPABILITIES };
-      return null;
+      return false;
     }
   }
 
@@ -469,9 +568,9 @@ function mapEndReason(reason: string): CallEvent["type"] {
   const r = reason.toLowerCase();
   if (r.includes("reject")) return "rejected";
   if (r.includes("busy")) return "busy";
-  if (r.includes("timeout") || r.includes("no_answer") || r.includes("no-answer")) {
+  if (r.includes("timeout") || r.includes("no_answer") || r.includes("no-answer") || r.includes("no_ring")) {
     return "no_answer";
   }
-  if (r.includes("fail") || r.includes("error")) return "failed";
+  if (r.includes("no_offer") || r.includes("fail") || r.includes("error")) return "failed";
   return "ended";
 }

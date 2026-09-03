@@ -12,6 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@wacalls/audio-engine": "workspace:*",
     "@wacalls/calling-engine": "workspace:*",
     "@wacalls/database": "workspace:*",
     "@whiskeysockets/baileys": "^7.0.0-rc.11",

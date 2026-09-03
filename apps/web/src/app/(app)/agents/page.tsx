@@ -16,7 +16,7 @@ export default function AgentsPage() {
   }, []);
   return (
     <div>
-      <PageHeader title="Agents" subtitle="Invite team members. Agents can use the dialer; admins manage WhatsApp lines." />
+      <PageHeader title="Team" subtitle="Invite people to this workspace. Agents use the dialer; workspace owners manage WhatsApp lines." />
       <div className="mb-6 grid gap-2 md:grid-cols-5">
         <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />

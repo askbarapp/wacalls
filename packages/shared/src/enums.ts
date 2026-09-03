@@ -38,7 +38,7 @@ export const CALL_OUTCOMES = [
 ] as const;
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 
-export const CAMPAIGN_TYPES = ["MANUAL", "SEQUENTIAL", "RECORDED", "AI_VOICE"] as const;
+export const CAMPAIGN_TYPES = ["MANUAL", "SEQUENTIAL", "RECORDED", "TTS", "AI_VOICE", "MESSAGE"] as const;
 export type CampaignType = (typeof CAMPAIGN_TYPES)[number];
 
 export const CAMPAIGN_STATUSES = [
@@ -55,6 +55,20 @@ export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
 export const AGENT_PRESENCE = ["READY", "BUSY", "OFFLINE"] as const;
 export type AgentPresence = (typeof AGENT_PRESENCE)[number];
 
+export const MESSAGE_TEMPLATE_KINDS = ["TEXT", "SIMPLE", "MEDIA", "BUTTON", "LIST"] as const;
+export type MessageTemplateKind = (typeof MESSAGE_TEMPLATE_KINDS)[number];
+
+export const AUTO_REPLY_TRIGGERS = ["ANSWERED", "NO_ANSWER", "REJECTED", "NOT_CONNECTED"] as const;
+export type AutoReplyTrigger = (typeof AUTO_REPLY_TRIGGERS)[number];
+
+export function autoReplyTriggerForCall(status: string): AutoReplyTrigger | null {
+  if (status === "ENDED") return "ANSWERED";
+  if (status === "NO_ANSWER") return "NO_ANSWER";
+  if (status === "REJECTED") return "REJECTED";
+  if (status === "FAILED" || status === "BUSY" || status === "CANCELLED") return "NOT_CONNECTED";
+  return null;
+}
+
 export const WEBHOOK_EVENTS = [
   "call.started",
   "call.ringing",
@@ -64,6 +78,9 @@ export const WEBHOOK_EVENTS = [
   "campaign.started",
   "campaign.completed",
   "contact.completed",
+  "message.sent",
+  "message.failed",
+  "visit.submitted",
 ] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
@@ -82,6 +99,9 @@ export const PERMISSIONS = {
     "dialer.use",
     "calls.view",
     "ai.manage",
+    "users.view",
+    "messages.send",
+    "visits.manage",
   ],
   MANAGER: [
     "campaigns.manage",
@@ -90,6 +110,10 @@ export const PERMISSIONS = {
     "dialer.use",
     "calls.view",
     "users.view",
+    "messages.send",
+    "visits.manage",
+    "ai.manage",
+    "recordings.manage",
   ],
   AGENT: ["dialer.use", "contacts.assigned", "calls.own"],
 } as const;

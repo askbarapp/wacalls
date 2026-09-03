@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChannelLock, ChannelWaitQueue } from "./index.js";
+import { ChannelLock, ChannelWaitQueue, channelLockIsStale } from "./index.js";
 
 class MemoryRedis {
   private store = new Map<string, { value: string; expiresAt: number }>();
@@ -99,5 +99,20 @@ describe("four agents one channel", () => {
     expect(next).toBe("call-2");
     expect(await lock.acquire("wa1", next!)).toBe(true);
     expect(await queue.snapshot("wa1")).toEqual(["call-3", "call-4"]);
+  });
+});
+
+describe("channelLockIsStale", () => {
+  it("treats missing and terminal owners as stale", () => {
+    expect(channelLockIsStale(null)).toBe(true);
+    expect(channelLockIsStale({ status: "ENDED" })).toBe(true);
+    expect(channelLockIsStale({ status: "FAILED" })).toBe(true);
+  });
+
+  it("steals a leftover RINGING lock after 35s", () => {
+    const fresh = { status: "RINGING", startedAt: new Date(), createdAt: new Date() };
+    const old = { status: "RINGING", startedAt: new Date(Date.now() - 40_000), createdAt: new Date() };
+    expect(channelLockIsStale(fresh)).toBe(false);
+    expect(channelLockIsStale(old)).toBe(true);
   });
 });

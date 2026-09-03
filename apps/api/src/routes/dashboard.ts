@@ -12,7 +12,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const org = { organizationId: auth.orgId };
-    const [channels, today, answered, noAnswer, failed, agents, duration] = await Promise.all([
+    const [channels, today, answered, noAnswer, failed, agents, duration, todayMessages] = await Promise.all([
       prisma.whatsAppChannel.findMany({ where: org }),
       prisma.call.count({ where: { ...org, createdAt: { gte: start } } }),
       prisma.call.count({ where: { ...org, createdAt: { gte: start }, status: "ENDED", outcome: "ANSWERED" } }),
@@ -25,6 +25,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         where: { ...org, createdAt: { gte: start } },
         _sum: { durationMs: true },
       }),
+      prisma.message.count({ where: { ...org, createdAt: { gte: start }, status: { not: "FAILED" } } }),
     ]);
     const active = await prisma.call.findMany({
       where: { ...org, status: { in: ["CONNECTING", "RINGING", "ANSWERED"] } },
@@ -42,6 +43,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       activeCalls: active,
       queue: queues,
       todayCalls: today,
+      todayMessages,
       answered,
       noAnswer,
       failed,

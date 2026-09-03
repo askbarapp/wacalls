@@ -55,6 +55,10 @@ export class WavoipAdapter implements CallingEngine {
     throw new UnsupportedCapabilityError("sendAudio", this.name);
   }
 
+  async sendText(_channelId: string, _phoneNumber: string, _text: string): Promise<{ id?: string }> {
+    throw new UnsupportedCapabilityError("sendText", this.name);
+  }
+
   onCallEvent(_handler: CallEventHandler): () => void {
     return () => undefined;
   }

@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 import { prisma } from "@wacalls/database";
 import {
@@ -8,17 +8,142 @@ import {
   signAccessToken,
   verifyPassword,
 } from "@wacalls/auth";
-import { ok, UnauthorizedError } from "@wacalls/shared";
+import { ConflictError, ok, UnauthorizedError, type Role } from "@wacalls/shared";
 import { env } from "../env.js";
 import { sendMail } from "../services/mail.js";
+import { defaultPlan, uniqueOrgSlug } from "../services/org.js";
+import { loadBranding } from "../services/branding.js";
+import { existsSync } from "node:fs";
+
+function ttlToSeconds(ttl: string): number {
+  const match = /^(\d+)\s*([smhd])$/i.exec(ttl.trim());
+  if (!match?.[1] || !match[2]) return 12 * 3600;
+  const value = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  if (unit === "s") return value;
+  if (unit === "m") return value * 60;
+  if (unit === "h") return value * 3600;
+  return value * 86400;
+}
+
+function cookieBase() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    path: "/",
+    secure: env.APP_ENV === "production",
+  };
+}
+
+const emailField = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[^\s@]+@[^\s@]+$/, "Invalid email");
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: emailField,
   password: z.string().min(8),
   remember: z.boolean().optional(),
 });
 
+async function issueSession(
+  reply: FastifyReply,
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    isSuperAdmin: boolean;
+  },
+  membership: { organizationId: string; role: Role } | undefined,
+  remember?: boolean,
+) {
+  const claims = {
+    sub: user.id,
+    email: user.email,
+    orgId: membership?.organizationId ?? "",
+    role: membership?.role ?? ("SUPER_ADMIN" as Role),
+    superAdmin: user.isSuperAdmin,
+  };
+  const access = await signAccessToken(claims, env.JWT_SECRET, env.JWT_ACCESS_TTL);
+  const refresh = randomToken();
+  const days = remember ? 30 : 7;
+  await prisma.refreshToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: sha256(refresh),
+      expiresAt: new Date(Date.now() + days * 86400_000),
+    },
+  });
+  const accessCookie = {
+    ...cookieBase(),
+    ...(remember ? { maxAge: ttlToSeconds(env.JWT_ACCESS_TTL) } : {}),
+  };
+  const refreshCookie = {
+    ...cookieBase(),
+    ...(remember ? { maxAge: days * 86400 } : {}),
+  };
+  reply.setCookie("access_token", access, accessCookie);
+  reply.setCookie("refresh_token", refresh, refreshCookie);
+  return {
+    accessToken: access,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: claims.role,
+      organizationId: claims.orgId,
+      superAdmin: user.isSuperAdmin,
+    },
+  };
+}
+
 export const authRoutes: FastifyPluginAsync = async (app) => {
+  app.post("/register", async (req, reply) => {
+    const body = z
+      .object({
+        name: z.string().trim().min(2),
+        email: emailField,
+        password: z.string().min(8),
+        organizationName: z.string().trim().min(2),
+      })
+      .parse(req.body);
+    const email = body.email.toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new ConflictError("An account with this email already exists. Sign in instead.");
+    }
+    const plan = await defaultPlan();
+    const slug = await uniqueOrgSlug(body.organizationName);
+    const created = await prisma.$transaction(async (tx) => {
+      const org = await tx.organization.create({
+        data: {
+          name: body.organizationName,
+          slug,
+          status: "TRIAL",
+          planId: plan?.id,
+          billingEmail: email,
+        },
+      });
+      const user = await tx.user.create({
+        data: {
+          email,
+          name: body.name,
+          passwordHash: await hashPassword(body.password),
+        },
+      });
+      const membership = await tx.organizationUser.create({
+        data: {
+          organizationId: org.id,
+          userId: user.id,
+          role: "ORG_ADMIN",
+        },
+      });
+      return { user, membership };
+    });
+    return ok(await issueSession(reply, created.user, created.membership, true));
+  });
+
   app.post("/login", async (req, reply) => {
     const body = loginSchema.parse(req.body);
     const user = await prisma.user.findUnique({
@@ -32,48 +157,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!membership && !user.isSuperAdmin) {
       throw new UnauthorizedError("No organization membership");
     }
-    const claims = {
-      sub: user.id,
-      email: user.email,
-      orgId: membership?.organizationId ?? "",
-      role: membership?.role ?? "SUPER_ADMIN",
-      superAdmin: user.isSuperAdmin,
-    };
-    const access = await signAccessToken(claims, env.JWT_SECRET, env.JWT_ACCESS_TTL);
-    const refresh = randomToken();
-    const days = body.remember ? 30 : 7;
-    await prisma.refreshToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: sha256(refresh),
-        expiresAt: new Date(Date.now() + days * 86400_000),
-      },
-    });
-    reply.setCookie("access_token", access, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      secure: env.APP_ENV === "production",
-      maxAge: 15 * 60,
-    });
-    reply.setCookie("refresh_token", refresh, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      secure: env.APP_ENV === "production",
-      maxAge: days * 86400,
-    });
-    return ok({
-      accessToken: access,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: claims.role,
-        organizationId: claims.orgId,
-        superAdmin: user.isSuperAdmin,
-      },
-    });
+    if (membership && !user.isSuperAdmin) {
+      const org = await prisma.organization.findUnique({ where: { id: membership.organizationId } });
+      if (org?.status === "SUSPENDED") {
+        throw new UnauthorizedError("This account is suspended. Contact support.");
+      }
+    }
+    return ok(await issueSession(reply, user, membership, body.remember));
   });
 
   app.post("/refresh", async (req, reply) => {
@@ -97,10 +187,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       env.JWT_ACCESS_TTL,
     );
     reply.setCookie("access_token", access, {
-      httpOnly: true,
-      path: "/",
-      sameSite: "lax",
-      secure: env.APP_ENV === "production",
+      ...cookieBase(),
+      ...(row.expiresAt.getTime() - Date.now() > 14 * 86400_000
+        ? { maxAge: ttlToSeconds(env.JWT_ACCESS_TTL) }
+        : {}),
     });
     return ok({ accessToken: access });
   });
@@ -121,13 +211,22 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.get("/me", async (req) => {
     const auth = await app.authenticate(req);
     const user = await prisma.user.findUniqueOrThrow({ where: { id: auth.sub } });
+    const organization = auth.orgId
+      ? await prisma.organization.findUnique({
+          where: { id: auth.orgId },
+          include: { plan: true },
+        })
+      : null;
     return ok({
       id: user.id,
       email: user.email,
       name: user.name,
+      phone: user.phone ?? "",
+      hasAvatar: Boolean(user.avatarPath && existsSync(user.avatarPath)),
       role: auth.role,
       organizationId: auth.orgId,
       superAdmin: auth.superAdmin,
+      organization,
     });
   });
 
@@ -148,7 +247,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/forgot-password", async (req) => {
-    const body = z.object({ email: z.string().email() }).parse(req.body);
+    const body = z.object({ email: emailField }).parse(req.body);
     const user = await prisma.user.findUnique({ where: { email: body.email.toLowerCase() } });
     if (user) {
       const token = randomToken();
@@ -159,9 +258,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           expiresAt: new Date(Date.now() + 3600_000),
         },
       });
+      const { brand } = await loadBranding();
       await sendMail(
         user.email,
-        "Reset your WaCalls password",
+        `Reset your ${brand.brandName} password`,
         `Reset token (expires 1 hour): ${token}\nUse POST /api/v1/auth/reset-password`,
       );
     }

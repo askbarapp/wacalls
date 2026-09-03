@@ -48,6 +48,10 @@ export class ChannelLock {
   async owner(channelId: string): Promise<string | null> {
     return this.redis.get(channelLockKey(channelId));
   }
+
+  async forceRelease(channelId: string): Promise<void> {
+    await this.redis.del(channelLockKey(channelId));
+  }
 }
 
 export class ChannelWaitQueue {
@@ -78,6 +82,37 @@ export class ChannelWaitQueue {
   async length(channelId: string): Promise<number> {
     return this.redis.llen(channelQueueKey(channelId));
   }
+
+  async clear(channelId: string): Promise<string[]> {
+    const ids = await this.snapshot(channelId);
+    if (ids.length) await this.redis.del(channelQueueKey(channelId));
+    return ids;
+  }
+}
+
+const TERMINAL_CALL = ["ENDED", "FAILED", "BUSY", "NO_ANSWER", "REJECTED", "CANCELLED"];
+
+/** True when a Redis line-lock should be stolen (dead process, leftover QUEUED, hung CONNECTING). */
+export function channelLockIsStale(owner: {
+  status: string;
+  startedAt?: Date | null;
+  createdAt?: Date | null;
+} | null): boolean {
+  if (!owner) return true;
+  if (TERMINAL_CALL.includes(owner.status)) return true;
+  if (owner.status === "QUEUED") {
+    const t = owner.createdAt?.getTime() ?? 0;
+    return !t || Date.now() - t > 8_000;
+  }
+  if (owner.status === "CONNECTING") {
+    const t = owner.startedAt?.getTime() ?? owner.createdAt?.getTime() ?? 0;
+    return !t || Date.now() - t > 20_000;
+  }
+  if (owner.status === "RINGING") {
+    const t = owner.startedAt?.getTime() ?? owner.createdAt?.getTime() ?? 0;
+    return !t || Date.now() - t > 35_000;
+  }
+  return false;
 }
 
 export const QUEUE_NAMES = {
@@ -85,6 +120,8 @@ export const QUEUE_NAMES = {
   campaigns: "wacalls-campaigns",
   webhooks: "wacalls-webhooks",
   retries: "wacalls-retries",
+  appointmentReminders: "wacalls-appointment-reminders",
+  autoReplies: "wacalls-auto-replies",
 } as const;
 
 export type PlaceCallJob = {
@@ -95,4 +132,10 @@ export type PlaceCallJob = {
   contactName?: string | null;
   campaignId?: string | null;
   recordingPath?: string | null;
+  aiConfigId?: string | null;
+  hangupAfterPlayback?: boolean;
+  inbound?: boolean;
+  sendMessage?: boolean;
+  messageBody?: string | null;
+  messageWhen?: "ringing" | "answered";
 };

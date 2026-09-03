@@ -39,6 +39,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       WHATSAPP_URL: http://whatsapp:4010
+    volumes:
+      - recordings:/data/recordings
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,6 +59,9 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       WHATSAPP_URL: http://whatsapp:4010
+      RECORDINGS_DIR: /data/recordings
+    volumes:
+      - recordings:/data/recordings
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,17 +71,18 @@ services:
 
   whatsapp:
     build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: whatsapp
+      context: ./services/wa-native
+      dockerfile: Dockerfile.bridge
     restart: unless-stopped
     env_file: .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
-      SESSION_DIR: /data/sessions
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      WHATSAPP_PORT: "4010"
+      RECORDINGS_DIR: /data/recordings
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
-      - whatsapp_sessions:/data/sessions
       - recordings:/data/recordings
     depends_on:
       postgres:

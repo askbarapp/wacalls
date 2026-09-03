@@ -11,60 +11,36 @@ type Campaign = {
   name: string;
   type: string;
   status: string;
-  maxAttempts: number;
-  retryDelayMin: number;
+  scheduleAt?: string | null;
+  rotationLimit?: number;
   channel?: { id: string; displayName: string; status: string };
-  _count?: { campaignContacts: number; calls: number };
+  campaignChannels?: Array<{
+    channel: { id: string; displayName: string; status: string; phoneNumber?: string | null };
+  }>;
+  contactList?: { id: string; name: string } | null;
+  recording?: { id: string; name: string } | null;
+  voiceTemplate?: { id: string; name: string } | null;
+  messageTemplate?: { id: string; name: string } | null;
+  aiConfig?: { id: string; name: string } | null;
+  _count?: { campaignContacts: number; calls: number; messages: number };
 };
-
-type Channel = { id: string; displayName: string; status: string; phoneNumber?: string | null };
-type List = { id: string; name: string };
 
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [lists, setLists] = useState<List[]>([]);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    name: "",
-    channelId: "",
-    contactListId: "",
-    type: "SEQUENTIAL",
-    maxAttempts: 3,
-    retryDelayMin: 30,
-  });
 
   async function load() {
-    const [c, ch, l] = await Promise.all([
-      api<{ success: true; data: Campaign[] }>("/api/v1/campaigns"),
-      api<{ success: true; data: Channel[] }>("/api/v1/channels"),
-      api<{ success: true; data: List[] }>("/api/v1/contact-lists"),
-    ]);
-    setCampaigns(c.data);
-    setChannels(ch.data);
-    setLists(l.data);
-    setForm((f) => ({
-      ...f,
-      channelId: f.channelId || ch.data.find((x) => x.status === "CONNECTED")?.id || ch.data[0]?.id || "",
-      contactListId: f.contactListId || l.data[0]?.id || "",
-    }));
+    const res = await api<{ success: true; data: Campaign[] }>("/api/v1/campaigns");
+    setCampaigns(res.data);
   }
+
   useEffect(() => {
-    void load();
+    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 
-  async function create() {
-    setError("");
-    try {
-      await api("/api/v1/campaigns", { method: "POST", body: JSON.stringify(form) });
-      setForm((f) => ({ ...f, name: "" }));
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create campaign");
-    }
-  }
-
-  async function act(id: string, action: "start" | "pause" | "stop") {
+  async function act(id: string, action: "start" | "pause" | "stop", e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
     setError("");
     try {
       await api(`/api/v1/campaigns/${id}/${action}`, { method: "POST" });
@@ -74,13 +50,19 @@ export default function CampaignsPage() {
     }
   }
 
-  const selected = channels.find((c) => c.id === form.channelId);
-
   return (
     <div>
       <PageHeader
         title="Campaigns"
-        subtitle="Sequential bulk dialing uses one WhatsApp line at a time. The line must be CONNECTED before start."
+        subtitle="WhatsApp voice or message campaigns. Tap a campaign to see reporting."
+        actions={
+          <Link
+            href="/campaigns/new"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-violet-500/20 hover:bg-violet-400"
+          >
+            Create campaign
+          </Link>
+        }
       />
       {error ? (
         <div className="mb-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
@@ -92,92 +74,91 @@ export default function CampaignsPage() {
           ) : null}
         </div>
       ) : null}
-      <div className="mb-8 rounded-2xl border border-white/10 bg-ink-900/70 p-5">
-        <div className="mb-4 text-sm font-medium text-white">New campaign</div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <select value={form.channelId} onChange={(e) => setForm({ ...form, channelId: e.target.value })}>
-            {channels.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.displayName} · {c.status}
-              </option>
-            ))}
-          </select>
-          <select value={form.contactListId} onChange={(e) => setForm({ ...form, contactListId: e.target.value })}>
-            {lists.length === 0 ? <option value="">No lists — create one in Contacts</option> : null}
-            {lists.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-            <option value="SEQUENTIAL">SEQUENTIAL (one-by-one)</option>
-            <option value="MANUAL">MANUAL</option>
-            <option value="RECORDED">RECORDED</option>
-            <option value="AI_VOICE">AI_VOICE</option>
-          </select>
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={form.maxAttempts}
-            onChange={(e) => setForm({ ...form, maxAttempts: Number(e.target.value) })}
-          />
-          <input
-            type="number"
-            min={1}
-            value={form.retryDelayMin}
-            onChange={(e) => setForm({ ...form, retryDelayMin: Number(e.target.value) })}
-          />
-        </div>
-        {selected && selected.status !== "CONNECTED" ? (
-          <p className="mt-3 text-xs text-amber-200">
-            Selected line is {selected.status}. Link it on the WhatsApp page before starting.
-          </p>
-        ) : null}
-        <button onClick={create} className="mt-4 rounded-lg bg-brand-500 px-5 py-2 font-medium text-ink-950 hover:bg-brand-400">
-          Create campaign
-        </button>
-      </div>
       <div className="space-y-3">
-        {campaigns.map((c) => (
-          <div
-            key={c.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-900/80 p-4"
-          >
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-white">{c.name}</span>
-                <StatusBadge status={c.status} />
+        {campaigns.map((c) => {
+          const lines = c.campaignChannels?.length
+            ? c.campaignChannels.map((row) => row.channel.displayName).join(", ")
+            : c.channel?.displayName ?? "channel";
+          return (
+            <Link
+              key={c.id}
+              href={`/campaigns/${c.id}`}
+              className="surface block p-4 transition hover:-translate-y-0.5 hover:ring-1 hover:ring-violet-400/30"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-white">{c.name}</span>
+                    <StatusBadge status={c.status} />
+                  </div>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {labelForType(c.type)}
+                    {c.contactList ? ` · ${c.contactList.name}` : ""} · {c._count?.campaignContacts ?? 0}{" "}
+                    contacts
+                    {c.type === "MESSAGE"
+                      ? ` · ${c._count?.messages ?? 0} messages`
+                      : ` · ${c._count?.calls ?? 0} calls`}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {lines}
+                    {c.scheduleAt && c.status === "SCHEDULED"
+                      ? ` · scheduled ${new Date(c.scheduleAt).toLocaleString()}`
+                      : ""}
+                    {c.recording ? ` · ${c.recording.name}` : ""}
+                    {c.voiceTemplate ? ` · ${c.voiceTemplate.name}` : ""}
+                    {c.messageTemplate ? ` · ${c.messageTemplate.name}` : ""}
+                    {c.aiConfig ? ` · ${c.aiConfig.name}` : ""}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 text-sm">
+                  {c.status === "DRAFT" || c.status === "SCHEDULED" || c.status === "PAUSED" ? (
+                    <button
+                      className="min-h-10 rounded-lg bg-brand-500/20 px-3 py-1.5 text-brand-400"
+                      onClick={(e) => void act(c.id, "start", e)}
+                    >
+                      Start
+                    </button>
+                  ) : null}
+                  {c.status === "RUNNING" ? (
+                    <button
+                      className="min-h-10 rounded-lg bg-white/10 px-3 py-1.5"
+                      onClick={(e) => void act(c.id, "pause", e)}
+                    >
+                      Pause
+                    </button>
+                  ) : null}
+                  {c.status === "RUNNING" || c.status === "PAUSED" || c.status === "SCHEDULED" ? (
+                    <button
+                      className="min-h-10 rounded-lg bg-white/10 px-3 py-1.5"
+                      onClick={(e) => void act(c.id, "stop", e)}
+                    >
+                      Stop
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              <div className="mt-1 text-sm text-slate-400">
-                {c.type} · {c.channel?.displayName ?? "channel"} · {c._count?.campaignContacts ?? 0} contacts ·{" "}
-                {c._count?.calls ?? 0} calls · retry {c.maxAttempts}× / {c.retryDelayMin}m
-              </div>
-            </div>
-            <div className="flex gap-2 text-sm">
-              <button
-                className="rounded-lg bg-brand-500/20 px-3 py-1.5 text-brand-400"
-                onClick={() => act(c.id, "start")}
-              >
-                Start
-              </button>
-              <button className="rounded-lg bg-white/10 px-3 py-1.5" onClick={() => act(c.id, "pause")}>
-                Pause
-              </button>
-              <button className="rounded-lg bg-white/10 px-3 py-1.5" onClick={() => act(c.id, "stop")}>
-                Stop
-              </button>
-            </div>
-          </div>
-        ))}
+            </Link>
+          );
+        })}
         {campaigns.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/15 p-8 text-center text-sm text-slate-500">
-            No campaigns yet. Add contacts to a list, connect WhatsApp, then create a sequential campaign.
+            No campaigns yet.{" "}
+            <Link className="text-brand-400 underline" href="/campaigns/new">
+              Create one
+            </Link>{" "}
+            after you add a contact group.
           </div>
         ) : null}
       </div>
     </div>
   );
+}
+
+function labelForType(type: string) {
+  if (type === "RECORDED") return "Voice · recorded";
+  if (type === "TTS") return "Voice · text";
+  if (type === "AI_VOICE") return "Voice · AI agent";
+  if (type === "MESSAGE") return "WhatsApp message";
+  if (type === "SEQUENTIAL") return "Voice";
+  return type;
 }

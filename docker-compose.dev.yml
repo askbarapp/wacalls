@@ -40,6 +40,9 @@ services:
       WHATSAPP_URL: http://whatsapp:4010
       API_PORT: 3001
       LOG_LEVEL: debug
+      ADMIN_EMAIL: admin@localhost
+      ADMIN_PASSWORD: LocalDev!2345
+      ADMIN_ORG_NAME: WaCalls
     ports:
       - "3001:3001"
     depends_on:

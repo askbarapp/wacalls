@@ -1,0 +1,16 @@
+FROM golang:1.25-bookworm AS build
+WORKDIR /src
+ENV GOTOOLCHAIN=auto
+COPY . .
+RUN go get github.com/redis/go-redis/v9@v9.7.3 github.com/skip2/go-qrcode@latest \
+  && go mod tidy \
+  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /wa-bridge ./cmd/bridge
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+RUN mkdir -p /data/recordings/calls
+COPY --from=build /wa-bridge /usr/local/bin/wa-bridge
+EXPOSE 4010
+ENTRYPOINT ["/usr/local/bin/wa-bridge"]

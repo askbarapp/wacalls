@@ -123,6 +123,10 @@ export class MockEngine implements CallingEngine {
     return;
   }
 
+  async sendText(_channelId: string, _phoneNumber: string, _text: string): Promise<{ id?: string }> {
+    return { id: `mock_${Date.now()}` };
+  }
+
   onCallEvent(handler: CallEventHandler): () => void {
     this.events.on("event", handler);
     return () => this.events.off("event", handler);

@@ -9,7 +9,7 @@ const schema = z.object({
   DATABASE_URL: z.string(),
   REDIS_URL: z.string(),
   JWT_SECRET: z.string().min(16),
-  JWT_ACCESS_TTL: z.string().default("15m"),
+  JWT_ACCESS_TTL: z.string().default("12h"),
   JWT_REFRESH_TTL: z.string().default("30d"),
   ENCRYPTION_KEY: z.string().min(16),
   INTERNAL_TOKEN: z.string().min(8),
@@ -20,6 +20,7 @@ const schema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM: z.string().optional(),
+  SARVAM_API_KEY: z.string().optional(),
   RECORDINGS_DIR: z.string().default("/data/recordings"),
   CALLING_ENGINE: z.string().default("selfhosted"),
 });

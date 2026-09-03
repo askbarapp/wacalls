@@ -12,8 +12,10 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@wacalls/audio-engine": "workspace:*",
     "@wacalls/database": "workspace:*",
     "@wacalls/queue": "workspace:*",
+    "@wacalls/shared": "workspace:*",
     "bullmq": "^5.34.8",
     "ioredis": "^5.4.2",
     "pino": "^9.6.0"
