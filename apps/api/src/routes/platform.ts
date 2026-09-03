@@ -84,6 +84,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     const body = z
       .object({
         name: z.string().optional(),
+        slug: z.string().min(2).optional(),
         description: z.string().optional(),
         maxChannels: z.number().int().optional(),
         maxAgents: z.number().int().optional(),
@@ -98,10 +99,32 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
         isDefault: z.boolean().optional(),
       })
       .parse(req.body);
+    const existing = await prisma.plan.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundError("Plan not found");
     if (body.isDefault) {
       await prisma.plan.updateMany({ data: { isDefault: false } });
     }
     return ok(await prisma.plan.update({ where: { id }, data: body }));
+  });
+
+  app.delete("/platform/plans/:id", async (req) => {
+    const auth = await app.authenticate(req);
+    requirePlatform(auth);
+    const { id } = req.params as { id: string };
+    const plan = await prisma.plan.findUnique({
+      where: { id },
+      include: { _count: { select: { organizations: true } } },
+    });
+    if (!plan) throw new NotFoundError("Plan not found");
+    const remaining = await prisma.plan.count({ where: { id: { not: id } } });
+    if (remaining === 0) throw new ConflictError("Keep at least one plan.");
+    await prisma.organization.updateMany({ where: { planId: id }, data: { planId: null } });
+    if (plan.isDefault) {
+      const next = await prisma.plan.findFirst({ where: { id: { not: id } }, orderBy: { priceMonthly: "asc" } });
+      if (next) await prisma.plan.update({ where: { id: next.id }, data: { isDefault: true } });
+    }
+    await prisma.plan.delete({ where: { id } });
+    return ok({ deleted: true });
   });
 
   app.get("/platform/organizations", async (req) => {
