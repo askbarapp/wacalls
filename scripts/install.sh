@@ -8,9 +8,7 @@
 #    DOMAIN=wacall.in bash <(curl -fsSL https://raw.githubusercontent.com/askbarapp/wacalls/main/scripts/install.sh)
 # ============================================================
 set -uo pipefail
-# -e intentionally omitted: apt/docker errors should print clearly, not silently abort.
-
-trap 'red "❌ Installer failed at line ${LINENO}. Check output above."; exit 1' ERR
+# -e / ERR trap omitted: optional steps (SSL, fail2ban) must not abort the whole install.
 
 APP_DIR="${WACALLS_DIR:-/opt/wacalls}"
 REPO="${WACALLS_REPO:-https://github.com/askbarapp/wacalls.git}"
@@ -218,7 +216,7 @@ SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=
 SMTP_PASSWORD=
-SMTP_FROM=WaCalls <noreply@${DOMAIN}>
+SMTP_FROM="WaCalls <noreply@${DOMAIN}>"
 
 # ── AI (Sarvam) ──────────────────────────────────
 SARVAM_API_KEY=${SARVAM_API_KEY}
@@ -266,11 +264,62 @@ configure_firewall() {
   green "✔ Firewall enabled (22, 80, 443)"
 }
 
+env_get() {
+  grep -E "^${1}=" "${APP_DIR}/.env" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/^"//;s/"$//'
+}
+
 # ── start stack ─────────────────────────────────────────────
+run_migrations() {
+  green "→ Running database migrations…"
+  if docker compose exec -T api sh -c 'cd /app && pnpm --filter @wacalls/database migrate'; then
+    green "✔ Migrations applied"
+    return 0
+  fi
+  yellow "⚠ Database already has tables (or migrate failed). Resetting public schema and retrying…"
+  docker compose exec -T postgres psql -U wacalls -d wacalls -c \
+    "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO wacalls; GRANT ALL ON SCHEMA public TO public;" \
+    || { red "Could not reset database schema"; return 1; }
+  docker compose exec -T api sh -c 'cd /app && pnpm --filter @wacalls/database migrate' \
+    || { red "Migrations failed after schema reset"; return 1; }
+  green "✔ Migrations applied after reset"
+}
+
+seed_admin() {
+  green "→ Seeding admin user…"
+  ADMIN_EMAIL="${ADMIN_EMAIL:-$(env_get ADMIN_EMAIL)}"
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(env_get ADMIN_PASSWORD)}"
+  ADMIN_ORG_NAME="${ADMIN_ORG_NAME:-$(env_get ADMIN_ORG_NAME)}"
+  ADMIN_ORG_NAME="${ADMIN_ORG_NAME:-WaCalls}"
+  if [[ -z "${ADMIN_EMAIL}" || -z "${ADMIN_PASSWORD}" ]]; then
+    red "ADMIN_EMAIL / ADMIN_PASSWORD missing. Re-run the installer to set them."
+    return 1
+  fi
+  docker compose exec -T \
+    -e ADMIN_EMAIL="${ADMIN_EMAIL}" \
+    -e ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
+    -e ADMIN_ORG_NAME="${ADMIN_ORG_NAME}" \
+    api sh -c 'cd /app && pnpm --filter @wacalls/database seed' \
+    || { red "Seed failed"; return 1; }
+  sed -i '/^ADMIN_PASSWORD=/d' "${APP_DIR}/.env"
+  unset ADMIN_PASSWORD
+  green "✔ Admin user seeded"
+}
+
+wait_health() {
+  green "→ Waiting for HTTP health check…"
+  local ok=0
+  for _ in $(seq 1 24); do
+    curl -fsS --max-time 5 http://127.0.0.1/health >/dev/null 2>&1 && ok=1 && break
+    sleep 5
+  done
+  [[ "${ok}" -eq 1 ]] && green "✔ HTTP health check passed" \
+                       || yellow "⚠ Health check pending — check logs if site doesn't load"
+}
+
 start_stack() {
   cd "${APP_DIR}"
   green "→ Building Docker images (this takes 10–15 min the first time)…"
-  docker compose build --progress=plain 2>&1 | tail -5
+  docker compose build || { red "Docker build failed"; return 1; }
 
   green "→ Starting postgres + redis…"
   docker compose up -d postgres redis
@@ -281,40 +330,9 @@ start_stack() {
   docker compose up -d api worker whatsapp web nginx
   sleep 10
 
-  green "→ Running database migrations…"
-  docker compose exec -T api sh -c \
-    'cd /app && pnpm --filter @wacalls/database migrate 2>/dev/null || \
-     npx prisma migrate deploy --schema /app/packages/database/prisma/schema.prisma' \
-  || docker compose exec -T api sh -c \
-    'cd /app/packages/database && npx prisma migrate deploy'
-
-  green "→ Seeding admin user…"
-  # shellcheck source=/dev/null
-  set -a; . "${APP_DIR}/.env"; set +a
-  docker compose exec -T \
-    -e ADMIN_EMAIL="${ADMIN_EMAIL}" \
-    -e ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
-    -e ADMIN_ORG_NAME="${ADMIN_ORG_NAME}" \
-    api sh -c 'cd /app && pnpm --filter @wacalls/database seed 2>/dev/null || \
-               npx tsx /app/packages/database/src/seed.ts' \
-  || docker compose exec -T \
-    -e ADMIN_EMAIL="${ADMIN_EMAIL}" \
-    -e ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
-    -e ADMIN_ORG_NAME="${ADMIN_ORG_NAME}" \
-    api sh -c 'cd /app/packages/database && npx tsx src/seed.ts'
-
-  # Remove password from .env for security
-  sed -i '/^ADMIN_PASSWORD=/d' "${APP_DIR}/.env"
-  unset ADMIN_PASSWORD
-
-  green "→ Waiting for HTTP health check…"
-  local ok=0
-  for _ in $(seq 1 24); do
-    curl -fsS --max-time 5 http://127.0.0.1/health >/dev/null 2>&1 && ok=1 && break
-    sleep 5
-  done
-  [[ "${ok}" -eq 1 ]] && green "✔ HTTP health check passed" \
-                       || yellow "⚠ Health check pending — check logs if site doesn't load"
+  run_migrations || return 1
+  seed_admin || return 1
+  wait_health
 }
 
 # ── SSL ─────────────────────────────────────────────────────
@@ -361,8 +379,8 @@ setup_cron() {
 
 # ── done ─────────────────────────────────────────────────────
 print_done() {
-  # shellcheck source=/dev/null
-  set -a; . "${APP_DIR}/.env"; set +a
+  DOMAIN="${DOMAIN:-$(env_get DOMAIN)}"
+  ADMIN_EMAIL="${ADMIN_EMAIL:-$(env_get ADMIN_EMAIL)}"
   local ssl_status
   ssl_status="$(cat /tmp/wacalls-ssl-status 2>/dev/null || echo 'Pending (run: wacalls ssl)')"
   echo ""
@@ -390,8 +408,31 @@ print_done() {
   echo ""
 }
 
+# ── resume after a failed seed/migrate (images already built) ─
+resume_install() {
+  require_root
+  [[ -f "${APP_DIR}/.env" ]] || { red "${APP_DIR}/.env missing. Run a full install first."; exit 1; }
+  banner
+  cd "${APP_DIR}"
+  # Fix unquoted SMTP_FROM from older installer
+  sed -i 's/^SMTP_FROM=WaCalls <\(.*\)>$/SMTP_FROM="WaCalls <\1>"/' "${APP_DIR}/.env" || true
+  docker compose up -d postgres redis api worker whatsapp web nginx
+  sleep 8
+  run_migrations || exit 1
+  seed_admin || exit 1
+  wait_health
+  configure_ssl || true
+  install_cli
+  setup_cron
+  print_done
+}
+
 # ── main ────────────────────────────────────────────────────
 main() {
+  if [[ "${1:-}" == "--resume" ]]; then
+    resume_install
+    return
+  fi
   banner
   require_root
   check_os
@@ -401,7 +442,7 @@ main() {
   clone_repo
   prompt_config
   configure_firewall
-  start_stack
+  start_stack || { red "Stack start failed. After a fix, run: bash ${APP_DIR}/scripts/install.sh --resume"; exit 1; }
   configure_ssl || true
   install_cli
   setup_cron
