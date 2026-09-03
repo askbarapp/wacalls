@@ -7,7 +7,10 @@
 #  Or with a domain pre-set:
 #    DOMAIN=wacall.in bash <(curl -fsSL https://raw.githubusercontent.com/askbarapp/wacalls/main/scripts/install.sh)
 # ============================================================
-set -euo pipefail
+set -uo pipefail
+# -e intentionally omitted: apt/docker errors should print clearly, not silently abort.
+
+trap 'red "❌ Installer failed at line ${LINENO}. Check output above."; exit 1' ERR
 
 APP_DIR="${WACALLS_DIR:-/opt/wacalls}"
 REPO="${WACALLS_REPO:-https://github.com/askbarapp/wacalls.git}"
@@ -52,33 +55,40 @@ check_resources() {
   ram="$(awk '/MemTotal/{print $2}' /proc/meminfo)"
   disk="$(df -k / | awk 'NR==2{print $4}')"
   echo "  CPU: ${cpus} cores   RAM: $((ram/1024)) MB   Free disk: $((disk/1024/1024)) GB"
-  (( cpus  < MIN_CPU     )) && yellow "⚠  Recommended: ${MIN_CPU}+ CPU cores"
-  (( ram   < MIN_RAM_KB  )) && yellow "⚠  Recommended: 4 GB+ RAM"
-  (( disk  < MIN_DISK_KB )) && yellow "⚠  Recommended: 25 GB+ free disk"
+  [[ "${cpus}" -lt "${MIN_CPU}"     ]] && yellow "⚠  Recommended: ${MIN_CPU}+ CPU cores" || true
+  [[ "${ram}"  -lt "${MIN_RAM_KB}"  ]] && yellow "⚠  Recommended: 4 GB+ RAM"             || true
+  [[ "${disk}" -lt "${MIN_DISK_KB}" ]] && yellow "⚠  Recommended: 25 GB+ free disk"      || true
+  green "✔ Resources checked"
 }
 
 # ── deps ─────────────────────────────────────────────────────
 install_packages() {
-  green "→ Installing system packages…"
+  green "→ Updating apt and installing system packages…"
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y -qq
-  apt-get install -y -qq \
-    curl git wget unzip ca-certificates gnupg ufw fail2ban \
-    openssl jq dnsutils rsync
+  apt-get update -y || { red "apt-get update failed"; exit 1; }
+  # Install only what we need — no full upgrade (avoids interactive prompts / hangs)
+  apt-get install -y \
+    curl git wget unzip ca-certificates gnupg ufw \
+    openssl jq dnsutils rsync \
+    || { red "apt-get install failed"; exit 1; }
+  # fail2ban is optional
+  apt-get install -y fail2ban 2>/dev/null || true
+  green "✔ System packages ready"
 }
 
 install_docker() {
   if command -v docker >/dev/null 2>&1; then
-    green "✔ Docker already installed ($(docker --version | head -1))"
+    green "✔ Docker already installed: $(docker --version)"
   else
     green "→ Installing Docker…"
-    curl -fsSL https://get.docker.com | sh
+    curl -fsSL https://get.docker.com | sh || { red "Docker install failed"; exit 1; }
   fi
   if ! docker compose version >/dev/null 2>&1; then
-    apt-get install -y -qq docker-compose-plugin
+    apt-get install -y docker-compose-plugin || { red "docker-compose-plugin install failed"; exit 1; }
   fi
   systemctl enable --now docker
-  green "✔ Docker $(docker --version | grep -oP '[\d.]+ '| head -1)ready"
+  green "✔ Docker ready: $(docker --version)"
+  green "✔ Compose ready: $(docker compose version)"
 }
 
 # ── clone / update repo ──────────────────────────────────────
