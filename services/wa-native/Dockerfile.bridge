@@ -13,4 +13,5 @@ WORKDIR /app
 RUN mkdir -p /data/recordings/calls
 COPY --from=build /wa-bridge /usr/local/bin/wa-bridge
 EXPOSE 4010
+EXPOSE 10000-10031/udp
 ENTRYPOINT ["/usr/local/bin/wa-bridge"]

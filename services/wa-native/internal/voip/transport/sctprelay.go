@@ -140,7 +140,7 @@ func (m *SctpRelayManager) connectToRelay(info RelayConfig) {
 	m.connections[id] = conn
 	m.mu.Unlock()
 
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	pc, err := newRelayPeerConnection()
 	if err != nil {
 		m.log.Error("relay peerconnection failed", "id", id, "err", err)
 		m.failConnection(conn)

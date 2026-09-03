@@ -185,12 +185,21 @@ EOF
 }
 
 configure_firewall() {
-  ufw default deny incoming
-  ufw default allow outgoing
-  ufw allow 22/tcp
-  ufw allow 80/tcp
-  ufw allow 443/tcp
-  ufw --force enable
+  chmod +x "${APP_DIR}/scripts/open-ports.sh"
+  "${APP_DIR}/scripts/open-ports.sh" || {
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow 22/tcp
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw allow 443/udp
+    ufw allow 3478/udp
+    ufw allow 3478/tcp
+    ufw allow 3480/udp
+    ufw allow 3480/tcp
+    ufw allow 10000:10031/udp
+    ufw --force enable
+  }
   systemctl enable --now fail2ban
 }
 

@@ -82,6 +82,13 @@ services:
       WHATSAPP_PORT: "4010"
       RECORDINGS_DIR: /data/recordings
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      PUBLIC_IP: ${PUBLIC_IP:-}
+      ICE_UDP_PORT_MIN: "10000"
+      ICE_UDP_PORT_MAX: "10031"
+    ports:
+      - "10000-10031:10000-10031/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - recordings:/data/recordings
     depends_on:

@@ -190,6 +190,7 @@ APP_ENV=production
 APP_URL=https://${DOMAIN}
 LOG_LEVEL=info
 DOMAIN=${DOMAIN}
+PUBLIC_IP=${SERVER_IP}
 NEXT_PUBLIC_API_URL=
 NEXT_PUBLIC_WS_URL=
 
@@ -253,15 +254,21 @@ EOF
 
 # ── firewall ────────────────────────────────────────────────
 configure_firewall() {
-  green "→ Configuring firewall (ufw)…"
-  ufw default deny incoming
-  ufw default allow outgoing
-  ufw allow 22/tcp comment "SSH"
-  ufw allow 80/tcp comment "HTTP"
-  ufw allow 443/tcp comment "HTTPS"
-  ufw --force enable
+  green "→ Configuring firewall (UFW) for HTTP/S + WhatsApp ICE/media…"
+  chmod +x "${APP_DIR}/scripts/open-ports.sh"
+  "${APP_DIR}/scripts/open-ports.sh" || {
+    ufw allow 22/tcp
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw allow 443/udp
+    ufw allow 3478/udp
+    ufw allow 3478/tcp
+    ufw allow 3480/udp
+    ufw allow 3480/tcp
+    ufw allow 10000:10031/udp
+    ufw --force enable
+  }
   systemctl enable --now fail2ban 2>/dev/null || true
-  green "✔ Firewall enabled (22, 80, 443)"
 }
 
 env_get() {
@@ -364,9 +371,10 @@ case "\${cmd}" in
   update)  sudo "\${APP_DIR}/scripts/update.sh" ;;
   backup)  sudo "\${APP_DIR}/scripts/backup.sh" ;;
   ssl)     sudo "\${APP_DIR}/scripts/enable-ssl.sh" ;;
+  ports)   sudo "\${APP_DIR}/scripts/open-ports.sh" ;;
   health)  curl -fsS "https://\$(grep '^DOMAIN=' \${APP_DIR}/.env | cut -d= -f2)/health" || curl -kfsS https://127.0.0.1/health ;;
   shell)   docker compose exec "\${1:-api}" sh ;;
-  *) echo "Usage: wacalls  status | logs [service] | restart [service] | update | backup | ssl | health | shell [service]" ;;
+  *) echo "Usage: wacalls  status | logs [service] | restart [service] | update | backup | ssl | ports | health | shell [service]" ;;
 esac
 CLIEOF
   chmod +x /usr/local/bin/wacalls
@@ -420,6 +428,12 @@ resume_install() {
   cd "${APP_DIR}"
   # Fix unquoted SMTP_FROM from older installer
   sed -i 's/^SMTP_FROM=WaCalls <\(.*\)>$/SMTP_FROM="WaCalls <\1>"/' "${APP_DIR}/.env" || true
+  if ! grep -q '^PUBLIC_IP=' "${APP_DIR}/.env"; then
+    PUBLIC_IP="$(curl -4 -fsS --max-time 8 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')"
+    echo "PUBLIC_IP=${PUBLIC_IP}" >> "${APP_DIR}/.env"
+  fi
+  chmod +x "${APP_DIR}/scripts/open-ports.sh"
+  "${APP_DIR}/scripts/open-ports.sh" || true
   docker compose up -d postgres redis api worker whatsapp web nginx
   sleep 8
   run_migrations || exit 1

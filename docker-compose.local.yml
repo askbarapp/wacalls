@@ -95,6 +95,10 @@ services:
     environment:
       <<: *local-env
       WHATSAPP_PORT: "4010"
+      ICE_UDP_PORT_MIN: "10000"
+      ICE_UDP_PORT_MAX: "10031"
+    ports:
+      - "10000-10031:10000-10031/udp"
     volumes:
       - recordings_local:/data/recordings
     depends_on:
