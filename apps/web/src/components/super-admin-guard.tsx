@@ -12,7 +12,7 @@ export function SuperAdminGuard({ children }: { children: React.ReactNode }) {
     api<{ success: true; data: Me }>("/api/v1/auth/me")
       .then((r) => {
         if (!r.data.superAdmin) {
-          router.replace("/");
+          router.replace("/dashboard");
           return;
         }
         setOk(true);

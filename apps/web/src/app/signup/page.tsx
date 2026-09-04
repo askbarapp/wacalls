@@ -52,7 +52,7 @@ export default function SignupPage() {
         body: JSON.stringify({ name, email, password, organizationName }),
       });
       localStorage.setItem("wacalls_token", res.data.accessToken);
-      window.location.href = "/";
+      window.location.href = "/dashboard";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create account");
     } finally {

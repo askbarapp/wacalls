@@ -25,7 +25,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password, remember }),
       });
       localStorage.setItem("wacalls_token", res.data.accessToken);
-      window.location.href = "/";
+      window.location.href = "/dashboard";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

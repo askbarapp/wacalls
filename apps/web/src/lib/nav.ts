@@ -34,7 +34,7 @@ export const NAV: Array<{
   group: NavGroup;
   superAdmin?: boolean;
 }> = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, group: "Overview" },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Overview" },
   { href: "/dialer", label: "Dialer", icon: PhoneCall, group: "Calling" },
   { href: "/visits", label: "Website Visit", icon: Globe, group: "Calling" },
   { href: "/channels", label: "WhatsApp", icon: Phone, group: "Calling" },
@@ -89,14 +89,14 @@ export const GROUP_TONE: Record<NavGroup, { label: string; active: string; icon:
 export function pageMeta(path: string) {
   const exact = NAV.find((item) => item.href === path);
   if (exact) return exact;
-  const hit = NAV.filter((item) => item.href !== "/" && path.startsWith(`${item.href}/`)).sort(
+  const hit = NAV.filter((item) => item.href !== "/dashboard" && path.startsWith(`${item.href}/`)).sort(
     (a, b) => b.href.length - a.href.length,
   )[0];
   return hit ?? { href: path, label: "Workspace", icon: LayoutDashboard, group: "Overview" as NavGroup };
 }
 
 export function navItemActive(href: string, path: string) {
-  if (href === "/") return path === "/";
+  if (href === "/dashboard") return path === "/dashboard";
   if (path === href) return true;
   if (!path.startsWith(`${href}/`)) return false;
   return !NAV.some(
