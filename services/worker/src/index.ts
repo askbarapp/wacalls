@@ -1091,9 +1091,10 @@ const campaignWorker = new Worker(
       const anyReady = pool.some((line) => line.status === "CONNECTED" && line.provider !== "CLOUD");
       if (!anyReady) {
         await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
-        log.warn({ campaignId }, "campaign paused: no connected WhatsApp Web line in rotation");
+        log.warn({ campaignId, pool: pool.map((p) => ({ id: p.id, status: p.status, provider: p.provider })) }, "campaign paused: no connected WhatsApp Web line in rotation");
         return { skipped: true, reason: "channel_not_connected" };
       }
+      log.info({ campaignId, busy: [...busy] }, "campaign waiting: all lines busy, retry soon");
       await enqueueCampaignContinue(campaign.id, campaign.organizationId, 4000);
       return { waiting: true };
     }
@@ -1216,7 +1217,17 @@ const campaignWorker = new Worker(
 );
 
 campaignWorker.on("failed", (job, err) => {
-  log.error({ err, jobId: job?.id }, "campaign job failed");
+  log.error({ err, jobId: job?.id, data: job?.data }, "campaign job failed");
+  const data = job?.data as { campaignId?: string; organizationId?: string } | undefined;
+  if (data?.campaignId && data?.organizationId) {
+    void enqueueCampaignContinue(data.campaignId, data.organizationId, 5000).catch((e) =>
+      log.warn({ err: e, campaignId: data.campaignId }, "could not re-queue failed campaign"),
+    );
+  }
+});
+
+campaignWorker.on("completed", (job, result) => {
+  log.info({ jobId: job.id, result }, "campaign job done");
 });
 
 const webhookWorker = new Worker(

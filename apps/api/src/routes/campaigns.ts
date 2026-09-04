@@ -31,10 +31,11 @@ async function startCampaign(orgId: string, id: string) {
     );
   }
   await prisma.campaign.update({ where: { id }, data: { status: "RUNNING" } });
+  // Always enqueue a fresh run job so a stalled worker/redis cannot leave the campaign frozen.
   await campaignQueue.add(
     "run",
     { campaignId: id, organizationId: orgId },
-    { jobId: `camp-${id}-${Date.now()}` },
+    { jobId: `camp-${id}-${Date.now()}`, removeOnComplete: 100, removeOnFail: 50 },
   );
   await enqueueWebhook(orgId, "campaign.started", { campaign_id: id });
   return { status: "RUNNING" as const };
@@ -461,6 +462,35 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     await app.requirePermission("campaigns.manage")(req);
     const { id } = req.params as { id: string };
     return ok(await startCampaign(auth.orgId, id));
+  });
+
+  /** Re-queue dialing for a RUNNING campaign that looks frozen (pending, 0 calls). */
+  app.post("/campaigns/:id/kick", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("campaigns.manage")(req);
+    const { id } = req.params as { id: string };
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, organizationId: auth.orgId },
+      select: { id: true, status: true, organizationId: true },
+    });
+    if (!campaign) throw new NotFoundError();
+    if (campaign.status !== "RUNNING" && campaign.status !== "PAUSED") {
+      throw new ConflictError("Only running or paused campaigns can be kicked.");
+    }
+    if (campaign.status === "PAUSED") {
+      await prisma.campaign.update({ where: { id }, data: { status: "RUNNING" } });
+    }
+    // Reset contacts stuck in "calling" with no live call back to pending
+    await prisma.campaignContact.updateMany({
+      where: { campaignId: id, status: "calling", skipped: false },
+      data: { status: "pending", nextAttemptAt: new Date() },
+    });
+    await campaignQueue.add(
+      "run",
+      { campaignId: id, organizationId: campaign.organizationId },
+      { jobId: `camp-kick-${id}-${Date.now()}`, removeOnComplete: 100, removeOnFail: 50 },
+    );
+    return ok({ status: "RUNNING", kicked: true });
   });
 
   app.post("/campaigns/:id/pause", async (req) => {

@@ -90,7 +90,7 @@ export default function CampaignReportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function act(action: "start" | "pause" | "stop") {
+  async function act(action: "start" | "pause" | "stop" | "kick") {
     setError("");
     try {
       await api(`/api/v1/campaigns/${id}/${action}`, { method: "POST" });
@@ -100,6 +100,15 @@ export default function CampaignReportPage() {
     }
   }
 
+  const isMessage = campaign?.type === "MESSAGE";
+  const looksFrozen =
+    Boolean(campaign) &&
+    campaign?.status === "RUNNING" &&
+    report &&
+    !isMessage &&
+    report.calls.total === 0 &&
+    contacts.some((c) => c.status === "pending" || c.status === "PENDING");
+
   if (!campaign || !report) {
     return (
       <div>
@@ -108,8 +117,6 @@ export default function CampaignReportPage() {
       </div>
     );
   }
-
-  const isMessage = campaign.type === "MESSAGE";
 
   return (
     <div>
@@ -129,6 +136,14 @@ export default function CampaignReportPage() {
                 Start
               </button>
             ) : null}
+            {campaign.status === "RUNNING" || looksFrozen ? (
+              <button
+                className="min-h-10 rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-ink-950"
+                onClick={() => void act("kick")}
+              >
+                Resume dialing
+              </button>
+            ) : null}
             {campaign.status === "RUNNING" ? (
               <button className="min-h-10 rounded-lg bg-white/10 px-3 py-2 text-sm" onClick={() => void act("pause")}>
                 Pause
@@ -142,6 +157,13 @@ export default function CampaignReportPage() {
           </div>
         }
       />
+      {looksFrozen ? (
+        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Campaign is RUNNING but no calls were placed yet. Tap <strong>Resume dialing</strong>, or on the VPS run{" "}
+          <code className="text-xs">docker compose restart worker</code> then resume again. Also confirm WhatsApp line is{" "}
+          <strong>Connected</strong>.
+        </div>
+      ) : null}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <StatusBadge status={campaign.status} />
         {campaign.scheduleAt ? (
