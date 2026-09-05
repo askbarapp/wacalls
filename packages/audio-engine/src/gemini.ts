@@ -2,9 +2,20 @@ import { pcmFloatToWav } from "./wav.js";
 import type { ChatTurn, TranscribeResult } from "./sarvam.js";
 import { inferSpokenLanguage, toBcp47 } from "./sarvam.js";
 
-export const GEMINI_CHAT_MODEL = "gemini-2.5-flash";
-export const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
-export const GEMINI_STT_MODEL = "gemini-2.5-flash";
+export const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
+export const GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
+export const GEMINI_STT_MODEL = "gemini-3.6-flash";
+
+/** Remap retired Gemini IDs so saved agents keep working for new API keys. */
+export function resolveGeminiModel(model?: string | null): string {
+  const id = (model || "").trim();
+  if (!id) return GEMINI_CHAT_MODEL;
+  if (id === "gemini-2.5-flash" || id === "models/gemini-2.5-flash") return GEMINI_CHAT_MODEL;
+  if (id.includes("2.5-flash-preview-tts") || id === "gemini-2.5-flash-preview-tts") {
+    return GEMINI_TTS_MODEL;
+  }
+  return id.replace(/^models\//, "");
+}
 
 export const GEMINI_VOICES = [
   "Kore",
@@ -163,7 +174,7 @@ export class GeminiClient {
     if (merged[0]?.role === "model") {
       merged.unshift({ role: "user", parts: [{ text: "Continue the phone call." }] });
     }
-    const res = await fetch(this.url(opts?.model || GEMINI_CHAT_MODEL), {
+    const res = await fetch(this.url(resolveGeminiModel(opts?.model)), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({

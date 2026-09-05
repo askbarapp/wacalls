@@ -1196,7 +1196,7 @@ export default function AiCallingPage() {
                     setAgent({
                       ...agent,
                       provider,
-                      model: provider === "gemini" ? "gemini-2.5-flash" : "sarvam-105b-conversations",
+                      model: provider === "gemini" ? "gemini-3.6-flash" : "sarvam-105b-conversations",
                       voice: provider === "gemini" ? "Kore" : "shubh",
                     });
                   }}
@@ -1243,7 +1243,7 @@ export default function AiCallingPage() {
                 <label className="mb-1 block text-xs text-slate-400">Conversation model</label>
                 <input
                   placeholder={
-                    agent.provider === "gemini" ? "e.g. gemini-2.5-flash" : "e.g. sarvam-105b-conversations"
+                    agent.provider === "gemini" ? "e.g. gemini-3.6-flash" : "e.g. sarvam-105b-conversations"
                   }
                   value={agent.model}
                   onChange={(e) => setAgent({ ...agent, model: e.target.value })}
@@ -1251,7 +1251,7 @@ export default function AiCallingPage() {
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
                   {agent.provider === "gemini"
-                    ? "gemini-2.5-flash is a good default for fast multilingual calls."
+                    ? "gemini-3.6-flash is a good default for fast multilingual calls."
                     : "Smaller models are usually faster. If unsure, keep the default."}
                 </p>
               </div>
@@ -1285,7 +1285,7 @@ export default function AiCallingPage() {
                       intentPlaybook: agent.intentPlaybook.filter((r) => r.intent.trim() && r.reply.trim()),
                       model:
                         agent.model ||
-                        (agent.provider === "gemini" ? "gemini-2.5-flash" : "sarvam-105b-conversations"),
+                        (agent.provider === "gemini" ? "gemini-3.6-flash" : "sarvam-105b-conversations"),
                     }),
                   });
                   setAgent((f) => ({
