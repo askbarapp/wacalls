@@ -1,7 +1,7 @@
 import { prisma } from "@wacalls/database";
 import { randomToken } from "@wacalls/auth";
 import { ConflictError, normalizePhone, NotFoundError } from "@wacalls/shared";
-import { createVoiceAiClient, buildVoiceAgentSystemPrompt, defaultModelForProvider, normalizeVoiceProvider } from "@wacalls/audio-engine";
+import { createVoiceAiClient, buildVoiceAgentSystemPrompt, defaultModelForProvider, normalizeVoiceProvider, normalizeIntentPlaybook } from "@wacalls/audio-engine";
 import { sendWhatsAppText } from "./messaging.js";
 import { enqueueCall } from "./calls.js";
 import { enqueueWebhook } from "./webhooks.js";
@@ -660,7 +660,20 @@ async function generateVisitAiReply(
       {
         role: "system",
         content: [
-          buildVoiceAgentSystemPrompt(ai, { name, phone }),
+          buildVoiceAgentSystemPrompt(
+            {
+              systemPrompt: ai.systemPrompt,
+              objective: ai.objective,
+              questions: ai.questions,
+              disallowed: ai.disallowed,
+              language: ai.language,
+              knowledgeBase: ai.knowledgeBase,
+              intentPlaybook: normalizeIntentPlaybook(ai.intentPlaybook),
+              maxCallDurationSec: ai.maxCallDurationSec,
+              wrapUpSec: ai.wrapUpSec,
+            },
+            { name, phone },
+          ),
           "You are also the website support chat agent. Replies appear in the website chat box and on WhatsApp. Keep answers short and helpful.",
         ].join("\n"),
       },
