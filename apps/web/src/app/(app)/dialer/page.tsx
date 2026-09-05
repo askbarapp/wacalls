@@ -120,6 +120,7 @@ export default function DialerPage() {
   const [agents, setAgents] = useState<DialerAgent[]>([]);
   const [recordings, setRecordings] = useState<DialerRecording[]>([]);
   const [sarvam, setSarvam] = useState(false);
+  const [gemini, setGemini] = useState(false);
   const [aiConfigId, setAiConfigId] = useState("");
   const [recordingId, setRecordingId] = useState("");
   const [ttsBody, setTtsBody] = useState("");
@@ -159,16 +160,23 @@ export default function DialerPage() {
     });
     loadHistory();
     void Promise.all([
-      api<{ success: true; data: { configs: DialerAgent[]; sarvamConfigured: boolean } }>("/api/v1/ai-configs"),
+      api<{
+        success: true;
+        data: { configs: DialerAgent[]; sarvamConfigured: boolean; geminiConfigured?: boolean };
+      }>("/api/v1/ai-configs"),
       api<{ success: true; data: DialerRecording[] }>("/api/v1/recordings"),
       api<{ success: true; data: { configured: boolean; envFallback?: boolean } }>("/api/v1/ai/sarvam"),
+      api<{ success: true; data: { configured: boolean; envFallback?: boolean } }>("/api/v1/ai/gemini").catch(
+        () => ({ data: { configured: false, envFallback: false } }),
+      ),
     ])
-      .then(([ai, rec, key]) => {
+      .then(([ai, rec, key, gemKey]) => {
         setAgents(ai.data.configs ?? []);
         setAiConfigId((id) => id || ai.data.configs?.[0]?.id || "");
         setRecordings(rec.data ?? []);
         setRecordingId((id) => id || rec.data?.[0]?.id || "");
         setSarvam(Boolean(key.data.configured || key.data.envFallback || ai.data.sarvamConfigured));
+        setGemini(Boolean(gemKey.data.configured || gemKey.data.envFallback || ai.data.geminiConfigured));
       })
       .catch(() => undefined);
   }, []);
@@ -661,6 +669,7 @@ export default function DialerPage() {
         languages={LANGUAGES}
         speakers={SPEAKERS}
         sarvam={sarvam}
+        gemini={gemini}
         aiConfigId={aiConfigId}
         onAiConfigId={setAiConfigId}
         recordingId={recordingId}

@@ -175,3 +175,6 @@ export function createAIProvider(): AIProvider {
 export * from "./sarvam.js";
 export * from "./wav.js";
 export * from "./voice-agent-prompt.js";
+export * from "./gemini.js";
+export * from "./voice-provider.js";
+export * from "./intent-playbook.js";

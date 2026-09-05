@@ -17,7 +17,7 @@ type Channel = {
 };
 type List = { id: string; name: string; _count?: { members: number }; verifiedCount?: number };
 type Recording = { id: string; name: string };
-type Agent = { id: string; name: string; knowledgeBase?: { name: string } | null };
+type Agent = { id: string; name: string; provider?: string | null; knowledgeBase?: { name: string } | null };
 type MsgTemplate = { id: string; name: string; body: string; kind?: string };
 type Lang = { code: string; label: string };
 
@@ -54,6 +54,7 @@ export default function NewCampaignPage() {
   const [languages, setLanguages] = useState<Lang[]>([]);
   const [speakers, setSpeakers] = useState<string[]>([]);
   const [sarvam, setSarvam] = useState({ configured: false });
+  const [gemini, setGemini] = useState({ configured: false });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -72,6 +73,7 @@ export default function NewCampaignPage() {
     ringTimeoutSec: 60,
     batchSize: 0,
     sleepAfterBatchSec: 0,
+    maxCallDurationSec: 0,
     messageTemplateId: "",
     messageBody: "",
     schedule: false,
@@ -88,11 +90,14 @@ export default function NewCampaignPage() {
         "/api/v1/message-templates",
       ),
       api<{ success: true; data: { languages: Lang[]; speakers: string[] } }>("/api/v1/voice-templates/options"),
-      api<{ success: true; data: { configured: boolean } }>("/api/v1/ai/sarvam").catch(() => ({
+      api<{ success: true; data: { configured: boolean; envFallback?: boolean } }>("/api/v1/ai/sarvam").catch(() => ({
+        data: { configured: false },
+      })),
+      api<{ success: true; data: { configured: boolean; envFallback?: boolean } }>("/api/v1/ai/gemini").catch(() => ({
         data: { configured: false },
       })),
     ])
-      .then(([ch, l, rec, ai, msg, opts, key]) => {
+      .then(([ch, l, rec, ai, msg, opts, key, gemKey]) => {
         setChannels(ch.data);
         setLists(l.data);
         setRecordings(rec.data);
@@ -101,7 +106,8 @@ export default function NewCampaignPage() {
         setCustomTemplates(msg.data.custom ?? []);
         setLanguages(opts.data.languages ?? []);
         setSpeakers(opts.data.speakers ?? []);
-        setSarvam({ configured: Boolean(key.data.configured) });
+        setSarvam({ configured: Boolean(key.data.configured || key.data.envFallback) });
+        setGemini({ configured: Boolean(gemKey.data.configured || gemKey.data.envFallback) });
         const web = ch.data.filter((x) => x.provider !== "CLOUD");
         const connected = web.find((x) => x.status === "CONNECTED") ?? web[0] ?? ch.data[0];
         setForm((f) => ({
@@ -117,6 +123,11 @@ export default function NewCampaignPage() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
+
+  const selectedAiAgent = agents.find((a) => a.id === form.aiConfigId);
+  const selectedAiProvider =
+    (selectedAiAgent?.provider || "sarvam").toLowerCase() === "gemini" ? "gemini" : "sarvam";
+  const aiKeyReady = selectedAiProvider === "gemini" ? gemini.configured : sarvam.configured;
 
   const voiceDevices = useMemo(
     () => channels.filter((c) => c.provider !== "CLOUD"),
@@ -227,8 +238,11 @@ export default function NewCampaignPage() {
         batchSize: form.batchSize,
         sleepAfterBatchSec: form.sleepAfterBatchSec,
       };
+      if (form.voiceType === "AI_VOICE") {
+        payload.aiConfigId = form.aiConfigId;
+        if (form.maxCallDurationSec > 0) payload.maxCallDurationSec = form.maxCallDurationSec;
+      }
       if (form.voiceType === "RECORDED") payload.recordingId = form.recordingId;
-      if (form.voiceType === "AI_VOICE") payload.aiConfigId = form.aiConfigId;
       if (form.voiceType === "TTS") {
         payload.ttsBody = form.ttsBody.trim();
         payload.ttsLanguage = form.ttsLanguage;
@@ -313,9 +327,9 @@ export default function NewCampaignPage() {
               Open Contacts
             </Link>
           ) : null}
-          {error.toLowerCase().includes("sarvam") ? (
+          {error.toLowerCase().includes("sarvam") || error.toLowerCase().includes("gemini") ? (
             <Link href="/ai-calling" className="font-medium text-brand-400 underline">
-              AI calling
+              AI calling → API keys
             </Link>
           ) : null}
         </div>
@@ -585,7 +599,18 @@ export default function NewCampaignPage() {
             ) : null}
 
             {form.voiceType === "AI_VOICE" ? (
-              <div>
+              <div className="space-y-3">
+                {!aiKeyReady ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    {selectedAiProvider === "gemini"
+                      ? "A Google Gemini API key is required for this agent. Add yours in "
+                      : "A Sarvam AI API key is required for this agent. Add yours in "}
+                    <Link className="font-medium underline" href="/ai-calling">
+                      AI calling → API keys
+                    </Link>
+                    .
+                  </div>
+                ) : null}
                 <label className="block text-sm text-slate-300">
                   AI agent
                   <select
@@ -597,6 +622,7 @@ export default function NewCampaignPage() {
                     {agents.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}
+                        {(a.provider || "sarvam") === "gemini" ? " · Gemini" : " · Sarvam"}
                         {a.knowledgeBase ? ` · ${a.knowledgeBase.name}` : " · no knowledge base"}
                       </option>
                     ))}
@@ -608,6 +634,24 @@ export default function NewCampaignPage() {
                 >
                   {form.aiConfigId ? "Test this agent first" : "Create and test an AI agent"}
                 </Link>
+                <label className="mt-3 block text-sm text-slate-300">
+                  Call duration override (optional)
+                  <select
+                    className="mt-1 min-h-11"
+                    value={form.maxCallDurationSec}
+                    onChange={(e) => setForm({ ...form, maxCallDurationSec: Number(e.target.value) || 0 })}
+                  >
+                    <option value={0}>Use agent default</option>
+                    {[60, 90, 120, 180, 240, 300].map((sec) => (
+                      <option key={sec} value={sec}>
+                        {sec / 60} min
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Overrides this campaign only. Leave on agent default unless you need a shorter/longer talk time.
+                  </span>
+                </label>
               </div>
             ) : null}
 

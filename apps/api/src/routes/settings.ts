@@ -2,12 +2,18 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "@wacalls/database";
 import { ok } from "@wacalls/shared";
-import { extractSarvamApiKey } from "@wacalls/audio-engine";
+import { extractGeminiApiKey, extractSarvamApiKey } from "@wacalls/audio-engine";
 
 function publicValue(key: string, value: unknown) {
-  if (key !== "sarvam_api_key") return value;
-  const apiKey = extractSarvamApiKey(value);
-  return { configured: Boolean(apiKey), last4: apiKey ? apiKey.slice(-4) : "" };
+  if (key === "sarvam_api_key") {
+    const apiKey = extractSarvamApiKey(value);
+    return { configured: Boolean(apiKey), last4: apiKey ? apiKey.slice(-4) : "" };
+  }
+  if (key === "gemini_api_key") {
+    const apiKey = extractGeminiApiKey(value);
+    return { configured: Boolean(apiKey), last4: apiKey ? apiKey.slice(-4) : "" };
+  }
+  return value;
 }
 
 export const settingsRoutes: FastifyPluginAsync = async (app) => {
@@ -30,6 +36,10 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     let stored = body.value;
     if (key === "sarvam_api_key") {
       const apiKey = typeof stored === "string" ? stored.trim() : extractSarvamApiKey(stored);
+      stored = { apiKey };
+    }
+    if (key === "gemini_api_key") {
+      const apiKey = typeof stored === "string" ? stored.trim() : extractGeminiApiKey(stored);
       stored = { apiKey };
     }
     const row = await prisma.setting.upsert({

@@ -79,6 +79,14 @@ function ContactsInner() {
   const [savingList, setSavingList] = useState(false);
   const [editingId, setEditingId] = useState("");
   const [editName, setEditName] = useState("");
+  const [memoryEdit, setMemoryEdit] = useState<{
+    phone: string;
+    name: string;
+    summary: string;
+    factsText: string;
+    lastIntent: string;
+  } | null>(null);
+  const [memoryBusy, setMemoryBusy] = useState(false);
 
   const members = openGroup?.members ?? [];
   const memberIds = useMemo(() => members.map((m) => m.contact.id), [members]);
@@ -718,14 +726,40 @@ function ContactsInner() {
                           <WhatsAppMark contact={m.contact} />
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => void removeMember(m.contact.id)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-rose-500/15 hover:text-rose-200"
-                            aria-label={`Remove ${m.contact.name}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setError("");
+                                try {
+                                  const res = await api<{
+                                    success: true;
+                                    data: { summary?: string | null; facts?: string[]; lastIntent?: string | null };
+                                  }>(`/api/v1/ai/memories/${encodeURIComponent(m.contact.phone)}`).catch(() => null);
+                                  setMemoryEdit({
+                                    phone: m.contact.phone,
+                                    name: m.contact.name,
+                                    summary: res?.data?.summary || "",
+                                    factsText: (res?.data?.facts || []).join("\n"),
+                                    lastIntent: res?.data?.lastIntent || "",
+                                  });
+                                } catch (err) {
+                                  setError(err instanceof Error ? err.message : "Could not load memory");
+                                }
+                              }}
+                              className="rounded-lg px-2 py-1 text-xs text-brand-300 hover:bg-white/10"
+                            >
+                              Memory
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void removeMember(m.contact.id)}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-rose-500/15 hover:text-rose-200"
+                              aria-label={`Remove ${m.contact.name}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -743,6 +777,90 @@ function ContactsInner() {
           )}
         </section>
       </div>
+
+      {memoryEdit ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-ink-900 p-5 shadow-xl">
+            <h3 className="text-base font-medium text-white">Caller memory · {memoryEdit.name}</h3>
+            <p className="mb-3 text-xs text-slate-500">{memoryEdit.phone}</p>
+            <textarea
+              className="mb-2 min-h-20 w-full"
+              placeholder="Summary"
+              value={memoryEdit.summary}
+              onChange={(e) => setMemoryEdit({ ...memoryEdit, summary: e.target.value })}
+            />
+            <textarea
+              className="mb-2 min-h-16 w-full"
+              placeholder="Facts (one per line)"
+              value={memoryEdit.factsText}
+              onChange={(e) => setMemoryEdit({ ...memoryEdit, factsText: e.target.value })}
+            />
+            <input
+              className="mb-4 w-full"
+              placeholder="Last intent (optional)"
+              value={memoryEdit.lastIntent}
+              onChange={(e) => setMemoryEdit({ ...memoryEdit, lastIntent: e.target.value })}
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={memoryBusy}
+                className="rounded-lg bg-brand-500 px-4 py-2 text-sm text-ink-950"
+                onClick={async () => {
+                  setMemoryBusy(true);
+                  setError("");
+                  try {
+                    await api(`/api/v1/ai/memories/${encodeURIComponent(memoryEdit.phone)}`, {
+                      method: "PUT",
+                      body: JSON.stringify({
+                        summary: memoryEdit.summary.trim() || null,
+                        facts: memoryEdit.factsText
+                          .split("\n")
+                          .map((l) => l.trim())
+                          .filter(Boolean),
+                        lastIntent: memoryEdit.lastIntent.trim() || null,
+                      }),
+                    });
+                    setNotice(`Memory saved for ${memoryEdit.name}.`);
+                    setMemoryEdit(null);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not save memory");
+                  } finally {
+                    setMemoryBusy(false);
+                  }
+                }}
+              >
+                {memoryBusy ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-white/10 px-4 py-2 text-sm"
+                onClick={() => setMemoryEdit(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ml-auto rounded-lg bg-rose-500/15 px-4 py-2 text-sm text-rose-200"
+                onClick={async () => {
+                  setMemoryBusy(true);
+                  try {
+                    await api(`/api/v1/ai/memories/${encodeURIComponent(memoryEdit.phone)}`, { method: "DELETE" });
+                    setNotice("Memory cleared.");
+                    setMemoryEdit(null);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not delete memory");
+                  } finally {
+                    setMemoryBusy(false);
+                  }
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

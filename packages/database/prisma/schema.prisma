@@ -178,6 +178,8 @@ model Organization {
   visitChatMessages   VisitChatMessage[]
   incomingAnswers     IncomingAnswerConfig[]
   autoReplyRules      AutoReplyRule[]
+  contactMemories     ContactMemory[]
+  intentEvents        IntentEvent[]
 
   @@index([planId])
   @@index([status])
@@ -405,6 +407,8 @@ model Campaign {
   ringTimeoutSec  Int                  @default(60) @map("ring_timeout_sec")
   batchSize       Int                  @default(0) @map("batch_size")
   sleepAfterBatchSec Int               @default(0) @map("sleep_after_batch_sec")
+  /// Optional AI talk limit for this campaign; null = use agent default.
+  maxCallDurationSec Int?              @map("max_call_duration_sec")
   createdAt       DateTime             @default(now()) @map("created_at")
   updatedAt       DateTime             @updatedAt @map("updated_at")
 
@@ -632,6 +636,14 @@ model AiConfig {
   temperature     Float    @default(0.4)
   maxTokens       Int      @default(400) @map("max_tokens")
   appointmentMessage String? @map("appointment_message")
+  /// Soft/hard call length for AI voice (seconds).
+  maxCallDurationSec Int     @default(120) @map("max_call_duration_sec")
+  /// Seconds before max when the agent should politely wrap up.
+  wrapUpSec          Int     @default(25) @map("wrap_up_sec")
+  /// related_only | always | never
+  memoryRecallMode   String  @default("related_only") @map("memory_recall_mode")
+  /// Intent playbook: [{ intent, examples, reply, action }]
+  intentPlaybook     Json?   @map("intent_playbook")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -646,6 +658,54 @@ model AiConfig {
   @@index([organizationId])
   @@index([knowledgeBaseId])
   @@map("ai_configs")
+}
+
+/// Org-wide memory keyed by phone — shared across all AI agents in the org.
+model ContactMemory {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  /// Digits-only E.164-ish key (no +).
+  phone          String
+  summary        String?
+  /// Short fact list, e.g. ["Prefers Hindi", "Interested in Plan A"]
+  facts          Json?
+  lastIntent     String?  @map("last_intent")
+  lastOutcome    String?  @map("last_outcome")
+  callCount      Int      @default(0) @map("call_count")
+  lastCallAt     DateTime? @map("last_call_at")
+  lastCallId     String?  @map("last_call_id")
+  /// When true, AI will not load or update memory for this number.
+  optOut         Boolean  @default(false) @map("opt_out")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, phone])
+  @@index([organizationId])
+  @@index([phone])
+  @@index([updatedAt])
+  @@map("contact_memories")
+}
+
+/// Matched playbook intents for analytics.
+model IntentEvent {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  aiConfigId     String?  @map("ai_config_id")
+  callId         String?  @map("call_id")
+  phone          String?
+  intent         String
+  action         String?
+  utterance      String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, intent])
+  @@index([aiConfigId])
+  @@map("intent_events")
 }
 
 model IncomingAnswerConfig {

@@ -4,7 +4,7 @@ import { createHmac, createHash } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pino from "pino";
-import { prisma, setCallTranscript } from "@wacalls/database";
+import { prisma, setCallTranscript, purgeExpiredContactMemories } from "@wacalls/database";
 import {
   ChannelLock,
   ChannelWaitQueue,
@@ -1458,3 +1458,14 @@ log.info("WaCalls worker started");
 void resumeRunningCampaigns().catch((err) => {
   log.error({ err }, "failed to resume running campaigns");
 });
+
+async function runMemoryRetention() {
+  try {
+    const deleted = await purgeExpiredContactMemories(prisma);
+    if (deleted > 0) log.info({ deleted }, "purged expired contact memories");
+  } catch (err) {
+    log.warn({ err }, "memory retention purge failed");
+  }
+}
+void runMemoryRetention();
+setInterval(() => void runMemoryRetention(), 24 * 60 * 60 * 1000);

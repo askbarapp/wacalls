@@ -8,6 +8,7 @@ export type CallMode = "ai" | "tts" | "recording" | "live";
 export type DialerAgent = {
   id: string;
   name: string;
+  provider?: string | null;
   greeting?: string | null;
   systemPrompt: string;
   language: string;
@@ -61,6 +62,7 @@ export function DialerModePanel({
   languages,
   speakers,
   sarvam,
+  gemini,
   aiConfigId,
   onAiConfigId,
   recordingId,
@@ -86,6 +88,7 @@ export function DialerModePanel({
   languages: DialerLang[];
   speakers: string[];
   sarvam: boolean;
+  gemini: boolean;
   aiConfigId: string;
   onAiConfigId: (id: string) => void;
   recordingId: string;
@@ -105,6 +108,15 @@ export function DialerModePanel({
   onCall: () => void;
 }) {
   const agent = agents.find((a) => a.id === aiConfigId);
+  const agentProvider = (agent?.provider || "sarvam").toLowerCase() === "gemini" ? "gemini" : "sarvam";
+  const keyReady =
+    mode === "tts"
+      ? sarvam
+      : mode === "ai"
+        ? agentProvider === "gemini"
+          ? gemini
+          : sarvam
+        : true;
   const needsKey = mode === "ai" || mode === "tts";
   return (
     <section className="flex h-full min-h-[720px] flex-col rounded-[2rem] border border-white/10 bg-ink-900/80 p-5">
@@ -142,13 +154,16 @@ export function DialerModePanel({
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
+                  {(a.provider || "sarvam") === "gemini" ? " · Gemini" : " · Sarvam"}
                 </option>
               ))}
             </select>
             {agent ? (
               <>
                 <p className="text-xs text-slate-500">
-                  Uses this agent’s prompt, greeting, voice, and appointment slots.{" "}
+                  Uses this agent’s{" "}
+                  {agentProvider === "gemini" ? "Google Gemini" : "Sarvam"} key, prompt, greeting, voice, and
+                  appointment slots.{" "}
                   <Link href={`/ai-calling?test=${agent.id}`} className="text-brand-400 underline">
                     Test / edit
                   </Link>
@@ -264,13 +279,15 @@ export function DialerModePanel({
           </p>
         ) : null}
 
-        {needsKey && !sarvam ? (
+        {needsKey && !keyReady ? (
           <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            Add your Sarvam AI API key on{" "}
+            {mode === "ai" && agentProvider === "gemini"
+              ? "Add your Google Gemini API key on "
+              : "Add your Sarvam AI API key on "}
             <Link href="/ai-calling" className="font-medium underline">
-              AI calling
+              AI calling → API keys
             </Link>{" "}
-            before using text-to-speech or the AI agent.
+            before using {mode === "ai" ? "this AI agent" : "text-to-speech"}.
           </p>
         ) : null}
       </div>

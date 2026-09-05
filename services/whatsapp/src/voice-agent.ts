@@ -1,14 +1,27 @@
 import pino from "pino";
-import { prisma } from "@wacalls/database";
+import { prisma, getContactMemory, formatMemoryForPrompt, upsertContactMemory, parseMemoryUpdate, recordIntentEvent } from "@wacalls/database";
 import {
-  SarvamClient,
+  createVoiceAiClient,
+  extractGeminiApiKey,
   extractSarvamApiKey,
   pcmFloatToWav,
   renderVoiceScript,
   inferSpokenLanguage,
   splitSpokenSentences,
   toBcp47,
+  normalizeVoiceProvider,
+  defaultVoiceForProvider,
+  buildVoiceAgentSystemPrompt,
+  normalizeIntentPlaybook,
+  matchIntentPlaybook,
+  parseHangupTag,
+  defaultHangupReply,
+  defaultWrapUpReply,
+  DEFAULT_MAX_CALL_DURATION_SEC,
+  DEFAULT_WRAP_UP_SEC,
   type ChatTurn,
+  type IntentPlaybookItem,
+  type VoiceAiClient,
 } from "@wacalls/audio-engine";
 import type { CallingEngine } from "@wacalls/calling-engine";
 
@@ -37,18 +50,49 @@ export async function resolveSarvamApiKey(organizationId: string): Promise<strin
   return key;
 }
 
+async function resolveProviderClient(organizationId: string, provider?: string | null): Promise<VoiceAiClient> {
+  const id = normalizeVoiceProvider(provider);
+  if (id === "gemini") {
+    const row = await prisma.setting.findFirst({
+      where: { organizationId, key: "gemini_api_key" },
+    });
+    const key = extractGeminiApiKey(row?.value) || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+    if (!key) throw new Error("Google Gemini API key is missing. Add it on AI calling → API keys.");
+    return createVoiceAiClient("gemini", key);
+  }
+  return createVoiceAiClient("sarvam", await resolveSarvamApiKey(organizationId));
+}
+
 export async function startVoiceAgent(engine: CallingEngine, cfg: AgentConfig): Promise<void> {
   await stopVoiceAgent(cfg.callId);
-  const ai = await prisma.aiConfig.findUnique({
-    where: { id: cfg.aiConfigId },
-    include: { knowledgeBase: { include: { documents: { take: 40 } } } },
-  });
+  const [ai, memory] = await Promise.all([
+    prisma.aiConfig.findUnique({
+      where: { id: cfg.aiConfigId },
+      include: { knowledgeBase: { include: { documents: { take: 40 } } } },
+    }),
+    getContactMemory(prisma, cfg.organizationId, cfg.phone),
+  ]);
   if (!ai) {
     log.warn({ callId: cfg.callId }, "AI config missing; skipping voice agent");
     return;
   }
-  const key = await resolveSarvamApiKey(cfg.organizationId);
-  const agent = new VoiceAgent(engine, cfg, ai, new SarvamClient(key));
+  const client = await resolveProviderClient(cfg.organizationId, ai.provider);
+  const playbook = normalizeIntentPlaybook(ai.intentPlaybook);
+  const recallMode =
+    ai.memoryRecallMode === "always" || ai.memoryRecallMode === "never" ? ai.memoryRecallMode : "related_only";
+  const agent = new VoiceAgent(
+    engine,
+    cfg,
+    {
+      ...ai,
+      intentPlaybook: playbook,
+      maxCallDurationSec: ai.maxCallDurationSec ?? DEFAULT_MAX_CALL_DURATION_SEC,
+      wrapUpSec: ai.wrapUpSec ?? DEFAULT_WRAP_UP_SEC,
+      memoryRecallMode: recallMode,
+    },
+    client,
+    formatMemoryForPrompt(memory, recallMode),
+  );
   agents.set(cfg.callId, agent);
   agents.set(cfg.engineCallId, agent);
   void agent.start();
@@ -75,9 +119,18 @@ class VoiceAgent {
   private speakingSamples = 0;
   private silenceSamples = 0;
   private turnBusy = false;
+  private wrappingUp = false;
+  private hangupRequested = false;
+  private memorySaved = false;
+  private callStartedAt = 0;
+  private durationTimer: ReturnType<typeof setInterval> | null = null;
+  private lastMatchedIntent: string | null = null;
   private activeLanguage: string;
   private readonly sampleRate = 16_000;
   private readonly contactName: string;
+  private readonly playbook: IntentPlaybookItem[];
+  private readonly maxMs: number;
+  private readonly wrapMs: number;
 
   constructor(
     private readonly engine: CallingEngine,
@@ -93,23 +146,39 @@ class VoiceAgent {
       model: string;
       temperature: number;
       maxTokens: number;
+      maxCallDurationSec: number;
+      wrapUpSec: number;
+      intentPlaybook: IntentPlaybookItem[];
       knowledgeBase: { name: string; documents: Array<{ title: string; content: string }> } | null;
     },
-    private readonly sarvam: SarvamClient,
+    private readonly sarvam: VoiceAiClient,
+    private readonly memoryPrompt: string,
   ) {
     this.contactName = cfg.contactName?.trim() || "there";
     this.activeLanguage = toBcp47(ai.language || "hi-IN");
+    this.playbook = ai.intentPlaybook;
+    this.maxMs = Math.max(30, ai.maxCallDurationSec) * 1000;
+    this.wrapMs = Math.min(Math.max(5, ai.wrapUpSec), Math.floor(ai.maxCallDurationSec / 2)) * 1000;
   }
 
   async start() {
+    this.callStartedAt = Date.now();
+    this.startDurationWatch();
     const greeting =
       this.ai.greeting?.trim() ||
       `Hello ${this.contactName}, thanks for taking our call. How can I help you today?`;
-    await this.say(renderVoiceScript(greeting, { name: this.contactName, phone: this.cfg.phone }));
+    const spoken = renderVoiceScript(greeting, { name: this.contactName, phone: this.cfg.phone });
+    this.history.push({ role: "assistant", content: spoken });
+    await this.say(spoken);
   }
 
   stop() {
     this.stopped = true;
+    if (this.durationTimer) {
+      clearInterval(this.durationTimer);
+      this.durationTimer = null;
+    }
+    void this.persistMemory(this.hangupRequested ? "caller_ended" : "call_ended");
   }
 
   onDownlink(pcm: Float32Array) {
@@ -140,6 +209,35 @@ class VoiceAgent {
     }
   }
 
+  private startDurationWatch() {
+    if (this.durationTimer) return;
+    this.durationTimer = setInterval(() => {
+      if (this.stopped || !this.callStartedAt) return;
+      const elapsed = Date.now() - this.callStartedAt;
+      if (!this.wrappingUp && elapsed >= this.maxMs - this.wrapMs) {
+        this.wrappingUp = true;
+        if (!this.speaking && !this.turnBusy) {
+          void this.say(defaultWrapUpReply(this.activeLanguage));
+        }
+      }
+      if (elapsed >= this.maxMs) void this.thankAndHangup(defaultHangupReply(this.activeLanguage));
+    }, 2000);
+  }
+
+  private async thankAndHangup(spoken: string) {
+    if (this.stopped || this.hangupRequested) return;
+    this.hangupRequested = true;
+    const line = spoken.trim() || defaultHangupReply(this.activeLanguage);
+    this.history.push({ role: "assistant", content: line });
+    await this.say(line);
+    try {
+      await this.engine.hangup(this.cfg.callId);
+    } catch (err) {
+      log.warn({ err, callId: this.cfg.callId }, "hangup failed");
+    }
+    this.stop();
+  }
+
   private async handleUtterance(pcm: Float32Array) {
     if (this.stopped || this.speaking || this.turnBusy) return;
     this.turnBusy = true;
@@ -150,22 +248,67 @@ class VoiceAgent {
       if (!text || this.stopped) return;
       this.activeLanguage = inferSpokenLanguage(text, stt.languageCode, this.activeLanguage);
       log.info({ callId: this.cfg.callId, text, language: this.activeLanguage }, "callee said");
-      const reply = await this.sarvam.chat(
-        [
-          { role: "system", content: this.systemPrompt() },
-          ...this.history.slice(-10),
-          { role: "user", content: `[Speak in ${this.activeLanguage}]\n${text}` },
-        ],
-        {
-          model: this.ai.model || undefined,
-          temperature: Math.min(this.ai.temperature ?? 0.4, 0.45),
-          maxTokens: Math.min(this.ai.maxTokens || 120, 96),
-        },
-      );
+
+      const matched = matchIntentPlaybook(text, this.playbook);
+      if (matched) {
+        this.lastMatchedIntent = matched.intent;
+        void recordIntentEvent(prisma, {
+          organizationId: this.cfg.organizationId,
+          aiConfigId: this.cfg.aiConfigId,
+          callId: this.cfg.callId,
+          phone: this.cfg.phone,
+          intent: matched.intent,
+          action: matched.action,
+          utterance: text,
+        }).catch(() => undefined);
+      }
+      if (matched?.action === "hangup") {
+        this.history.push({ role: "user", content: text });
+        await this.thankAndHangup(matched.reply);
+        return;
+      }
+
+      let reply: string;
+      if (matched?.action === "continue" && matched.reply.trim()) {
+        reply = matched.reply.trim();
+      } else {
+        reply = await this.sarvam.chat(
+          [
+            {
+              role: "system",
+              content: buildVoiceAgentSystemPrompt(this.ai, {
+                name: this.contactName,
+                phone: this.cfg.phone,
+              }, {
+                memory: this.memoryPrompt,
+                wrappingUp: this.wrappingUp,
+              }),
+            },
+            ...this.history.slice(-10),
+            { role: "user", content: `[Speak in ${this.activeLanguage}]\n${text}` },
+          ],
+          {
+            model: this.ai.model || undefined,
+            temperature: Math.min(this.ai.temperature ?? 0.4, 0.45),
+            maxTokens: Math.min(this.ai.maxTokens || 120, 96),
+          },
+        );
+      }
       if (!reply || this.stopped) return;
+      const hangupParsed = parseHangupTag(reply);
+      reply = hangupParsed.spoken;
       this.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
       if (this.history.length > 14) this.history = this.history.slice(-14);
       await this.say(reply);
+      if (hangupParsed.hangup || this.wrappingUp) {
+        this.hangupRequested = true;
+        try {
+          await this.engine.hangup(this.cfg.callId);
+        } catch (err) {
+          log.warn({ err, callId: this.cfg.callId }, "hangup failed");
+        }
+        this.stop();
+      }
     } catch (err) {
       log.warn({ err, callId: this.cfg.callId }, "voice agent turn failed");
     } finally {
@@ -173,25 +316,39 @@ class VoiceAgent {
     }
   }
 
-  private systemPrompt(): string {
-    const kb = (this.ai.knowledgeBase?.documents ?? [])
-      .map((d) => `### ${d.title}\n${d.content}`)
-      .join("\n\n")
-      .slice(0, 4500);
-    const language = toBcp47(this.ai.language);
-    return [
-      this.ai.systemPrompt,
-      `You are a live phone agent. Sound human and brief. Mirror the caller's language (Hindi/English/Hinglish).`,
-      `Keep replies under 25 words. Default greeting language: ${language}.`,
-      `Caller name: ${this.contactName}. Phone: ${this.cfg.phone}.`,
-      this.ai.objective ? `Objective: ${this.ai.objective}` : "",
-      this.ai.questions ? `Questions to cover if relevant: ${this.ai.questions}` : "",
-      this.ai.disallowed ? `Never do: ${this.ai.disallowed}` : "",
-      kb ? `Knowledge base (${this.ai.knowledgeBase?.name}):\n${kb}` : "",
-      "If you do not know, say you will arrange a callback. Do not invent facts outside the knowledge base.",
-    ]
-      .filter(Boolean)
-      .join("\n");
+  private async persistMemory(outcome: string) {
+    if (this.memorySaved) return;
+    this.memorySaved = true;
+    if (this.history.length < 2) return;
+    try {
+      const transcript = this.history
+        .map((t) => `${t.role === "user" ? "Caller" : "Agent"}: ${t.content}`)
+        .join("\n")
+        .slice(0, 3500);
+      const raw = await this.sarvam.chat(
+        [
+          {
+            role: "system",
+            content:
+              "Summarize this phone call for future agents. Reply with lines only:\nSUMMARY: one short sentence\nFACT: short fact (0-5 lines)\nINTENT: main caller intent or none",
+          },
+          { role: "user", content: transcript },
+        ],
+        { temperature: 0.2, maxTokens: 160 },
+      );
+      const parsed = parseMemoryUpdate(raw || "");
+      await upsertContactMemory(prisma, {
+        organizationId: this.cfg.organizationId,
+        phone: this.cfg.phone,
+        summary: parsed.summary,
+        facts: parsed.facts,
+        lastIntent: parsed.lastIntent || this.lastMatchedIntent,
+        lastOutcome: outcome,
+        callId: this.cfg.callId,
+      });
+    } catch (err) {
+      log.warn({ err, callId: this.cfg.callId }, "contact memory update failed");
+    }
   }
 
   private async say(text: string) {
@@ -199,7 +356,7 @@ class VoiceAgent {
     this.speaking = true;
     const opts = {
       language: this.activeLanguage,
-      speaker: this.ai.voice || "shubh",
+      speaker: this.ai.voice || defaultVoiceForProvider(this.sarvam.provider),
       sampleRate: this.sampleRate,
       pace: 1.08,
     };

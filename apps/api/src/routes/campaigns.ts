@@ -100,6 +100,7 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         ringTimeoutSec: z.number().int().min(5).max(180).optional(),
         batchSize: z.number().int().min(0).max(500).optional(),
         sleepAfterBatchSec: z.number().int().min(0).max(3600).optional(),
+        maxCallDurationSec: z.number().int().min(30).max(900).nullable().optional(),
       })
       .parse(req.body);
 
@@ -115,11 +116,25 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     if (body.type === "AI_VOICE" && !body.aiConfigId) {
       throw new ConflictError("AI calling campaigns need an AI agent.");
     }
-    if (body.type === "TTS" || body.type === "AI_VOICE") {
+    if (body.type === "TTS") {
       const { hasSarvamApiKey } = await import("../services/sarvam-key.js");
       if (!(await hasSarvamApiKey(auth.orgId))) {
         throw new ConflictError(
-          "Add a Sarvam AI API key on AI calling before using text-to-speech or AI agents.",
+          "Add a Sarvam AI API key on AI calling → API keys before using text-to-speech campaigns.",
+        );
+      }
+    }
+    if (body.type === "AI_VOICE") {
+      const { hasVoiceApiKey } = await import("../services/sarvam-key.js");
+      const agent = body.aiConfigId
+        ? await prisma.aiConfig.findFirst({
+            where: { id: body.aiConfigId, organizationId: auth.orgId },
+            select: { provider: true },
+          })
+        : null;
+      if (!(await hasVoiceApiKey(auth.orgId, agent?.provider))) {
+        throw new ConflictError(
+          "Add the API key for this agent's provider (Sarvam or Google Gemini) on AI calling → API keys.",
         );
       }
     }
@@ -260,6 +275,8 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
           ringTimeoutSec: body.ringTimeoutSec ?? 60,
           batchSize: body.batchSize ?? 0,
           sleepAfterBatchSec: body.sleepAfterBatchSec ?? 0,
+          maxCallDurationSec:
+            body.type === "AI_VOICE" && body.maxCallDurationSec != null ? body.maxCallDurationSec : null,
           scheduleAt,
           status: body.sendNow ? "DRAFT" : scheduleAt ? "SCHEDULED" : "DRAFT",
         },

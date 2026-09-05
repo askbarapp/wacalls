@@ -1,14 +1,44 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { prisma, listOpenSlots } from "@wacalls/database";
+import { prisma, listOpenSlots, listContactMemories, getContactMemory, saveContactMemoryManual, deleteContactMemory, memoryPhoneKey, intentAnalytics, getMemoryRetentionDays, DEFAULT_MEMORY_RETENTION_DAYS } from "@wacalls/database";
 import { NotFoundError, ConflictError, ok } from "@wacalls/shared";
-import { SARVAM_CHAT_MODEL, extractSarvamApiKey, SarvamClient, buildVoiceAgentGreeting, buildVoiceAgentSystemPrompt, inferSpokenLanguage } from "@wacalls/audio-engine";
-import { hasSarvamApiKey, resolveSarvamApiKey } from "../services/sarvam-key.js";
+import {
+  SARVAM_CHAT_MODEL,
+  GEMINI_CHAT_MODEL,
+  extractSarvamApiKey,
+  extractGeminiApiKey,
+  buildVoiceAgentGreeting,
+  buildVoiceAgentSystemPrompt,
+  inferSpokenLanguage,
+  createVoiceAiClient,
+  normalizeVoiceProvider,
+  defaultModelForProvider,
+  defaultVoiceForProvider,
+  voicesForProvider,
+  normalizeIntentPlaybook,
+  DEFAULT_INTENT_PLAYBOOK,
+  DEFAULT_MAX_CALL_DURATION_SEC,
+  DEFAULT_WRAP_UP_SEC,
+} from "@wacalls/audio-engine";
+import {
+  hasSarvamApiKey,
+  resolveSarvamApiKey,
+  hasGeminiApiKey,
+  resolveGeminiApiKey,
+  resolveVoiceApiKey,
+} from "../services/sarvam-key.js";
 import { assertAiAgentQuota } from "../services/org.js";
+
+const intentItem = z.object({
+  intent: z.string().min(1).max(64),
+  examples: z.string().max(2000).default(""),
+  reply: z.string().min(1).max(500),
+  action: z.enum(["continue", "hangup"]).default("continue"),
+});
 
 const aiBody = z.object({
   name: z.string().min(1),
-  provider: z.string().default("sarvam"),
+  provider: z.enum(["sarvam", "gemini"]).default("sarvam"),
   model: z.string().default(SARVAM_CHAT_MODEL),
   voice: z.string().optional().default("shubh"),
   language: z.string().default("hi-IN"),
@@ -21,9 +51,27 @@ const aiBody = z.object({
   temperature: z.number().min(0).max(2).default(0.4),
   maxTokens: z.number().int().default(400),
   knowledgeBaseId: z.string().uuid().nullable().optional(),
+  maxCallDurationSec: z.number().int().min(30).max(900).default(DEFAULT_MAX_CALL_DURATION_SEC),
+  wrapUpSec: z.number().int().min(5).max(120).default(DEFAULT_WRAP_UP_SEC),
+  memoryRecallMode: z.enum(["related_only", "always", "never"]).default("related_only"),
+  intentPlaybook: z.array(intentItem).max(40).optional(),
 });
 
 export const aiRoutes: FastifyPluginAsync = async (app) => {
+  app.get("/ai/providers", async (req) => {
+    const auth = await app.authenticate(req);
+    const [sarvam, gemini] = await Promise.all([hasSarvamApiKey(auth.orgId), hasGeminiApiKey(auth.orgId)]);
+    return ok({
+      sarvam: { configured: sarvam, voices: voicesForProvider("sarvam"), defaultModel: SARVAM_CHAT_MODEL },
+      gemini: { configured: gemini, voices: voicesForProvider("gemini"), defaultModel: GEMINI_CHAT_MODEL },
+      defaults: {
+        maxCallDurationSec: DEFAULT_MAX_CALL_DURATION_SEC,
+        wrapUpSec: DEFAULT_WRAP_UP_SEC,
+        intentPlaybook: DEFAULT_INTENT_PLAYBOOK,
+      },
+    });
+  });
+
   app.get("/ai/sarvam", async (req) => {
     const auth = await app.authenticate(req);
     const configured = await hasSarvamApiKey(auth.orgId);
@@ -31,7 +79,11 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
       where: { organizationId: auth.orgId, key: "sarvam_api_key" },
     });
     const key = extractSarvamApiKey(row?.value);
-    return ok({ configured, last4: key ? key.slice(-4) : "", envFallback: Boolean(process.env.SARVAM_API_KEY || process.env.AI_API_KEY) });
+    return ok({
+      configured,
+      last4: key ? key.slice(-4) : "",
+      envFallback: Boolean(process.env.SARVAM_API_KEY || process.env.AI_API_KEY),
+    });
   });
 
   app.put("/ai/sarvam", async (req) => {
@@ -52,18 +104,57 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
     const body = z.object({ apiKey: z.string().optional() }).parse(req.body ?? {});
     const pasted = body.apiKey?.trim() ?? "";
     const key =
-      pasted.length >= 8
-        ? pasted
-        : await resolveSarvamApiKey(auth.orgId).catch(() => "");
+      pasted.length >= 8 ? pasted : await resolveSarvamApiKey(auth.orgId).catch(() => "");
     if (!key) {
       throw new ConflictError("Paste a Sarvam key first, or save one, then tap Test.");
     }
-    const result = await new SarvamClient(key).testConnection();
+    const result = await createVoiceAiClient("sarvam", key).testConnection();
     return ok(result);
   });
+
+  app.get("/ai/gemini", async (req) => {
+    const auth = await app.authenticate(req);
+    const configured = await hasGeminiApiKey(auth.orgId);
+    const row = await prisma.setting.findFirst({
+      where: { organizationId: auth.orgId, key: "gemini_api_key" },
+    });
+    const key = extractGeminiApiKey(row?.value);
+    return ok({
+      configured,
+      last4: key ? key.slice(-4) : "",
+      envFallback: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+    });
+  });
+
+  app.put("/ai/gemini", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("ai.manage")(req);
+    const body = z.object({ apiKey: z.string().min(8) }).parse(req.body);
+    await prisma.setting.upsert({
+      where: { organizationId_key: { organizationId: auth.orgId, key: "gemini_api_key" } },
+      update: { value: { apiKey: body.apiKey.trim() } },
+      create: { organizationId: auth.orgId, key: "gemini_api_key", value: { apiKey: body.apiKey.trim() } },
+    });
+    return ok({ configured: true, last4: body.apiKey.trim().slice(-4) });
+  });
+
+  app.post("/ai/gemini/test", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("ai.manage")(req);
+    const body = z.object({ apiKey: z.string().optional() }).parse(req.body ?? {});
+    const pasted = body.apiKey?.trim() ?? "";
+    const key =
+      pasted.length >= 8 ? pasted : await resolveGeminiApiKey(auth.orgId).catch(() => "");
+    if (!key) {
+      throw new ConflictError("Paste a Gemini key first, or save one, then tap Test.");
+    }
+    const result = await createVoiceAiClient("gemini", key).testConnection();
+    return ok(result);
+  });
+
   app.get("/ai-configs", async (req) => {
     const auth = await app.authenticate(req);
-    const [rows, sarvam] = await Promise.all([
+    const [rows, sarvam, gemini] = await Promise.all([
       prisma.aiConfig.findMany({
         where: { organizationId: auth.orgId },
         include: {
@@ -80,8 +171,13 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
         orderBy: { createdAt: "desc" },
       }),
       hasSarvamApiKey(auth.orgId),
+      hasGeminiApiKey(auth.orgId),
     ]);
-    return ok({ configs: rows, sarvamConfigured: sarvam });
+    return ok({
+      configs: rows,
+      sarvamConfigured: sarvam,
+      geminiConfigured: gemini,
+    });
   });
 
   app.post("/ai-configs", async (req) => {
@@ -96,10 +192,12 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!kb) throw new NotFoundError("Knowledge base not found");
     await assertAiAgentQuota(auth.orgId);
+    const playbook = normalizeIntentPlaybook(body.intentPlaybook ?? DEFAULT_INTENT_PLAYBOOK);
     return ok(
       await prisma.aiConfig.create({
         data: {
           ...body,
+          intentPlaybook: playbook,
           knowledgeBaseId: body.knowledgeBaseId,
           organizationId: auth.orgId,
         },
@@ -117,7 +215,13 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
     return ok(
       await prisma.aiConfig.update({
         where: { id },
-        data: { ...body, knowledgeBaseId: body.knowledgeBaseId === null ? null : body.knowledgeBaseId },
+        data: {
+          ...body,
+          ...(body.intentPlaybook !== undefined
+            ? { intentPlaybook: normalizeIntentPlaybook(body.intentPlaybook) }
+            : {}),
+          knowledgeBaseId: body.knowledgeBaseId === null ? null : body.knowledgeBaseId,
+        },
       }),
     );
   });
@@ -159,12 +263,14 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
       });
       if (!ai) throw new NotFoundError("AI agent not found");
 
-      const key = await resolveSarvamApiKey(auth.orgId);
-      const sarvam = new SarvamClient(key);
+      const provider = normalizeVoiceProvider(ai.provider);
+      const { apiKey } = await resolveVoiceApiKey(auth.orgId, provider);
+      const voice = createVoiceAiClient(provider, apiKey);
       const contact = { name: body.contactName?.trim() || "there", phone: "" };
       const history = body.history ?? [];
       const spoken = Boolean(body.audioBase64?.trim());
       const typed = body.text?.trim() ?? "";
+      const modelName = ai.model || defaultModelForProvider(provider);
 
       let transcript: string | undefined;
       let reply: string;
@@ -182,11 +288,11 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
               audioBase64: null,
               history,
               listenAgain: true,
-              provider: "sarvam",
-              model: ai.model || SARVAM_CHAT_MODEL,
+              provider,
+              model: modelName,
             });
           }
-          const stt = await sarvam.transcribe(wav, "unknown");
+          const stt = await voice.transcribe(wav, "unknown");
           transcript = stt.transcript;
           if (!transcript) {
             return ok({
@@ -195,8 +301,8 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
               audioBase64: null,
               history,
               listenAgain: true,
-              provider: "sarvam",
-              model: ai.model || SARVAM_CHAT_MODEL,
+              provider,
+              model: modelName,
             });
           }
           replyLanguage = inferSpokenLanguage(transcript, stt.languageCode, ai.language);
@@ -206,24 +312,35 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
         } else {
           throw new ConflictError("Speak to continue the test call.");
         }
-        reply = await sarvam.chat(
+        reply = await voice.chat(
           [
-            { role: "system", content: buildVoiceAgentSystemPrompt(ai, contact) },
+            {
+              role: "system",
+              content: buildVoiceAgentSystemPrompt(
+                {
+                  ...ai,
+                  intentPlaybook: normalizeIntentPlaybook(ai.intentPlaybook),
+                  maxCallDurationSec: ai.maxCallDurationSec,
+                  wrapUpSec: ai.wrapUpSec,
+                },
+                contact,
+              ),
+            },
             ...history.slice(-12),
             { role: "user", content: `[Speak in ${replyLanguage}]\n${transcript}` },
           ],
           {
-            model: ai.model || SARVAM_CHAT_MODEL,
+            model: modelName,
             temperature: Math.min(ai.temperature, 0.45),
             maxTokens: Math.min(ai.maxTokens, 96),
           },
         );
-        if (!reply.trim()) throw new ConflictError("Sarvam returned an empty reply. Try again.");
+        if (!reply.trim()) throw new ConflictError("AI returned an empty reply. Try again.");
       }
 
-      const wav = await sarvam.synthesize(reply, {
+      const wav = await voice.synthesize(reply, {
         language: replyLanguage,
-        speaker: ai.voice || "shubh",
+        speaker: ai.voice || defaultVoiceForProvider(provider),
         sampleRate: 16_000,
         pace: 1.08,
       });
@@ -238,8 +355,8 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
         audioBase64: wav.toString("base64"),
         mimeType: "audio/wav",
         history: nextHistory,
-        provider: "sarvam",
-        model: ai.model || SARVAM_CHAT_MODEL,
+        provider,
+        model: modelName,
       });
     },
   );
@@ -293,5 +410,88 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
     const { id, slotId } = req.params as { id: string; slotId: string };
     await prisma.appointmentSlot.deleteMany({ where: { id: slotId, aiConfigId: id, organizationId: auth.orgId } });
     return ok({ deleted: true });
+  });
+
+  app.get("/ai/memories", async (req) => {
+    const auth = await app.authenticate(req);
+    const q = z
+      .object({
+        q: z.string().optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .parse(req.query ?? {});
+    return ok(await listContactMemories(prisma, auth.orgId, { q: q.q, limit: q.limit }));
+  });
+
+  app.get("/ai/memories/:phone", async (req) => {
+    const auth = await app.authenticate(req);
+    const { phone } = req.params as { phone: string };
+    const row = await getContactMemory(prisma, auth.orgId, phone);
+    if (!row) throw new NotFoundError("No memory for this number yet");
+    return ok(row);
+  });
+
+  app.put("/ai/memories/:phone", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("ai.manage")(req);
+    const { phone } = req.params as { phone: string };
+    const body = z
+      .object({
+        summary: z.string().max(1000).nullable().optional(),
+        facts: z.array(z.string().max(200)).max(12).optional(),
+        lastIntent: z.string().max(80).nullable().optional(),
+        optOut: z.boolean().optional(),
+      })
+      .parse(req.body ?? {});
+    if (!memoryPhoneKey(phone)) throw new ConflictError("Enter a valid phone number.");
+    return ok(
+      await saveContactMemoryManual(prisma, {
+        organizationId: auth.orgId,
+        phone,
+        summary: body.summary,
+        facts: body.facts,
+        lastIntent: body.lastIntent,
+        optOut: body.optOut,
+      }),
+    );
+  });
+
+  app.delete("/ai/memories/:phone", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("ai.manage")(req);
+    const { phone } = req.params as { phone: string };
+    return ok(await deleteContactMemory(prisma, auth.orgId, phone));
+  });
+
+  app.get("/ai/analytics/intents", async (req) => {
+    const auth = await app.authenticate(req);
+    const q = z
+      .object({
+        days: z.coerce.number().int().min(1).max(365).optional(),
+      })
+      .parse(req.query ?? {});
+    return ok(await intentAnalytics(prisma, auth.orgId, q.days ?? 30));
+  });
+
+  app.get("/ai/memory-settings", async (req) => {
+    const auth = await app.authenticate(req);
+    const days = await getMemoryRetentionDays(prisma, auth.orgId);
+    return ok({ retentionDays: days, defaultDays: DEFAULT_MEMORY_RETENTION_DAYS });
+  });
+
+  app.put("/ai/memory-settings", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("ai.manage")(req);
+    const body = z
+      .object({
+        retentionDays: z.number().int().min(0).max(3650),
+      })
+      .parse(req.body);
+    await prisma.setting.upsert({
+      where: { organizationId_key: { organizationId: auth.orgId, key: "memory_retention_days" } },
+      create: { organizationId: auth.orgId, key: "memory_retention_days", value: { days: body.retentionDays } },
+      update: { value: { days: body.retentionDays } },
+    });
+    return ok({ retentionDays: body.retentionDays });
   });
 };

@@ -6,3 +6,4 @@ export * from "@prisma/client";
 export { PrismaClient };
 export * from "./appointments.js";
 export * from "./transcripts.js";
+export * from "./contact-memory.js";

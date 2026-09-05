@@ -1,4 +1,5 @@
 import { renderVoiceScript, toBcp47 } from "./sarvam.js";
+import { formatPlaybookForPrompt, type IntentPlaybookItem } from "./intent-playbook.js";
 
 export type VoiceAgentPromptInput = {
   systemPrompt: string;
@@ -7,6 +8,9 @@ export type VoiceAgentPromptInput = {
   disallowed?: string | null;
   language: string;
   knowledgeBase?: { name: string; documents: Array<{ title: string; content: string }> } | null;
+  intentPlaybook?: IntentPlaybookItem[];
+  maxCallDurationSec?: number;
+  wrapUpSec?: number;
 };
 
 export function buildVoiceAgentGreeting(
@@ -22,7 +26,7 @@ export function buildVoiceAgentGreeting(
 export function buildVoiceAgentSystemPrompt(
   ai: VoiceAgentPromptInput,
   contact: { name?: string | null; phone?: string | null },
-  extra?: { slots?: string },
+  extra?: { slots?: string; memory?: string; wrappingUp?: boolean },
 ): string {
   const name = contact.name?.trim() || "there";
   const kb = (ai.knowledgeBase?.documents ?? [])
@@ -30,6 +34,7 @@ export function buildVoiceAgentSystemPrompt(
     .join("\n\n")
     .slice(0, 4500);
   const defaultLanguage = toBcp47(ai.language);
+  const duration = ai.maxCallDurationSec ?? 120;
   return [
     ai.systemPrompt,
     `You are a live phone agent in a real two-way call. Sound human: warm, brief, natural — not a chatbot or FAQ page.`,
@@ -37,9 +42,15 @@ export function buildVoiceAgentSystemPrompt(
     `Keep each reply under 25 words, ideally one short sentence. Ask at most one follow-up question.`,
     `Never ignore what they just said. Do not repeat the greeting after they have spoken. No markdown, bullets, or lists.`,
     `Caller name: ${name}. Phone: ${contact.phone ?? ""}. Default greeting language: ${defaultLanguage}.`,
+    `Call length limit is about ${duration} seconds. When wrapping up, thank them and close.`,
+    extra?.wrappingUp
+      ? "TIME TO WRAP UP NOW: give a brief polite closing, ask no new questions, and end with <<HANGUP>>."
+      : "",
     ai.objective ? `Objective: ${ai.objective}` : "",
     ai.questions ? `Questions to cover if relevant: ${ai.questions}` : "",
     ai.disallowed ? `Never do: ${ai.disallowed}` : "",
+    ai.intentPlaybook?.length ? formatPlaybookForPrompt(ai.intentPlaybook) : "",
+    extra?.memory ?? "",
     kb
       ? `Knowledge base (${ai.knowledgeBase?.name}):\n${kb}`
       : "No knowledge documents. Be honest, ask what they need, and offer an appointment if slots exist.",

@@ -7,7 +7,7 @@ import { AgentTestPanel } from "@/components/agent-test-panel";
 import { CallTranscriptButton } from "@/components/call-transcript";
 import { CallRecordingActions } from "@/components/call-recording-actions";
 
-type Tab = "knowledge" | "agents" | "incoming" | "templates" | "key";
+type Tab = "knowledge" | "agents" | "incoming" | "templates" | "key" | "memory" | "analytics";
 
 type Template = {
   id: string;
@@ -26,9 +26,16 @@ type Slot = {
   endMinute: number;
   durationMin: number;
 };
+type IntentRow = {
+  intent: string;
+  examples: string;
+  reply: string;
+  action: "continue" | "hangup";
+};
 type Agent = {
   id: string;
   name: string;
+  provider?: string;
   language: string;
   voice?: string | null;
   model: string;
@@ -39,6 +46,10 @@ type Agent = {
   appointmentMessage?: string | null;
   knowledgeBaseId?: string | null;
   knowledgeBase?: { id: string; name: string } | null;
+  maxCallDurationSec?: number;
+  wrapUpSec?: number;
+  memoryRecallMode?: "related_only" | "always" | "never";
+  intentPlaybook?: IntentRow[] | null;
   appointmentSlots?: Slot[];
   appointments?: Array<{ id: string; phone: string; contactName?: string | null; startsAt: string }>;
   _count?: { appointments: number };
@@ -86,9 +97,48 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: "knowledge", label: "1. Knowledge base" },
   { id: "agents", label: "2. AI agents" },
   { id: "incoming", label: "3. Auto answer" },
+  { id: "memory", label: "Caller memory" },
+  { id: "analytics", label: "Intent analytics" },
   { id: "templates", label: "Voice scripts" },
-  { id: "key", label: "Sarvam API" },
+  { id: "key", label: "API keys" },
 ];
+
+const GEMINI_VOICES = ["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"];
+
+const DEFAULT_PLAYBOOK: IntentRow[] = [
+  {
+    intent: "hangup_request",
+    examples: "cut the call, hang up, phone cut, call band karo, baad mein, busy hun, mat call karo",
+    reply: "Theek hai, dhanyavaad. Aapse phir baat karenge. Alvida.",
+    action: "hangup",
+  },
+  {
+    intent: "refuse_style",
+    examples: "aisi baat mat karo, don't talk like this, galat baat, spam, pareshan mat karo",
+    reply: "Maafi chahta hoon. Main aapko disturb nahi karunga. Dhanyavaad, alvida.",
+    action: "hangup",
+  },
+  {
+    intent: "not_interested",
+    examples: "not interested, nahi chahiye, interested nahi, no thanks",
+    reply: "Samajh gaya. Dhanyavaad aapka time dene ke liye. Alvida.",
+    action: "hangup",
+  },
+  {
+    intent: "price",
+    examples: "price, cost, kitna, fees, charge, mahanga, rate",
+    reply: "Pricing aapke plan pe depend karti hai — main short mein bataata hoon, ya detail bhej doon?",
+    action: "continue",
+  },
+  {
+    intent: "callback",
+    examples: "callback, later, baad mein call, call back, phir se call",
+    reply: "Zaroor — kab call karun, aap bataiye?",
+    action: "continue",
+  },
+];
+
+const DURATION_OPTIONS = [60, 90, 120, 180, 240, 300];
 
 export default function AiCallingPage() {
   const [tab, setTab] = useState<Tab>("knowledge");
@@ -98,8 +148,10 @@ export default function AiCallingPage() {
   const [languages, setLanguages] = useState<Lang[]>([]);
   const [speakers, setSpeakers] = useState<string[]>([]);
   const [sarvam, setSarvam] = useState({ configured: false, last4: "", envFallback: false });
+  const [gemini, setGemini] = useState({ configured: false, last4: "", envFallback: false });
   const [apiKey, setApiKey] = useState("");
-  const [testing, setTesting] = useState(false);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [testing, setTesting] = useState<"sarvam" | "gemini" | "">("");
   const [templates, setTemplates] = useState<Template[]>([]);
   const [tpl, setTpl] = useState({ name: "", body: "", language: "hi-IN", speaker: "shubh", pace: 1 });
   const [bases, setBases] = useState<Knowledge[]>([]);
@@ -113,6 +165,7 @@ export default function AiCallingPage() {
   const [inboundCalls, setInboundCalls] = useState<InboundCall[]>([]);
   const [agent, setAgent] = useState({
     name: "",
+    provider: "sarvam" as "sarvam" | "gemini",
     model: "sarvam-105b-conversations",
     language: "hi-IN",
     voice: "shubh",
@@ -121,15 +174,55 @@ export default function AiCallingPage() {
     objective: "",
     questions: "",
     knowledgeBaseId: "",
+    maxCallDurationSec: 120,
+    wrapUpSec: 25,
+    memoryRecallMode: "related_only" as "related_only" | "always" | "never",
+    intentPlaybook: DEFAULT_PLAYBOOK as IntentRow[],
   });
+  const [memories, setMemories] = useState<
+    Array<{
+      phone: string;
+      summary: string | null;
+      facts: string[];
+      lastIntent: string | null;
+      callCount: number;
+      lastCallAt: string | null;
+      optOut?: boolean;
+    }>
+  >([]);
+  const [memoryQ, setMemoryQ] = useState("");
+  const [memoryEdit, setMemoryEdit] = useState<{
+    phone: string;
+    summary: string;
+    factsText: string;
+    lastIntent: string;
+    optOut: boolean;
+  } | null>(null);
+  const [retentionDays, setRetentionDays] = useState(90);
+  const [intentStats, setIntentStats] = useState<{
+    days: number;
+    total: number;
+    byIntent: Array<{ intent: string; count: number; hangups: number }>;
+    recent: Array<{
+      intent: string;
+      action: string | null;
+      phone: string | null;
+      createdAt: string;
+      utterance: string | null;
+    }>;
+  } | null>(null);
 
   async function load() {
-    const [opts, key, t, k, a, account, incoming] = await Promise.all([
+    const [opts, key, gemKey, t, k, a, account, incoming] = await Promise.all([
       api<{ success: true; data: { languages: Lang[]; speakers: string[] } }>("/api/v1/voice-templates/options"),
       api<{ success: true; data: { configured: boolean; last4: string; envFallback: boolean } }>("/api/v1/ai/sarvam"),
+      api<{ success: true; data: { configured: boolean; last4: string; envFallback: boolean } }>("/api/v1/ai/gemini"),
       api<{ success: true; data: Template[] }>("/api/v1/voice-templates"),
       api<{ success: true; data: Knowledge[] }>("/api/v1/knowledge-bases"),
-      api<{ success: true; data: { configs: Agent[]; sarvamConfigured: boolean } }>("/api/v1/ai-configs"),
+      api<{
+        success: true;
+        data: { configs: Agent[]; sarvamConfigured: boolean; geminiConfigured?: boolean };
+      }>("/api/v1/ai-configs"),
       api<{
         success: true;
         data: { organization?: { plan?: { maxKnowledgeBases?: number; maxAiAgents?: number } | null } | null };
@@ -142,6 +235,7 @@ export default function AiCallingPage() {
     setLanguages(opts.data.languages);
     setSpeakers(opts.data.speakers);
     setSarvam(key.data);
+    setGemini(gemKey.data);
     setTemplates(t.data);
     setBases(k.data);
     setAgents(a.data.configs ?? []);
@@ -162,6 +256,22 @@ export default function AiCallingPage() {
     }));
   }
 
+  async function loadMemories(q = memoryQ) {
+    const res = await api<{
+      success: true;
+      data: Array<{
+        phone: string;
+        summary: string | null;
+        facts: string[];
+        lastIntent: string | null;
+        callCount: number;
+        lastCallAt: string | null;
+        optOut?: boolean;
+      }>;
+    }>(`/api/v1/ai/memories?limit=100${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ""}`);
+    setMemories(res.data ?? []);
+  }
+
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
     const id = new URLSearchParams(window.location.search).get("test");
@@ -170,6 +280,37 @@ export default function AiCallingPage() {
       setTestingId(id);
     }
   }, []);
+
+  useEffect(() => {
+    if (tab !== "memory") return;
+    void Promise.all([
+      loadMemories(),
+      api<{ success: true; data: { retentionDays: number } }>("/api/v1/ai/memory-settings")
+        .then((r) => setRetentionDays(r.data.retentionDays))
+        .catch(() => undefined),
+    ]).catch((err) => setError(err instanceof Error ? err.message : "Failed to load memories"));
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "analytics") return;
+    void api<{
+      success: true;
+      data: {
+        days: number;
+        total: number;
+        byIntent: Array<{ intent: string; count: number; hangups: number }>;
+        recent: Array<{
+          intent: string;
+          action: string | null;
+          phone: string | null;
+          createdAt: string;
+          utterance: string | null;
+        }>;
+      };
+    }>("/api/v1/ai/analytics/intents?days=30")
+      .then((r) => setIntentStats(r.data))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load analytics"));
+  }, [tab]);
 
   async function reloadKb(id: string) {
     if (!id) {
@@ -232,72 +373,384 @@ export default function AiCallingPage() {
         ))}
       </div>
 
-      {tab === "key" ? (
-        <section className="max-w-xl rounded-2xl border border-white/10 bg-ink-900/80 p-5">
-          <h2 className="mb-2 font-medium text-white">Sarvam AI API key</h2>
+      {tab === "memory" ? (
+        <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
+          <h2 className="mb-1 font-medium text-white">Caller memory</h2>
           <p className="mb-4 text-sm text-slate-400">
-            Create a key at dashboard.sarvam.ai. It is used for TTS (Bulbul), speech-to-text (Saaras), and the
-            conversation model.
+            Organization-wide notes per phone number. Auto-updated after AI calls — edit anytime.
           </p>
-          <p className="mb-3 text-xs text-slate-500">
-            {sarvam.configured
-              ? `Configured${sarvam.last4 ? ` · ends with ${sarvam.last4}` : ""}`
-              : sarvam.envFallback
-                ? "Using SARVAM_API_KEY from the server environment"
-                : "Not configured yet"}
-          </p>
-          <input
-            type="password"
-            placeholder="Paste api-subscription-key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-white/10 bg-ink-950/50 p-3">
+            <label className="text-xs text-slate-400">
+              Auto-delete unused memory after (days)
+              <input
+                className="mt-1 block min-h-10 w-28"
+                type="number"
+                min={0}
+                max={3650}
+                value={retentionDays}
+                onChange={(e) => setRetentionDays(Number(e.target.value) || 0)}
+              />
+            </label>
             <button
-              className="rounded-lg bg-brand-500 px-4 py-2 text-ink-950"
+              type="button"
+              className="rounded-lg bg-white/10 px-3 py-2 text-xs"
               onClick={async () => {
                 setError("");
                 try {
-                  await api("/api/v1/ai/sarvam", { method: "PUT", body: JSON.stringify({ apiKey }) });
-                  setApiKey("");
-                  setMsg("Sarvam API key saved");
-                  await load();
+                  await api("/api/v1/ai/memory-settings", {
+                    method: "PUT",
+                    body: JSON.stringify({ retentionDays }),
+                  });
+                  setMsg(
+                    retentionDays <= 0
+                      ? "Memory retention: keep forever."
+                      : `Memory older than ${retentionDays} days will be purged.`,
+                  );
                 } catch (err) {
-                  setError(err instanceof Error ? err.message : "Could not save key");
+                  setError(err instanceof Error ? err.message : "Could not save retention");
                 }
               }}
             >
-              Save key
+              Save retention
+            </button>
+            <p className="text-[11px] text-slate-500">0 = keep forever. Worker purges daily.</p>
+          </div>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <input
+              className="min-w-[14rem] flex-1"
+              placeholder="Search phone or summary"
+              value={memoryQ}
+              onChange={(e) => setMemoryQ(e.target.value)}
+            />
+            <button
+              type="button"
+              className="rounded-lg bg-white/10 px-4 py-2 text-sm"
+              onClick={() => void loadMemories().catch((err) => setError(err instanceof Error ? err.message : "Search failed"))}
+            >
+              Search
             </button>
             <button
               type="button"
-              disabled={testing}
-              className="rounded-lg bg-white/10 px-4 py-2 text-white hover:bg-white/15 disabled:opacity-50"
-              onClick={async () => {
-                setError("");
-                setMsg("");
-                setTesting(true);
-                try {
-                  const res = await api<{
-                    success: true;
-                    data: { ok: boolean; message: string };
-                  }>("/api/v1/ai/sarvam/test", {
-                    method: "POST",
-                    body: JSON.stringify({ apiKey: apiKey.trim() || undefined }),
-                  });
-                  if (res.data.ok) setMsg(res.data.message);
-                  else setError(res.data.message);
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : "Could not test Sarvam");
-                } finally {
-                  setTesting(false);
-                }
-              }}
+              className="rounded-lg bg-brand-500 px-4 py-2 text-sm text-ink-950"
+              onClick={() => setMemoryEdit({ phone: "", summary: "", factsText: "", lastIntent: "", optOut: false })}
             >
-              {testing ? "Testing…" : "Test"}
+              Add note
             </button>
           </div>
+          {memoryEdit ? (
+            <div className="mb-4 rounded-xl border border-white/10 bg-ink-950/60 p-4">
+              <input
+                className="mb-2 w-full"
+                placeholder="Phone number"
+                value={memoryEdit.phone}
+                onChange={(e) => setMemoryEdit({ ...memoryEdit, phone: e.target.value })}
+              />
+              <textarea
+                className="mb-2 min-h-20 w-full"
+                placeholder="Summary"
+                value={memoryEdit.summary}
+                onChange={(e) => setMemoryEdit({ ...memoryEdit, summary: e.target.value })}
+              />
+              <textarea
+                className="mb-2 min-h-16 w-full"
+                placeholder="Facts (one per line)"
+                value={memoryEdit.factsText}
+                onChange={(e) => setMemoryEdit({ ...memoryEdit, factsText: e.target.value })}
+              />
+              <input
+                className="mb-3 w-full"
+                placeholder="Last intent (optional)"
+                value={memoryEdit.lastIntent}
+                onChange={(e) => setMemoryEdit({ ...memoryEdit, lastIntent: e.target.value })}
+              />
+              <label className="mb-3 flex items-center gap-2 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={memoryEdit.optOut}
+                  onChange={(e) => setMemoryEdit({ ...memoryEdit, optOut: e.target.checked })}
+                />
+                Opt out — AI will not use or update memory for this number
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg bg-brand-500 px-4 py-2 text-sm text-ink-950"
+                  onClick={async () => {
+                    setError("");
+                    try {
+                      if (!memoryEdit.phone.trim()) throw new Error("Phone is required");
+                      await api(`/api/v1/ai/memories/${encodeURIComponent(memoryEdit.phone.trim())}`, {
+                        method: "PUT",
+                        body: JSON.stringify({
+                          summary: memoryEdit.summary.trim() || null,
+                          facts: memoryEdit.factsText
+                            .split("\n")
+                            .map((l) => l.trim())
+                            .filter(Boolean),
+                          lastIntent: memoryEdit.lastIntent.trim() || null,
+                          optOut: memoryEdit.optOut,
+                        }),
+                      });
+                      setMemoryEdit(null);
+                      setMsg("Memory saved.");
+                      await loadMemories();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Could not save memory");
+                    }
+                  }}
+                >
+                  Save memory
+                </button>
+                <button type="button" className="rounded-lg bg-white/10 px-4 py-2 text-sm" onClick={() => setMemoryEdit(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <ul className="divide-y divide-white/5">
+            {memories.map((m) => (
+              <li key={m.phone} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-medium text-white">
+                    {m.phone}
+                    {m.optOut ? <span className="ml-2 text-xs text-amber-300">opted out</span> : null}
+                  </p>
+                  <p className="text-sm text-slate-400">{m.summary || "No summary yet"}</p>
+                  {m.facts?.length ? (
+                    <p className="mt-1 text-xs text-slate-500">{m.facts.join(" · ")}</p>
+                  ) : null}
+                  <p className="mt-1 text-[11px] text-slate-600">
+                    {m.callCount} calls
+                    {m.lastIntent ? ` · ${m.lastIntent}` : ""}
+                    {m.lastCallAt ? ` · last ${new Date(m.lastCallAt).toLocaleString()}` : ""}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg bg-white/10 px-3 py-1.5 text-xs"
+                    onClick={() =>
+                      setMemoryEdit({
+                        phone: m.phone,
+                        summary: m.summary || "",
+                        factsText: (m.facts || []).join("\n"),
+                        lastIntent: m.lastIntent || "",
+                        optOut: Boolean(m.optOut),
+                      })
+                    }
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-rose-500/15 px-3 py-1.5 text-xs text-rose-200"
+                    onClick={async () => {
+                      await api(`/api/v1/ai/memories/${encodeURIComponent(m.phone)}`, { method: "DELETE" });
+                      await loadMemories();
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </li>
+            ))}
+            {memories.length === 0 ? (
+              <li className="py-8 text-center text-sm text-slate-500">
+                No memories yet. They appear automatically after AI calls, or add a note above.
+              </li>
+            ) : null}
+          </ul>
         </section>
+      ) : null}
+
+      {tab === "analytics" ? (
+        <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
+          <h2 className="mb-1 font-medium text-white">Intent analytics</h2>
+          <p className="mb-4 text-sm text-slate-400">
+            Matched playbook intents from live AI calls (last {intentStats?.days ?? 30} days).
+          </p>
+          <p className="mb-4 text-sm text-slate-300">
+            Total matches: <span className="font-medium text-white">{intentStats?.total ?? 0}</span>
+          </p>
+          <div className="mb-6 space-y-2">
+            {(intentStats?.byIntent ?? []).map((row) => (
+              <div key={row.intent} className="flex items-center gap-3 text-sm">
+                <div className="w-36 shrink-0 truncate text-slate-300">{row.intent}</div>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-brand-500"
+                    style={{
+                      width: `${Math.max(6, Math.round((row.count / Math.max(intentStats?.total || 1, 1)) * 100))}%`,
+                    }}
+                  />
+                </div>
+                <div className="w-24 shrink-0 text-right text-xs text-slate-400">
+                  {row.count}
+                  {row.hangups ? ` · ${row.hangups} hangup` : ""}
+                </div>
+              </div>
+            ))}
+            {!intentStats?.byIntent?.length ? (
+              <p className="py-6 text-center text-sm text-slate-500">
+                No intent matches yet. Run AI calls with the playbook to populate this.
+              </p>
+            ) : null}
+          </div>
+          <h3 className="mb-2 text-sm font-medium text-white">Recent matches</h3>
+          <ul className="divide-y divide-white/5 text-sm">
+            {(intentStats?.recent ?? []).map((r, i) => (
+              <li key={`${r.intent}-${r.createdAt}-${i}`} className="py-2">
+                <p className="text-slate-200">
+                  <span className="font-medium text-white">{r.intent}</span>
+                  {r.action === "hangup" ? " · hangup" : ""}
+                  {r.phone ? ` · ${r.phone}` : ""}
+                </p>
+                {r.utterance ? <p className="text-xs text-slate-500">&ldquo;{r.utterance}&rdquo;</p> : null}
+                <p className="text-[11px] text-slate-600">{new Date(r.createdAt).toLocaleString()}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {tab === "key" ? (
+        <div className="grid max-w-4xl gap-6 lg:grid-cols-2">
+          <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
+            <h2 className="mb-2 font-medium text-white">Sarvam AI</h2>
+            <p className="mb-4 text-sm text-slate-400">
+              dashboard.sarvam.ai — Indian languages, Bulbul TTS, Saaras STT, and conversation model.
+            </p>
+            <p className="mb-3 text-xs text-slate-500">
+              {sarvam.configured
+                ? `Configured${sarvam.last4 ? ` · ends with ${sarvam.last4}` : ""}`
+                : sarvam.envFallback
+                  ? "Using SARVAM_API_KEY from the server environment"
+                  : "Not configured yet"}
+            </p>
+            <input
+              type="password"
+              placeholder="Paste api-subscription-key"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                className="rounded-lg bg-brand-500 px-4 py-2 text-ink-950"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await api("/api/v1/ai/sarvam", { method: "PUT", body: JSON.stringify({ apiKey }) });
+                    setApiKey("");
+                    setMsg("Sarvam API key saved");
+                    await load();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not save key");
+                  }
+                }}
+              >
+                Save key
+              </button>
+              <button
+                type="button"
+                disabled={testing === "sarvam"}
+                className="rounded-lg bg-white/10 px-4 py-2 text-white hover:bg-white/15 disabled:opacity-50"
+                onClick={async () => {
+                  setError("");
+                  setMsg("");
+                  setTesting("sarvam");
+                  try {
+                    const res = await api<{
+                      success: true;
+                      data: { ok: boolean; message: string };
+                    }>("/api/v1/ai/sarvam/test", {
+                      method: "POST",
+                      body: JSON.stringify({ apiKey: apiKey.trim() || undefined }),
+                    });
+                    if (res.data.ok) setMsg(res.data.message);
+                    else setError(res.data.message);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not test Sarvam");
+                  } finally {
+                    setTesting("");
+                  }
+                }}
+              >
+                {testing === "sarvam" ? "Testing…" : "Test"}
+              </button>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
+            <h2 className="mb-2 font-medium text-white">Google Gemini</h2>
+            <p className="mb-4 text-sm text-slate-400">
+              aistudio.google.com/apikey — strong multi-language chat, audio transcription, and Gemini TTS voices.
+            </p>
+            <p className="mb-3 text-xs text-slate-500">
+              {gemini.configured
+                ? `Configured${gemini.last4 ? ` · ends with ${gemini.last4}` : ""}`
+                : gemini.envFallback
+                  ? "Using GEMINI_API_KEY from the server environment"
+                  : "Not configured yet"}
+            </p>
+            <input
+              type="password"
+              placeholder="Paste Gemini API key"
+              value={geminiKey}
+              onChange={(e) => setGeminiKey(e.target.value)}
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                className="rounded-lg bg-brand-500 px-4 py-2 text-ink-950"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await api("/api/v1/ai/gemini", {
+                      method: "PUT",
+                      body: JSON.stringify({ apiKey: geminiKey }),
+                    });
+                    setGeminiKey("");
+                    setMsg("Gemini API key saved");
+                    await load();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not save key");
+                  }
+                }}
+              >
+                Save key
+              </button>
+              <button
+                type="button"
+                disabled={testing === "gemini"}
+                className="rounded-lg bg-white/10 px-4 py-2 text-white hover:bg-white/15 disabled:opacity-50"
+                onClick={async () => {
+                  setError("");
+                  setMsg("");
+                  setTesting("gemini");
+                  try {
+                    const res = await api<{
+                      success: true;
+                      data: { ok: boolean; message: string };
+                    }>("/api/v1/ai/gemini/test", {
+                      method: "POST",
+                      body: JSON.stringify({ apiKey: geminiKey.trim() || undefined }),
+                    });
+                    if (res.data.ok) setMsg(res.data.message);
+                    else setError(res.data.message);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not test Gemini");
+                  } finally {
+                    setTesting("");
+                  }
+                }}
+              >
+                {testing === "gemini" ? "Testing…" : "Test"}
+              </button>
+            </div>
+          </section>
+          <p className="text-sm text-slate-400 lg:col-span-2">
+            Each AI agent picks Sarvam or Gemini. Speech, replies, and voice all use that provider’s key.
+          </p>
+        </div>
       ) : null}
 
       {tab === "templates" ? (
@@ -595,7 +1048,172 @@ export default function AiCallingPage() {
               value={agent.objective}
               onChange={(e) => setAgent({ ...agent, objective: e.target.value })}
             />
+            <div className="mb-3 grid gap-2 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">Max call duration</label>
+                <select
+                  value={agent.maxCallDurationSec}
+                  onChange={(e) => setAgent({ ...agent, maxCallDurationSec: Number(e.target.value) })}
+                >
+                  {DURATION_OPTIONS.map((sec) => (
+                    <option key={sec} value={sec}>
+                      {sec < 60 ? `${sec}s` : `${sec / 60} min`}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Soft wrap-up starts ~{agent.wrapUpSec}s before the limit, then the call hangs up.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">Wrap-up window (seconds)</label>
+                <input
+                  type="number"
+                  min={5}
+                  max={120}
+                  value={agent.wrapUpSec}
+                  onChange={(e) => setAgent({ ...agent, wrapUpSec: Number(e.target.value) || 25 })}
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Caller says cut / not interested → thank them and hang up early.
+                </p>
+              </div>
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-xs text-slate-400">Caller memory recall</label>
+              <select
+                value={agent.memoryRecallMode}
+                onChange={(e) =>
+                  setAgent({
+                    ...agent,
+                    memoryRecallMode: e.target.value as "related_only" | "always" | "never",
+                  })
+                }
+              >
+                <option value="related_only">Only when topic is related (recommended)</option>
+                <option value="always">Acknowledge past context when helpful</option>
+                <option value="never">Do not use memory on calls</option>
+              </select>
+            </div>
+            <div className="mb-3 rounded-xl border border-white/10 bg-ink-950/50 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-white">Intent playbook</p>
+                  <p className="text-[11px] text-slate-500">
+                    If the caller means this intent, use this reply. Hangup intents end the call after thanks.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border border-white/15 px-2 py-1 text-xs text-slate-300"
+                  onClick={() =>
+                    setAgent({
+                      ...agent,
+                      intentPlaybook: [
+                        ...agent.intentPlaybook,
+                        { intent: "", examples: "", reply: "", action: "continue" },
+                      ],
+                    })
+                  }
+                >
+                  Add intent
+                </button>
+              </div>
+              <div className="space-y-3">
+                {agent.intentPlaybook.map((row, idx) => (
+                  <div key={`${row.intent}-${idx}`} className="rounded-lg border border-white/10 p-2">
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <input
+                        placeholder="Intent (e.g. price)"
+                        value={row.intent}
+                        onChange={(e) => {
+                          const intentPlaybook = [...agent.intentPlaybook];
+                          intentPlaybook[idx] = { ...row, intent: e.target.value };
+                          setAgent({ ...agent, intentPlaybook });
+                        }}
+                      />
+                      <select
+                        value={row.action}
+                        onChange={(e) => {
+                          const intentPlaybook = [...agent.intentPlaybook];
+                          intentPlaybook[idx] = {
+                            ...row,
+                            action: e.target.value as "continue" | "hangup",
+                          };
+                          setAgent({ ...agent, intentPlaybook });
+                        }}
+                      >
+                        <option value="continue">Continue call</option>
+                        <option value="hangup">Thank & hang up</option>
+                      </select>
+                    </div>
+                    <input
+                      className="mt-2 w-full"
+                      placeholder="Cues / examples (comma separated)"
+                      value={row.examples}
+                      onChange={(e) => {
+                        const intentPlaybook = [...agent.intentPlaybook];
+                        intentPlaybook[idx] = { ...row, examples: e.target.value };
+                        setAgent({ ...agent, intentPlaybook });
+                      }}
+                    />
+                    <textarea
+                      className="mt-2 min-h-14 w-full text-sm"
+                      placeholder="AI reply for this intent"
+                      value={row.reply}
+                      onChange={(e) => {
+                        const intentPlaybook = [...agent.intentPlaybook];
+                        intentPlaybook[idx] = { ...row, reply: e.target.value };
+                        setAgent({ ...agent, intentPlaybook });
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="mt-1 text-xs text-rose-300"
+                      onClick={() =>
+                        setAgent({
+                          ...agent,
+                          intentPlaybook: agent.intentPlaybook.filter((_, i) => i !== idx),
+                        })
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Per-number memory is automatic for your organization. AI recalls it only when the topic is related.
+              </p>
+            </div>
             <div className="grid gap-2 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">AI provider</label>
+                <select
+                  value={agent.provider}
+                  onChange={(e) => {
+                    const provider = e.target.value as "sarvam" | "gemini";
+                    setAgent({
+                      ...agent,
+                      provider,
+                      model: provider === "gemini" ? "gemini-2.5-flash" : "sarvam-105b-conversations",
+                      voice: provider === "gemini" ? "Kore" : "shubh",
+                    });
+                  }}
+                >
+                  <option value="sarvam">Sarvam AI</option>
+                  <option value="gemini">Google Gemini</option>
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {agent.provider === "gemini"
+                    ? gemini.configured || gemini.envFallback
+                      ? "Uses your Gemini API key for speech, chat, and voice."
+                      : "Save a Gemini API key first on the API keys tab."
+                    : sarvam.configured || sarvam.envFallback
+                      ? "Uses your Sarvam API key for speech, chat, and voice."
+                      : "Save a Sarvam API key first on the API keys tab."}
+                </p>
+              </div>
               <div>
                 <label className="mb-1 block text-xs text-slate-400">Greeting language</label>
                 <select value={agent.language} onChange={(e) => setAgent({ ...agent, language: e.target.value })}>
@@ -609,28 +1227,34 @@ export default function AiCallingPage() {
                   Opening line uses this. After that the agent mirrors Hindi / English automatically.
                 </p>
               </div>
+            </div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs text-slate-400">Voice</label>
                 <select value={agent.voice} onChange={(e) => setAgent({ ...agent, voice: e.target.value })}>
-                  {speakers.map((s) => (
+                  {(agent.provider === "gemini" ? GEMINI_VOICES : speakers).map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
                   ))}
                 </select>
               </div>
-            </div>
-            <div className="mt-2">
-              <label className="mb-1 block text-xs text-slate-400">Conversation model</label>
-              <input
-                placeholder="e.g. sarvam-105b-conversations"
-                value={agent.model}
-                onChange={(e) => setAgent({ ...agent, model: e.target.value })}
-                className="w-full"
-              />
-              <p className="mt-1 text-[11px] text-slate-500">
-                Smaller models are usually faster. If unsure, keep the default.
-              </p>
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">Conversation model</label>
+                <input
+                  placeholder={
+                    agent.provider === "gemini" ? "e.g. gemini-2.5-flash" : "e.g. sarvam-105b-conversations"
+                  }
+                  value={agent.model}
+                  onChange={(e) => setAgent({ ...agent, model: e.target.value })}
+                  className="w-full"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {agent.provider === "gemini"
+                    ? "gemini-2.5-flash is a good default for fast multilingual calls."
+                    : "Smaller models are usually faster. If unsure, keep the default."}
+                </p>
+              </div>
             </div>
             <select
               className="mt-2"
@@ -654,11 +1278,23 @@ export default function AiCallingPage() {
                     body: JSON.stringify({
                       ...agent,
                       knowledgeBaseId: agent.knowledgeBaseId || undefined,
-                      provider: "sarvam",
-                      model: agent.model || "sarvam-105b-conversations",
+                      provider: agent.provider,
+                      maxCallDurationSec: agent.maxCallDurationSec,
+                      wrapUpSec: agent.wrapUpSec,
+                      memoryRecallMode: agent.memoryRecallMode,
+                      intentPlaybook: agent.intentPlaybook.filter((r) => r.intent.trim() && r.reply.trim()),
+                      model:
+                        agent.model ||
+                        (agent.provider === "gemini" ? "gemini-2.5-flash" : "sarvam-105b-conversations"),
                     }),
                   });
-                  setAgent((f) => ({ ...f, name: "" }));
+                  setAgent((f) => ({
+                    ...f,
+                    name: "",
+                    intentPlaybook: DEFAULT_PLAYBOOK,
+                    maxCallDurationSec: 120,
+                    wrapUpSec: 25,
+                  }));
                   setMsg("AI agent saved. Test it before starting a campaign.");
                   await load();
                 } catch (err) {
@@ -697,7 +1333,9 @@ export default function AiCallingPage() {
                   </div>
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Sarvam AI · {a.language} · {a.voice || "shubh"} · {a.knowledgeBase?.name || "no knowledge base"}
+                  {a.provider === "gemini" ? "Google Gemini" : "Sarvam AI"} · {a.language} ·{" "}
+                  {a.voice || (a.provider === "gemini" ? "Kore" : "shubh")} · max{" "}
+                  {a.maxCallDurationSec ?? 120}s · {a.knowledgeBase?.name || "no knowledge base"}
                   {a._count?.appointments ? ` · ${a._count.appointments} appointments` : ""}
                 </p>
                 <p className="mt-2 text-sm text-slate-400">{a.greeting || a.systemPrompt}</p>

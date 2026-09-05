@@ -1,11 +1,11 @@
 import { prisma } from "@wacalls/database";
 import { randomToken } from "@wacalls/auth";
 import { ConflictError, normalizePhone, NotFoundError } from "@wacalls/shared";
-import { SarvamClient, buildVoiceAgentSystemPrompt } from "@wacalls/audio-engine";
+import { createVoiceAiClient, buildVoiceAgentSystemPrompt, defaultModelForProvider, normalizeVoiceProvider } from "@wacalls/audio-engine";
 import { sendWhatsAppText } from "./messaging.js";
 import { enqueueCall } from "./calls.js";
 import { enqueueWebhook } from "./webhooks.js";
-import { resolveSarvamApiKey } from "./sarvam-key.js";
+import { resolveVoiceApiKey } from "./sarvam-key.js";
 import { publishEvent } from "./events.js";
 
 const LIVE_MS = 45_000;
@@ -651,20 +651,24 @@ async function generateVisitAiReply(
       role: m.sender === "visitor" || m.sender === "whatsapp" ? ("user" as const) : ("assistant" as const),
       content: m.body,
     }));
-  const key = await resolveSarvamApiKey(organizationId);
+  const provider = normalizeVoiceProvider(ai.provider);
+  const { apiKey } = await resolveVoiceApiKey(organizationId, provider);
   const last = history[history.length - 1];
   const prior = history.slice(0, -1);
-  return new SarvamClient(key).chat([
-    {
-      role: "system",
-      content: [
-        buildVoiceAgentSystemPrompt(ai, { name, phone }),
-        "You are also the website support chat agent. Replies appear in the website chat box and on WhatsApp. Keep answers short and helpful.",
-      ].join("\n"),
-    },
-    ...prior.slice(-10),
-    last ?? { role: "user", content: "Hello" },
-  ]);
+  return createVoiceAiClient(provider, apiKey).chat(
+    [
+      {
+        role: "system",
+        content: [
+          buildVoiceAgentSystemPrompt(ai, { name, phone }),
+          "You are also the website support chat agent. Replies appear in the website chat box and on WhatsApp. Keep answers short and helpful.",
+        ].join("\n"),
+      },
+      ...prior.slice(-10),
+      last ?? { role: "user", content: "Hello" },
+    ],
+    { model: ai.model || defaultModelForProvider(provider) },
+  );
 }
 
 async function requireOrgVisit(organizationId: string, visitId: string) {
