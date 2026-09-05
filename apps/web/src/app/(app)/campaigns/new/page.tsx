@@ -91,10 +91,10 @@ export default function NewCampaignPage() {
       ),
       api<{ success: true; data: { languages: Lang[]; speakers: string[] } }>("/api/v1/voice-templates/options"),
       api<{ success: true; data: { configured: boolean; envFallback?: boolean } }>("/api/v1/ai/sarvam").catch(() => ({
-        data: { configured: false },
+        data: { configured: false, envFallback: false },
       })),
       api<{ success: true; data: { configured: boolean; envFallback?: boolean } }>("/api/v1/ai/gemini").catch(() => ({
-        data: { configured: false },
+        data: { configured: false, envFallback: false },
       })),
     ])
       .then(([ch, l, rec, ai, msg, opts, key, gemKey]) => {
