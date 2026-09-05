@@ -15,12 +15,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Percent, PhoneCall, Timer, UserCheck } from "lucide-react";
+import { Download, Percent, PhoneCall, Timer, UserCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import { Stagger } from "@/components/page-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { exportRowsCsv } from "@/lib/csv";
 
 type Analytics = {
   totalCalls: number;
@@ -73,12 +74,50 @@ export default function AnalyticsPage() {
     return <div className="surface h-48 animate-pulse bg-white/5" />;
   }
 
+  function exportCsv() {
+    const dayRows = days.map((d) => ({
+      day: d.day,
+      total: d.total,
+      answered: d.answered,
+    }));
+    const outcomeRows = outcomes.map((o) => ({ name: o.name, value: o.value }));
+    const agentRows = agents.map((a) => ({ name: a.name, calls: a.calls }));
+    exportRowsCsv(
+      `analytics-summary-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { key: "metric", label: "Metric" },
+        { key: "value", label: "Value" },
+      ],
+      [
+        { metric: "Total calls", value: data.totalCalls },
+        { metric: "Answered", value: data.answeredCalls },
+        { metric: "Answer rate %", value: Math.round((data.answerRate ?? 0) * 100) },
+        { metric: "Avg talk (min)", value: Math.round((data.averageDurationMs || 0) / 60000) },
+        { metric: "Total talk (min)", value: Math.round((data.totalTalkTimeMs || 0) / 60000) },
+        ...dayRows.map((d) => ({ metric: `Day ${d.day} total`, value: d.total })),
+        ...dayRows.map((d) => ({ metric: `Day ${d.day} answered`, value: d.answered })),
+        ...outcomeRows.map((o) => ({ metric: `Outcome ${o.name}`, value: o.value })),
+        ...agentRows.map((a) => ({ metric: `Agent ${a.name}`, value: a.calls })),
+      ],
+    );
+  }
+
   return (
     <div>
       <PageHeader
         title="Analytics"
         subtitle="Last 14 days of calls, answer rate, talk time, and agent load."
         tone="from-violet-400 to-cyan-400"
+        actions={
+          <button
+            type="button"
+            onClick={exportCsv}
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </button>
+        }
       />
       <Stagger className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total calls" value={data.totalCalls} icon={PhoneCall} tone="cyan" />

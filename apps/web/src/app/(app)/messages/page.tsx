@@ -3,9 +3,12 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Download } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { connectionState, StatusBadge } from "@/components/status-badge";
+import { ListPagination } from "@/components/list-pagination";
+import { emptyMeta, exportRowsCsv, fetchAllPages, type ListMeta, type PageSize } from "@/lib/csv";
 import {
   MessageTemplateForm,
   TemplateKindBadge,
@@ -47,6 +50,9 @@ function MessagesInner() {
   const tab = (TABS.some((t) => t.id === search.get("tab")) ? search.get("tab") : "send") as Tab;
   const [channels, setChannels] = useState<Channel[]>([]);
   const [rows, setRows] = useState<MessageRow[]>([]);
+  const [meta, setMeta] = useState<ListMeta>(emptyMeta(25));
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
   const [starters, setStarters] = useState<MsgTemplate[]>([]);
   const [customTemplates, setCustomTemplates] = useState<MsgTemplate[]>([]);
   const [channelId, setChannelId] = useState("");
@@ -56,29 +62,45 @@ function MessagesInner() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   function setTab(next: Tab) {
     router.replace(`/messages?tab=${next}`);
   }
 
+  async function loadMessages(pageNum = page, limit = pageSize) {
+    const r = await api<{ success: true; data: MessageRow[]; meta?: ListMeta }>(
+      `/api/v1/messages?page=${pageNum}&limit=${limit}`,
+    );
+    setRows(r.data);
+    setMeta(r.meta ?? emptyMeta(limit));
+  }
+
   async function load() {
-    const [ch, m, templates] = await Promise.all([
+    const [ch, templates] = await Promise.all([
       api<{ success: true; data: Channel[] }>("/api/v1/channels"),
-      api<{ success: true; data: MessageRow[] }>("/api/v1/messages"),
       api<{ success: true; data: { starter: MsgTemplate[]; custom: MsgTemplate[] } }>(
         "/api/v1/message-templates",
       ),
     ]);
     setChannels(ch.data);
-    setRows(m.data);
     setStarters(templates.data.starter ?? []);
     setCustomTemplates(templates.data.custom ?? []);
     setChannelId((id) => id || ch.data[0]?.id || "");
+    await loadMessages(page, pageSize);
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    void loadMessages(page, pageSize).catch((err) =>
+      setError(err instanceof Error ? err.message : "Failed to load messages"),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize]);
 
   const selected = channels.find((c) => c.id === channelId);
   const allTemplates = [...starters, ...customTemplates];
@@ -106,7 +128,8 @@ function MessagesInner() {
       });
       setText("");
       setTemplateId("");
-      await load();
+      await loadMessages(1, pageSize);
+      setPage(1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send failed");
     } finally {
@@ -124,11 +147,62 @@ function MessagesInner() {
     }
   }
 
+  async function exportCsv() {
+    setExporting(true);
+    setError("");
+    try {
+      const all = await fetchAllPages<MessageRow>(async (p, limit) => {
+        const r = await api<{ success: true; data: MessageRow[]; meta?: ListMeta }>(
+          `/api/v1/messages?page=${p}&limit=${limit}`,
+        );
+        return { rows: r.data ?? [], meta: r.meta ?? emptyMeta(limit) };
+      });
+      exportRowsCsv(
+        `messages-${new Date().toISOString().slice(0, 10)}.csv`,
+        [
+          { key: "date", label: "Date" },
+          { key: "phone", label: "Phone" },
+          { key: "channel", label: "Channel" },
+          { key: "provider", label: "Provider" },
+          { key: "status", label: "Status" },
+          { key: "body", label: "Message" },
+          { key: "error", label: "Error" },
+        ],
+        all.map((m) => ({
+          date: new Date(m.createdAt).toLocaleString(),
+          phone: m.phone,
+          channel: m.channel?.displayName || "",
+          provider: m.provider,
+          status: m.status,
+          body: m.body,
+          error: m.error || "",
+        })),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title="Messages"
         subtitle="Send WhatsApp text, media, button, or list templates — then reuse them in campaigns."
+        actions={
+          tab === "send" ? (
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => void exportCsv()}
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {exporting ? "Exporting…" : "Export CSV"}
+            </button>
+          ) : null
+        }
       />
       {error ? (
         <div className="mb-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div>
@@ -244,6 +318,15 @@ function MessagesInner() {
               </div>
             ) : null}
           </div>
+          <ListPagination
+            meta={meta}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </>
       ) : (
         <>

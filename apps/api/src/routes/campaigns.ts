@@ -299,6 +299,14 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
   app.get("/campaigns/:id", async (req) => {
     const auth = await app.authenticate(req);
     const { id } = req.params as { id: string };
+    const q = z
+      .object({
+        contactsPage: z.coerce.number().int().min(1).default(1),
+        contactsLimit: z.coerce.number().int().min(1).max(100).default(25),
+        messagesPage: z.coerce.number().int().min(1).default(1),
+        messagesLimit: z.coerce.number().int().min(1).max(100).default(25),
+      })
+      .parse(req.query);
     const campaign = await prisma.campaign.findFirst({
       where: { id, organizationId: auth.orgId },
       include: {
@@ -316,7 +324,10 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!campaign) throw new NotFoundError();
 
-    const [messageGroups, callGroups, contactGroups, connectedCalls, calls, messages, campaignContacts] =
+    const contactsSkip = (q.contactsPage - 1) * q.contactsLimit;
+    const messagesSkip = (q.messagesPage - 1) * q.messagesLimit;
+
+    const [messageGroups, callGroups, contactGroups, connectedCalls, messagesTotal, contactsTotal, messages, campaignContacts] =
       await Promise.all([
         prisma.message.groupBy({
           by: ["status"],
@@ -340,28 +351,13 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
             OR: [{ answeredAt: { not: null } }, { status: "ANSWERED" }, { outcome: "ANSWERED" }],
           },
         }),
-        prisma.call.findMany({
-          where: { campaignId: id, organizationId: auth.orgId },
-          orderBy: { createdAt: "desc" },
-          take: 300,
-          select: {
-            id: true,
-            phone: true,
-            contactName: true,
-            status: true,
-            outcome: true,
-            durationMs: true,
-            recordingPath: true,
-            transcript: true,
-            createdAt: true,
-            answeredAt: true,
-            failureReason: true,
-          },
-        }),
+        prisma.message.count({ where: { campaignId: id, organizationId: auth.orgId } }),
+        prisma.campaignContact.count({ where: { campaignId: id } }),
         prisma.message.findMany({
           where: { campaignId: id, organizationId: auth.orgId },
           orderBy: { createdAt: "desc" },
-          take: 300,
+          skip: messagesSkip,
+          take: q.messagesLimit,
           select: {
             id: true,
             phone: true,
@@ -392,20 +388,22 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
             },
           },
           orderBy: { createdAt: "asc" },
+          skip: contactsSkip,
+          take: q.contactsLimit,
         }),
       ]);
 
     const msgTally = Object.fromEntries(messageGroups.map((row) => [row.status, row._count._all]));
     const callTally = Object.fromEntries(callGroups.map((row) => [row.status, row._count._all]));
     const contactTally = Object.fromEntries(contactGroups.map((row) => [row.status, row._count._all]));
-    const messagesTotal = Object.values(msgTally).reduce((sum, n) => sum + n, 0);
+    const messagesCount = Object.values(msgTally).reduce((sum, n) => sum + n, 0);
     const callsTotal = Object.values(callTally).reduce((sum, n) => sum + n, 0);
     const unanswered =
       (callTally.NO_ANSWER ?? 0) + (callTally.BUSY ?? 0) + (callTally.REJECTED ?? 0);
     const report = {
       contacts: Object.values(contactTally).reduce((sum, n) => sum + n, 0),
       messages: {
-        total: messagesTotal,
+        total: messagesCount,
         sent: (msgTally.SENT ?? 0) + (msgTally.DELIVERED ?? 0) + (msgTally.READ ?? 0),
         failed: msgTally.FAILED ?? 0,
         queued: msgTally.QUEUED ?? 0,
@@ -423,14 +421,22 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       },
     };
 
+    const contactsMeta = {
+      page: q.contactsPage,
+      limit: q.contactsLimit,
+      total: contactsTotal,
+      totalPages: Math.max(1, Math.ceil(contactsTotal / q.contactsLimit)),
+    };
+    const messagesMeta = {
+      page: q.messagesPage,
+      limit: q.messagesLimit,
+      total: messagesTotal,
+      totalPages: Math.max(1, Math.ceil(messagesTotal / q.messagesLimit)),
+    };
+
     return ok({
       campaign,
       report,
-      calls: calls.map(({ recordingPath, transcript, ...c }) => ({
-        ...c,
-        hasRecording: Boolean(recordingPath),
-        hasTranscript: hasCallTranscript(transcript),
-      })),
       messages,
       contacts: campaignContacts.map((row) => {
         const last = row.calls[0];
@@ -454,6 +460,8 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
             : null,
         };
       }),
+      contactsMeta,
+      messagesMeta,
     });
   });
 

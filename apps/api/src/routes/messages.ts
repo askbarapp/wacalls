@@ -9,13 +9,34 @@ export const messageRoutes: FastifyPluginAsync = async (app) => {
   app.get("/messages", async (req) => {
     const auth = await app.authenticate(req);
     await app.requirePermission("messages.send")(req);
-    const rows = await prisma.message.findMany({
-      where: { organizationId: auth.orgId },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-      include: { channel: { select: { displayName: true, provider: true } } },
-    });
-    return ok(rows);
+    const q = z
+      .object({
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(100).default(25),
+      })
+      .parse(req.query);
+    const where = { organizationId: auth.orgId };
+    const skip = (q.page - 1) * q.limit;
+    const [rows, total] = await Promise.all([
+      prisma.message.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: q.limit,
+        include: { channel: { select: { displayName: true, provider: true } } },
+      }),
+      prisma.message.count({ where }),
+    ]);
+    return {
+      success: true as const,
+      data: rows,
+      meta: {
+        page: q.page,
+        limit: q.limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / q.limit)),
+      },
+    };
   });
 
   app.post("/messages", async (req) => {

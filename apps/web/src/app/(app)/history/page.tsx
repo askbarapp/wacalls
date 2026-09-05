@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Download } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { CallTranscriptButton } from "@/components/call-transcript";
 import { CallRecordingActions } from "@/components/call-recording-actions";
+import { ListPagination } from "@/components/list-pagination";
 import {
   CALL_RESULT_FILTERS,
   CALL_SOURCE_FILTERS,
@@ -15,6 +16,7 @@ import {
   type CallListMeta,
   type CallRow,
 } from "@/lib/call-log";
+import { emptyMeta, exportRowsCsv, fetchAllPages, type PageSize } from "@/lib/csv";
 
 type Channel = {
   id: string;
@@ -22,13 +24,9 @@ type Channel = {
   phoneNumber?: string | null;
 };
 
-const PAGE_SIZE = 25;
-
-const emptyMeta: CallListMeta = { page: 1, limit: PAGE_SIZE, total: 0, totalPages: 1 };
-
 export default function CallLogPage() {
   const [rows, setRows] = useState<CallRow[]>([]);
-  const [meta, setMeta] = useState<CallListMeta>(emptyMeta);
+  const [meta, setMeta] = useState<CallListMeta>(emptyMeta(25));
   const [channels, setChannels] = useState<Channel[]>([]);
   const [result, setResult] = useState("");
   const [source, setSource] = useState("");
@@ -38,7 +36,9 @@ export default function CallLogPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -54,25 +54,30 @@ export default function CallLogPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [result, source, channelId, q, from, to]);
+  }, [result, source, channelId, q, from, to, pageSize]);
 
-  useEffect(() => {
+  function buildParams(pageNum: number, limit: number) {
     const params = new URLSearchParams();
-    params.set("page", String(page));
-    params.set("limit", String(PAGE_SIZE));
+    params.set("page", String(pageNum));
+    params.set("limit", String(limit));
     if (result) params.set("result", result);
     if (source) params.set("source", source);
     if (channelId) params.set("channelId", channelId);
     if (q) params.set("q", q);
     if (from) params.set("from", from);
     if (to) params.set("to", to);
+    return params;
+  }
+
+  useEffect(() => {
+    const params = buildParams(page, pageSize);
     let stop = false;
     setLoading(true);
     api<{ success: true; data: CallRow[]; meta?: CallListMeta }>(`/api/v1/calls?${params}`)
       .then((r) => {
         if (stop) return;
         setRows(r.data ?? []);
-        setMeta(r.meta ?? { ...emptyMeta, total: r.data?.length ?? 0, page });
+        setMeta(r.meta ?? { ...emptyMeta(pageSize), total: r.data?.length ?? 0, page });
         setError("");
       })
       .catch((err) => {
@@ -85,18 +90,60 @@ export default function CallLogPage() {
     return () => {
       stop = true;
     };
-  }, [page, result, source, channelId, q, from, to]);
-
-  const range = useMemo(() => {
-    if (meta.total === 0) return "0 of 0";
-    const start = (meta.page - 1) * meta.limit + 1;
-    const end = Math.min(meta.page * meta.limit, meta.total);
-    return `${start}–${end} of ${meta.total}`;
-  }, [meta]);
+  }, [page, pageSize, result, source, channelId, q, from, to]);
 
   function changeFilter<T>(setter: (value: T) => void, value: T) {
     setter(value);
     setPage(1);
+  }
+
+  async function exportCsv() {
+    setExporting(true);
+    setError("");
+    try {
+      const all = await fetchAllPages<CallRow>(async (p, limit) => {
+        const r = await api<{ success: true; data: CallRow[]; meta?: CallListMeta }>(
+          `/api/v1/calls?${buildParams(p, limit)}`,
+        );
+        return {
+          rows: r.data ?? [],
+          meta: r.meta ?? emptyMeta(limit),
+        };
+      });
+      exportRowsCsv(
+        `call-log-${new Date().toISOString().slice(0, 10)}.csv`,
+        [
+          { key: "date", label: "Date" },
+          { key: "contact", label: "Contact" },
+          { key: "phone", label: "Phone" },
+          { key: "source", label: "From" },
+          { key: "campaign", label: "Campaign" },
+          { key: "agent", label: "Agent" },
+          { key: "line", label: "Line" },
+          { key: "status", label: "Status" },
+          { key: "result", label: "Result" },
+          { key: "duration", label: "Duration" },
+          { key: "failure", label: "Failure reason" },
+        ],
+        all.map((c) => ({
+          date: new Date(c.createdAt).toLocaleString(),
+          contact: c.contactName || "",
+          phone: c.phone,
+          source: c.source || "dialer",
+          campaign: c.campaign?.name || "",
+          agent: c.agent?.name || "",
+          line: c.channel?.displayName || "",
+          status: c.status,
+          result: callResultLabel(c),
+          duration: formatCallDuration(c.durationMs),
+          failure: c.failureReason || "",
+        })),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -104,6 +151,17 @@ export default function CallLogPage() {
       <PageHeader
         title="Call log"
         subtitle="Every call from this workspace — dialer, campaigns, website visits, and SDK. Filter by result, source, line, or date."
+        actions={
+          <button
+            type="button"
+            disabled={exporting || loading}
+            onClick={() => void exportCsv()}
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15 disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            {exporting ? "Exporting…" : "Export CSV"}
+          </button>
+        }
       />
 
       <div className="mb-4 grid gap-3 rounded-2xl border border-white/10 bg-ink-900/70 p-4 md:grid-cols-2 xl:grid-cols-6">
@@ -198,9 +256,7 @@ export default function CallLogPage() {
                   ) : null}
                 </td>
                 <td>{formatCallDuration(c.durationMs)}</td>
-                <td>
-                  {c.recordingPath ? <CallRecordingActions callId={c.id} compact /> : "—"}
-                </td>
+                <td>{c.recordingPath ? <CallRecordingActions callId={c.id} compact /> : "—"}</td>
                 <td>
                   <CallTranscriptButton
                     callId={c.id}
@@ -229,32 +285,16 @@ export default function CallLogPage() {
         </table>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
-        <span>{range}</span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200"
-            disabled={meta.page <= 1 || loading}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Previous
-          </button>
-          <span className="min-w-[5.5rem] text-center tabular-nums">
-            {meta.page} / {meta.totalPages}
-          </span>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200"
-            disabled={meta.page >= meta.totalPages || loading}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+      <ListPagination
+        meta={meta}
+        loading={loading}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
     </div>
   );
 }

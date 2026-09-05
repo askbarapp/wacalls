@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { Download } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { formatCallDuration, callResultLabel } from "@/lib/call-log";
 import { CallTranscriptButton } from "@/components/call-transcript";
 import { CallRecordingActions } from "@/components/call-recording-actions";
+import { ListPagination } from "@/components/list-pagination";
+import { emptyMeta, exportRowsCsv, fetchAllPages, type ListMeta, type PageSize } from "@/lib/csv";
 
 type Report = {
   contacts: number;
@@ -56,6 +59,15 @@ type ContactRow = {
   } | null;
 };
 
+type CampaignPayload = {
+  campaign: Campaign;
+  report: Report;
+  messages: MessageRow[];
+  contacts: ContactRow[];
+  contactsMeta?: ListMeta;
+  messagesMeta?: ListMeta;
+};
+
 export default function CampaignReportPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -63,32 +75,48 @@ export default function CampaignReportPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [contactsMeta, setContactsMeta] = useState<ListMeta>(emptyMeta(25));
+  const [messagesMeta, setMessagesMeta] = useState<ListMeta>(emptyMeta(25));
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
-  async function load() {
-    const res = await api<{
-      success: true;
-      data: {
-        campaign: Campaign;
-        report: Report;
-        messages: MessageRow[];
-        contacts: ContactRow[];
-      };
-    }>(`/api/v1/campaigns/${id}`);
-    setCampaign(res.data.campaign);
-    setReport(res.data.report);
-    setMessages(res.data.messages);
-    setContacts(res.data.contacts);
-  }
+  const load = useCallback(
+    async (opts?: { page?: number; limit?: number; silent?: boolean }) => {
+      const p = opts?.page ?? page;
+      const limit = opts?.limit ?? pageSize;
+      if (!opts?.silent) setLoading(true);
+      const qs = new URLSearchParams({
+        contactsPage: String(p),
+        contactsLimit: String(limit),
+        messagesPage: String(p),
+        messagesLimit: String(limit),
+      });
+      const res = await api<{ success: true; data: CampaignPayload }>(`/api/v1/campaigns/${id}?${qs}`);
+      setCampaign(res.data.campaign);
+      setReport(res.data.report);
+      setMessages(res.data.messages);
+      setContacts(res.data.contacts);
+      setContactsMeta(res.data.contactsMeta ?? emptyMeta(limit));
+      setMessagesMeta(res.data.messagesMeta ?? emptyMeta(limit));
+      setLoading(false);
+      return res.data;
+    },
+    [id, page, pageSize],
+  );
 
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+    void load().catch((err) => {
+      setError(err instanceof Error ? err.message : "Failed to load");
+      setLoading(false);
+    });
     const timer = window.setInterval(() => {
-      void load().catch(() => undefined);
+      void load({ silent: true }).catch(() => undefined);
     }, 8000);
     return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [load]);
 
   async function act(action: "start" | "pause" | "stop" | "kick") {
     setError("");
@@ -100,14 +128,94 @@ export default function CampaignReportPage() {
     }
   }
 
+  async function exportCsv() {
+    if (!campaign) return;
+    setExporting(true);
+    setError("");
+    try {
+      const isMessage = campaign.type === "MESSAGE";
+      if (isMessage) {
+        const all = await fetchAllPages<MessageRow>(async (p, limit) => {
+          const qs = new URLSearchParams({
+            messagesPage: String(p),
+            messagesLimit: String(limit),
+            contactsPage: "1",
+            contactsLimit: "1",
+          });
+          const res = await api<{ success: true; data: CampaignPayload }>(`/api/v1/campaigns/${id}?${qs}`);
+          return { rows: res.data.messages, meta: res.data.messagesMeta ?? emptyMeta(limit) };
+        });
+        exportRowsCsv(
+          `campaign-${campaign.name.replace(/[^\w.-]+/g, "_")}-messages.csv`,
+          [
+            { key: "date", label: "Date" },
+            { key: "contact", label: "Contact" },
+            { key: "phone", label: "Phone" },
+            { key: "status", label: "Status" },
+            { key: "body", label: "Message" },
+            { key: "error", label: "Error" },
+          ],
+          all.map((m) => ({
+            date: new Date(m.createdAt).toLocaleString(),
+            contact: m.contact?.name || "",
+            phone: m.phone,
+            status: m.status,
+            body: m.body,
+            error: m.error || "",
+          })),
+        );
+      } else {
+        const all = await fetchAllPages<ContactRow>(async (p, limit) => {
+          const qs = new URLSearchParams({
+            contactsPage: String(p),
+            contactsLimit: String(limit),
+            messagesPage: "1",
+            messagesLimit: "1",
+          });
+          const res = await api<{ success: true; data: CampaignPayload }>(`/api/v1/campaigns/${id}?${qs}`);
+          return { rows: res.data.contacts, meta: res.data.contactsMeta ?? emptyMeta(limit) };
+        });
+        exportRowsCsv(
+          `campaign-${campaign.name.replace(/[^\w.-]+/g, "_")}-calls.csv`,
+          [
+            { key: "contact", label: "Contact" },
+            { key: "phone", label: "Phone" },
+            { key: "status", label: "Status" },
+            { key: "result", label: "Result" },
+            { key: "attempts", label: "Attempts" },
+            { key: "duration", label: "Duration" },
+            { key: "connected", label: "Connected" },
+          ],
+          all.map((row) => {
+            const call = row.lastCall;
+            return {
+              contact: row.contact.name,
+              phone: row.contact.phone,
+              status: call?.status || row.status,
+              result: call ? callResultLabel(call) : row.status,
+              attempts: row.attempts,
+              duration: call?.durationMs ? formatCallDuration(call.durationMs) : "",
+              connected: call?.answeredAt ? "yes" : "no",
+            };
+          }),
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const isMessage = campaign?.type === "MESSAGE";
+  const listMeta = isMessage ? messagesMeta : contactsMeta;
   const looksFrozen =
     Boolean(campaign) &&
     campaign?.status === "RUNNING" &&
     report &&
     !isMessage &&
     report.calls.total === 0 &&
-    contacts.some((c) => c.status === "pending" || c.status === "PENDING");
+    report.contacts > 0;
 
   if (!campaign || !report) {
     return (
@@ -125,6 +233,15 @@ export default function CampaignReportPage() {
         subtitle={`${labelForType(campaign.type)}${campaign.contactList ? ` · ${campaign.contactList.name}` : ""}`}
         actions={
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={exporting}
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm disabled:opacity-50"
+              onClick={() => void exportCsv()}
+            >
+              <Download className="h-4 w-4" />
+              {exporting ? "Exporting…" : "Export CSV"}
+            </button>
             <Link href="/campaigns" className="min-h-10 rounded-lg bg-white/10 px-3 py-2 text-sm">
               All campaigns
             </Link>
@@ -167,9 +284,7 @@ export default function CampaignReportPage() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <StatusBadge status={campaign.status} />
         {campaign.scheduleAt ? (
-          <span className="text-xs text-slate-500">
-            Scheduled {new Date(campaign.scheduleAt).toLocaleString()}
-          </span>
+          <span className="text-xs text-slate-500">Scheduled {new Date(campaign.scheduleAt).toLocaleString()}</span>
         ) : null}
         {campaign.recording ? <span className="text-xs text-slate-500">{campaign.recording.name}</span> : null}
         {campaign.voiceTemplate ? <span className="text-xs text-slate-500">{campaign.voiceTemplate.name}</span> : null}
@@ -216,7 +331,7 @@ export default function CampaignReportPage() {
                 {m.error ? <p className="mt-1 text-xs text-rose-300">{m.error}</p> : null}
               </li>
             ))}
-            {messages.length === 0 ? (
+            {!loading && messages.length === 0 ? (
               <li className="rounded-2xl border border-dashed border-white/15 p-8 text-center text-sm text-slate-500">
                 No messages yet. They appear here after the campaign starts.
               </li>
@@ -256,7 +371,7 @@ export default function CampaignReportPage() {
                 </li>
               );
             })}
-            {contacts.length === 0 ? (
+            {!loading && contacts.length === 0 ? (
               <li className="rounded-2xl border border-dashed border-white/15 p-8 text-center text-sm text-slate-500">
                 Contacts for this campaign will show here with call results.
               </li>
@@ -264,6 +379,17 @@ export default function CampaignReportPage() {
           </ul>
         </section>
       )}
+
+      <ListPagination
+        meta={listMeta}
+        loading={loading}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
     </div>
   );
 }
