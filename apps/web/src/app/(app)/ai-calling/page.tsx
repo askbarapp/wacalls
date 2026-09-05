@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/page-header";
 import { AgentTestPanel } from "@/components/agent-test-panel";
 import { CallTranscriptButton } from "@/components/call-transcript";
 import { CallRecordingActions } from "@/components/call-recording-actions";
+import { ListPagination } from "@/components/list-pagination";
+import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
 
 type Tab = "knowledge" | "agents" | "incoming" | "templates" | "key" | "memory" | "analytics";
 
@@ -191,6 +193,12 @@ export default function AiCallingPage() {
     }>
   >([]);
   const [memoryQ, setMemoryQ] = useState("");
+  const [memoryPage, setMemoryPage] = useState(1);
+  const [memoryPageSize, setMemoryPageSize] = useState<PageSize>(25);
+  const [memoryMeta, setMemoryMeta] = useState<ListMeta>(emptyMeta(25));
+  const [docsPage, setDocsPage] = useState(1);
+  const [docsPageSize, setDocsPageSize] = useState<PageSize>(25);
+  const [docsMeta, setDocsMeta] = useState<ListMeta>(emptyMeta(25));
   const [memoryEdit, setMemoryEdit] = useState<{
     phone: string;
     summary: string;
@@ -256,7 +264,9 @@ export default function AiCallingPage() {
     }));
   }
 
-  async function loadMemories(q = memoryQ) {
+  async function loadMemories(q = memoryQ, pageNum = memoryPage, limit = memoryPageSize) {
+    const params = new URLSearchParams({ page: String(pageNum), limit: String(limit) });
+    if (q.trim()) params.set("q", q.trim());
     const res = await api<{
       success: true;
       data: Array<{
@@ -268,8 +278,10 @@ export default function AiCallingPage() {
         lastCallAt: string | null;
         optOut?: boolean;
       }>;
-    }>(`/api/v1/ai/memories?limit=100${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ""}`);
+      meta?: ListMeta;
+    }>(`/api/v1/ai/memories?${params}`);
     setMemories(res.data ?? []);
+    setMemoryMeta(res.meta ?? { ...emptyMeta(limit), total: res.data?.length ?? 0, page: pageNum });
   }
 
   useEffect(() => {
@@ -289,7 +301,16 @@ export default function AiCallingPage() {
         .then((r) => setRetentionDays(r.data.retentionDays))
         .catch(() => undefined),
     ]).catch((err) => setError(err instanceof Error ? err.message : "Failed to load memories"));
-  }, [tab]);
+  }, [tab, memoryPage, memoryPageSize]);
+
+  useEffect(() => {
+    if (tab !== "memory") return;
+    const t = setTimeout(() => {
+      setMemoryPage(1);
+      void loadMemories(memoryQ, 1, memoryPageSize).catch(() => undefined);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [memoryQ]);
 
   useEffect(() => {
     if (tab !== "analytics") return;
@@ -312,18 +333,29 @@ export default function AiCallingPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load analytics"));
   }, [tab]);
 
-  async function reloadKb(id: string) {
+  async function reloadKb(id: string, pageNum = docsPage, limit = docsPageSize) {
     if (!id) {
       setDocs([]);
+      setDocsMeta(emptyMeta(limit));
       return;
     }
-    const row = await api<{ success: true; data: { documents: Document[] } }>(`/api/v1/knowledge-bases/${id}`);
+    const row = await api<{ success: true; data: { documents: Document[] }; meta?: ListMeta }>(
+      `/api/v1/knowledge-bases/${id}?page=${pageNum}&limit=${limit}`,
+    );
     setDocs(row.data.documents);
+    setDocsMeta(row.meta ?? { ...emptyMeta(limit), total: row.data.documents?.length ?? 0, page: pageNum });
   }
 
   useEffect(() => {
-    if (openKb) void reloadKb(openKb).catch(() => undefined);
+    if (openKb) {
+      setDocsPage(1);
+      void reloadKb(openKb, 1, docsPageSize).catch(() => undefined);
+    }
   }, [openKb]);
+
+  useEffect(() => {
+    if (openKb) void reloadKb(openKb, docsPage, docsPageSize).catch(() => undefined);
+  }, [docsPage, docsPageSize]);
 
   async function preview(id: string) {
     setError("");
@@ -560,6 +592,15 @@ export default function AiCallingPage() {
               </li>
             ) : null}
           </ul>
+          <ListPagination
+            meta={memoryMeta}
+            pageSize={memoryPageSize}
+            onPageChange={setMemoryPage}
+            onPageSizeChange={(size) => {
+              setMemoryPageSize(size);
+              setMemoryPage(1);
+            }}
+          />
         </section>
       ) : null}
 
@@ -927,7 +968,8 @@ export default function AiCallingPage() {
                         body: JSON.stringify(doc),
                       });
                       setDoc({ title: "", content: "" });
-                      await reloadKb(openKb);
+                      setDocsPage(1);
+                      await reloadKb(openKb, 1, docsPageSize);
                       await load();
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "Could not add document");
@@ -956,6 +998,15 @@ export default function AiCallingPage() {
                     </div>
                   ))}
                 </div>
+                <ListPagination
+                  meta={docsMeta}
+                  pageSize={docsPageSize}
+                  onPageChange={setDocsPage}
+                  onPageSizeChange={(size) => {
+                    setDocsPageSize(size);
+                    setDocsPage(1);
+                  }}
+                />
               </>
             )}
           </section>

@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Plus, Trash2, Users } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
+import { ListPagination } from "@/components/list-pagination";
+import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
 import {
   CONTACT_SAMPLE_CSV,
   contactSampleSpreadsheet,
@@ -87,6 +89,10 @@ function ContactsInner() {
     lastIntent: string;
   } | null>(null);
   const [memoryBusy, setMemoryBusy] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [meta, setMeta] = useState<ListMeta>(emptyMeta(25));
+  const [membersLoading, setMembersLoading] = useState(false);
 
   const members = openGroup?.members ?? [];
   const memberIds = useMemo(() => members.map((m) => m.contact.id), [members]);
@@ -99,11 +105,19 @@ function ContactsInner() {
     return contactLists.data;
   }
 
-  async function loadGroup(id: string) {
-    const detail = await api<{ success: true; data: ContactList }>(`/api/v1/contact-lists/${id}`);
-    setOpenGroup(detail.data);
-    if ((detail.data.members?.length ?? 0) === 0) setShowAdd(true);
-    return detail.data;
+  async function loadGroup(id: string, pageNum = page, limit = pageSize) {
+    setMembersLoading(true);
+    try {
+      const detail = await api<{ success: true; data: ContactList; meta?: ListMeta }>(
+        `/api/v1/contact-lists/${id}?page=${pageNum}&limit=${limit}`,
+      );
+      setOpenGroup(detail.data);
+      setMeta(detail.meta ?? { ...emptyMeta(limit), total: detail.data.members?.length ?? 0, page: pageNum });
+      if ((detail.data._count?.members ?? detail.data.members?.length ?? 0) === 0) setShowAdd(true);
+      return detail.data;
+    } finally {
+      setMembersLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -112,7 +126,9 @@ function ContactsInner() {
 
   useEffect(() => {
     if (groupId) {
-      void loadGroup(groupId).catch((err) => setError(err instanceof Error ? err.message : "Could not load group"));
+      void loadGroup(groupId, page, pageSize).catch((err) =>
+        setError(err instanceof Error ? err.message : "Could not load group"),
+      );
       return;
     }
     if (lists.length > 0) {
@@ -120,7 +136,7 @@ function ContactsInner() {
       return;
     }
     setOpenGroup(null);
-  }, [groupId, lists, router]);
+  }, [groupId, lists, router, page, pageSize]);
 
   useEffect(() => {
     setSelected(new Set());
@@ -128,6 +144,7 @@ function ContactsInner() {
     setPaste("");
     setForm(emptyForm);
     setShowAdd(false);
+    setPage(1);
   }, [groupId]);
 
   function open(id: string) {
@@ -479,7 +496,7 @@ function ContactsInner() {
                         {openGroup.name}
                       </button>
                       <p className="text-xs text-slate-500">
-                        {members.length} contact{members.length === 1 ? "" : "s"}
+                        {meta.total} contact{meta.total === 1 ? "" : "s"}
                         {someSelected ? ` · ${selected.size} selected` : ""}
                       </p>
                     </>
@@ -772,6 +789,18 @@ function ContactsInner() {
                     ) : null}
                   </tbody>
                 </table>
+              </div>
+              <div className="border-t border-white/10 px-4 py-2">
+                <ListPagination
+                  meta={meta}
+                  loading={membersLoading}
+                  pageSize={pageSize}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                />
               </div>
             </>
           )}

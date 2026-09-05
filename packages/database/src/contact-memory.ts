@@ -140,27 +140,33 @@ export async function upsertContactMemory(
 export async function listContactMemories(
   db: PrismaClient,
   organizationId: string,
-  opts?: { q?: string; limit?: number },
-): Promise<ContactMemoryRecord[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
+  opts?: { q?: string; limit?: number; page?: number },
+): Promise<{ rows: ContactMemoryRecord[]; total: number; page: number; limit: number }> {
+  const limit = Math.min(Math.max(opts?.limit ?? 25, 1), 100);
+  const page = Math.max(opts?.page ?? 1, 1);
   const q = opts?.q?.trim();
-  const rows = await db.contactMemory.findMany({
-    where: {
-      organizationId,
-      ...(q
-        ? {
-            OR: [
-              { phone: { contains: q.replace(/\D/g, "") || q } },
-              { summary: { contains: q, mode: "insensitive" } },
-              { lastIntent: { contains: q, mode: "insensitive" } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: [{ lastCallAt: "desc" }, { updatedAt: "desc" }],
-    take: limit,
-  });
-  return rows.map(toRecord);
+  const where = {
+    organizationId,
+    ...(q
+      ? {
+          OR: [
+            { phone: { contains: q.replace(/\D/g, "") || q } },
+            { summary: { contains: q, mode: "insensitive" as const } },
+            { lastIntent: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    db.contactMemory.findMany({
+      where,
+      orderBy: [{ lastCallAt: "desc" }, { updatedAt: "desc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    db.contactMemory.count({ where }),
+  ]);
+  return { rows: rows.map(toRecord), total, page, limit };
 }
 
 export async function deleteContactMemory(db: PrismaClient, organizationId: string, phone: string) {

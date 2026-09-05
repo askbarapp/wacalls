@@ -6,18 +6,25 @@ import { pipeline } from "node:stream/promises";
 import { prisma } from "@wacalls/database";
 import { ConflictError, MAX_UPLOAD_AUDIO_DURATION_MS, NotFoundError, ok } from "@wacalls/shared";
 import { env } from "../env.js";
+import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
 import { probeAudioDurationMs } from "../services/audio-duration.js";
 import { z } from "zod";
 
 export const recordingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/recordings", async (req) => {
     const auth = await app.authenticate(req);
-    return ok(
-      await prisma.recording.findMany({
-        where: { organizationId: auth.orgId },
+    const q = pageQuerySchema.parse(req.query);
+    const where = { organizationId: auth.orgId };
+    const [rows, total] = await Promise.all([
+      prisma.recording.findMany({
+        where,
         orderBy: { createdAt: "desc" },
+        skip: pageSkip(q.page, q.limit),
+        take: q.limit,
       }),
-    );
+      prisma.recording.count({ where }),
+    ]);
+    return okPage(rows, pageMeta(q.page, q.limit, total));
   });
 
   app.post("/recordings", async (req) => {

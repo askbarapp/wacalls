@@ -84,7 +84,7 @@ export default function NewCampaignPage() {
     void Promise.all([
       api<{ success: true; data: Channel[] }>("/api/v1/channels"),
       api<{ success: true; data: List[] }>("/api/v1/contact-lists"),
-      api<{ success: true; data: Recording[] }>("/api/v1/recordings"),
+      api<{ success: true; data: Recording[] }>("/api/v1/recordings?limit=100"),
       api<{ success: true; data: { configs: Agent[] } }>("/api/v1/ai-configs"),
       api<{ success: true; data: { starter: MsgTemplate[]; custom: MsgTemplate[] } }>(
         "/api/v1/message-templates",

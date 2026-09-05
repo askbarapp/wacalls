@@ -7,6 +7,8 @@ import { Phone } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ConnectionBadge } from "@/components/status-badge";
+import { ListPagination } from "@/components/list-pagination";
+import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
 
 type Channel = { id: string; displayName: string; phoneNumber?: string | null; status: string };
 type Agent = { id: string; name: string };
@@ -53,6 +55,9 @@ export default function WebsiteVisitDeskPage() {
   const [live, setLive] = useState<LiveVisitor[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [inbox, setInbox] = useState<Conversation[]>([]);
+  const [inboxMeta, setInboxMeta] = useState<ListMeta>(emptyMeta(25));
+  const [inboxPage, setInboxPage] = useState(1);
+  const [inboxPageSize, setInboxPageSize] = useState<PageSize>(25);
   const [openId, setOpenId] = useState<string | null>(null);
   const [thread, setThread] = useState<Conversation | null>(null);
   const [reply, setReply] = useState("");
@@ -72,11 +77,14 @@ export default function WebsiteVisitDeskPage() {
     const [l, a, c] = await Promise.all([
       api<{ success: true; data: LiveVisitor[] }>(`/api/v1/visits/${id}/live`),
       api<{ success: true; data: Analytics }>(`/api/v1/visits/${id}/analytics`),
-      api<{ success: true; data: Conversation[] }>(`/api/v1/visits/${id}/conversations`),
+      api<{ success: true; data: Conversation[]; meta?: ListMeta }>(
+        `/api/v1/visits/${id}/conversations?page=${inboxPage}&limit=${inboxPageSize}`,
+      ),
     ]);
     setLive(l.data);
     setAnalytics(a.data);
     setInbox(c.data);
+    setInboxMeta(c.meta ?? { ...emptyMeta(inboxPageSize), total: c.data?.length ?? 0, page: inboxPage });
   }
 
   async function openChat(cid: string) {
@@ -89,14 +97,17 @@ export default function WebsiteVisitDeskPage() {
     setOrigin(window.location.origin);
     setApiOrigin(process.env.NEXT_PUBLIC_API_URL || window.location.origin);
     void loadVisit().catch((err) => setError(err instanceof Error ? err.message : "Could not load"));
-    void loadDesk().catch(() => undefined);
     api<{ success: true; data: Channel[] }>("/api/v1/channels").then((r) => setChannels(r.data)).catch(() => undefined);
     api<{ success: true; data: { configs: Agent[] } }>("/api/v1/ai-configs")
       .then((r) => setAgents(r.data.configs ?? []))
       .catch(() => undefined);
+  }, [id]);
+
+  useEffect(() => {
+    void loadDesk().catch(() => undefined);
     const t = setInterval(() => void loadDesk().catch(() => undefined), 4000);
     return () => clearInterval(t);
-  }, [id]);
+  }, [id, inboxPage, inboxPageSize]);
 
   useEffect(() => {
     if (!openId) return;
@@ -173,6 +184,7 @@ export default function WebsiteVisitDeskPage() {
         <section className="rounded-2xl border border-white/10 bg-ink-900/70 p-5">
           <h2 className="mb-3 text-sm font-medium text-white">WhatsApp support inbox</h2>
           <div className="grid gap-4 md:grid-cols-2">
+            <div>
             <ul className="max-h-80 space-y-1 overflow-auto text-sm">
               {inbox.map((c) => (
                 <li key={c.id}>
@@ -190,6 +202,17 @@ export default function WebsiteVisitDeskPage() {
               ))}
               {inbox.length === 0 ? <li className="text-slate-500">No chats yet.</li> : null}
             </ul>
+            <ListPagination
+              className="mt-2"
+              meta={inboxMeta}
+              pageSize={inboxPageSize}
+              onPageChange={setInboxPage}
+              onPageSizeChange={(size) => {
+                setInboxPageSize(size);
+                setInboxPage(1);
+              }}
+            />
+            </div>
             <div className="flex min-h-80 flex-col rounded-xl border border-white/10">
               {thread ? (
                 <>

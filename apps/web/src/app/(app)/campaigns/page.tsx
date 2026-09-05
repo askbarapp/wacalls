@@ -5,6 +5,8 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { ListPagination } from "@/components/list-pagination";
+import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
 
 type Campaign = {
   id: string;
@@ -27,16 +29,28 @@ type Campaign = {
 
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [meta, setMeta] = useState<ListMeta>(emptyMeta(25));
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function load() {
-    const res = await api<{ success: true; data: Campaign[] }>("/api/v1/campaigns");
-    setCampaigns(res.data);
+  async function load(pageNum = page, limit = pageSize) {
+    setLoading(true);
+    try {
+      const res = await api<{ success: true; data: Campaign[]; meta?: ListMeta }>(
+        `/api/v1/campaigns?page=${pageNum}&limit=${limit}`,
+      );
+      setCampaigns(res.data);
+      setMeta(res.meta ?? { ...emptyMeta(limit), total: res.data?.length ?? 0, page: pageNum });
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
-  }, []);
+  }, [page, pageSize]);
 
   async function act(id: string, action: "start" | "pause" | "stop", e: React.MouseEvent) {
     e.preventDefault();
@@ -140,7 +154,7 @@ export default function CampaignsPage() {
             </Link>
           );
         })}
-        {campaigns.length === 0 ? (
+        {!loading && campaigns.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/15 p-8 text-center text-sm text-slate-500">
             No campaigns yet.{" "}
             <Link className="text-brand-400 underline" href="/campaigns/new">
@@ -150,6 +164,16 @@ export default function CampaignsPage() {
           </div>
         ) : null}
       </div>
+      <ListPagination
+        meta={meta}
+        loading={loading}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
     </div>
   );
 }

@@ -4,26 +4,46 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { ListPagination } from "@/components/list-pagination";
 import { formatPlanPrice, type PlatformUser } from "@/lib/platform-admin";
+import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
 
 export default function PlatformUsersPage() {
   const [users, setUsers] = useState<PlatformUser[]>([]);
+  const [meta, setMeta] = useState<ListMeta>(emptyMeta(25));
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
 
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setQ(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   async function load() {
-    const r = await api<{ success: true; data: PlatformUser[] }>("/api/v1/platform/users");
-    setUsers(r.data);
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
+      if (q) params.set("q", q);
+      const r = await api<{ success: true; data: PlatformUser[]; meta?: ListMeta }>(
+        `/api/v1/platform/users?${params}`,
+      );
+      setUsers(r.data);
+      setMeta(r.meta ?? { ...emptyMeta(pageSize), total: r.data?.length ?? 0, page });
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Could not load users"));
-  }, []);
-
-  const filtered = users.filter((u) => {
-    const hay = `${u.name} ${u.email} ${u.memberships.map((m) => m.organization.name).join(" ")}`.toLowerCase();
-    return hay.includes(q.trim().toLowerCase());
-  });
+  }, [page, pageSize, q]);
 
   return (
     <div>
@@ -36,12 +56,14 @@ export default function PlatformUsersPage() {
       <input
         className="mb-4 min-h-11 max-w-md"
         placeholder="Search name, email, or workspace"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
       />
-      <p className="mb-3 text-xs text-slate-500">{filtered.length} of {users.length} users</p>
+      <p className="mb-3 text-xs text-slate-500">
+        {meta.total} user{meta.total === 1 ? "" : "s"}
+      </p>
       <div className="space-y-2">
-        {filtered.map((u) => {
+        {users.map((u) => {
           const org = u.memberships[0]?.organization;
           return (
             <div
@@ -78,7 +100,6 @@ export default function PlatformUsersPage() {
                   type="checkbox"
                   checked={u.isActive}
                   onChange={async (e) => {
-                    setError("");
                     try {
                       await api(`/api/v1/platform/users/${u.id}`, {
                         method: "PATCH",
@@ -95,8 +116,22 @@ export default function PlatformUsersPage() {
             </div>
           );
         })}
-        {filtered.length === 0 ? <p className="text-sm text-slate-500">No users match.</p> : null}
+        {!loading && users.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-white/15 p-8 text-center text-sm text-slate-500">
+            No users found.
+          </p>
+        ) : null}
       </div>
+      <ListPagination
+        meta={meta}
+        loading={loading}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
     </div>
   );
 }

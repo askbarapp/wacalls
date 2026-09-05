@@ -4,25 +4,39 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { ListPagination } from "@/components/list-pagination";
 import { formatPlanPrice, type PlatformOrg, type PlatformPlan } from "@/lib/platform-admin";
+import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
 
 export default function PlatformBillingPage() {
   const [orgs, setOrgs] = useState<PlatformOrg[]>([]);
   const [plans, setPlans] = useState<PlatformPlan[]>([]);
+  const [meta, setMeta] = useState<ListMeta>(emptyMeta(25));
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function load() {
-    const [o, p] = await Promise.all([
-      api<{ success: true; data: PlatformOrg[] }>("/api/v1/platform/organizations"),
-      api<{ success: true; data: PlatformPlan[] }>("/api/v1/platform/plans"),
-    ]);
-    setOrgs(o.data);
-    setPlans(p.data);
+  async function load(pageNum = page, limit = pageSize) {
+    setLoading(true);
+    try {
+      const [o, p] = await Promise.all([
+        api<{ success: true; data: PlatformOrg[]; meta?: ListMeta }>(
+          `/api/v1/platform/organizations?page=${pageNum}&limit=${limit}`,
+        ),
+        api<{ success: true; data: PlatformPlan[] }>("/api/v1/platform/plans"),
+      ]);
+      setOrgs(o.data);
+      setMeta(o.meta ?? { ...emptyMeta(limit), total: o.data?.length ?? 0, page: pageNum });
+      setPlans(p.data);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void load().catch((err) => setError(err instanceof Error ? err.message : "Could not load billing"));
-  }, []);
+  }, [page, pageSize]);
 
   async function patch(id: string, body: Record<string, unknown>) {
     setError("");
@@ -93,8 +107,18 @@ export default function PlatformBillingPage() {
             </label>
           </div>
         ))}
-        {orgs.length === 0 ? <p className="text-sm text-slate-500">No customer accounts yet.</p> : null}
+        {!loading && orgs.length === 0 ? <p className="text-sm text-slate-500">No customer accounts yet.</p> : null}
       </div>
+      <ListPagination
+        meta={meta}
+        loading={loading}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
     </div>
   );
 }

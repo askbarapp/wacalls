@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "@wacalls/database";
 import { ConflictError, ForbiddenError, NotFoundError, ok } from "@wacalls/shared";
+import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
 
 function requirePlatform(auth: { superAdmin?: boolean }) {
   if (!auth.superAdmin) throw new ForbiddenError("Platform admin only");
@@ -130,12 +131,17 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
   app.get("/platform/organizations", async (req) => {
     const auth = await app.authenticate(req);
     requirePlatform(auth);
-    return ok(
-      await prisma.organization.findMany({
+    const q = pageQuerySchema.parse(req.query);
+    const [rows, total] = await Promise.all([
+      prisma.organization.findMany({
         include: { plan: true, _count: { select: { users: true, channels: true, calls: true } } },
         orderBy: { createdAt: "desc" },
+        skip: pageSkip(q.page, q.limit),
+        take: q.limit,
       }),
-    );
+      prisma.organization.count(),
+    ]);
+    return okPage(rows, pageMeta(q.page, q.limit, total));
   });
 
   app.patch("/platform/organizations/:id", async (req) => {
@@ -160,8 +166,28 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
   app.get("/platform/users", async (req) => {
     const auth = await app.authenticate(req);
     requirePlatform(auth);
-    return ok(
-      await prisma.user.findMany({
+    const q = pageQuerySchema
+      .extend({ q: z.string().optional() })
+      .parse(req.query);
+    const search = q.q?.trim();
+    const where = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: "insensitive" as const } },
+            { email: { contains: search, mode: "insensitive" as const } },
+            {
+              memberships: {
+                some: {
+                  organization: { name: { contains: search, mode: "insensitive" as const } },
+                },
+              },
+            },
+          ],
+        }
+      : {};
+    const [rows, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
         include: {
           memberships: {
             include: {
@@ -178,9 +204,12 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
           },
         },
         orderBy: { createdAt: "desc" },
-        take: 500,
+        skip: pageSkip(q.page, q.limit),
+        take: q.limit,
       }),
-    );
+      prisma.user.count({ where }),
+    ]);
+    return okPage(rows, pageMeta(q.page, q.limit, total));
   });
 
   app.patch("/platform/users/:id", async (req) => {

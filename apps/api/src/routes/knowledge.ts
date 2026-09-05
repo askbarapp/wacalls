@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@wacalls/database";
 import { NotFoundError, ok } from "@wacalls/shared";
 import { assertKnowledgeQuota } from "../services/org.js";
+import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
 
 const kbBody = z.object({
   name: z.string().min(1),
@@ -37,12 +38,22 @@ export const knowledgeRoutes: FastifyPluginAsync = async (app) => {
   app.get("/knowledge-bases/:id", async (req) => {
     const auth = await app.authenticate(req);
     const { id } = req.params as { id: string };
+    const q = pageQuerySchema.parse(req.query);
     const row = await prisma.knowledgeBase.findFirst({
       where: { id, organizationId: auth.orgId },
-      include: { documents: { orderBy: { createdAt: "desc" } } },
     });
     if (!row) throw new NotFoundError("Knowledge base not found");
-    return ok(row);
+    const where = { knowledgeBaseId: id };
+    const [documents, total] = await Promise.all([
+      prisma.knowledgeBaseDocument.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: pageSkip(q.page, q.limit),
+        take: q.limit,
+      }),
+      prisma.knowledgeBaseDocument.count({ where }),
+    ]);
+    return okPage({ ...row, documents }, pageMeta(q.page, q.limit, total));
   });
 
   app.patch("/knowledge-bases/:id", async (req) => {

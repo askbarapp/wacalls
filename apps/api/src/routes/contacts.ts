@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma, Prisma } from "@wacalls/database";
 import { normalizePhone, digitsOnly, ok, NotFoundError, ConflictError, AppError } from "@wacalls/shared";
 import { previewCsv } from "../services/csv.js";
+import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
 import { whatsappClient } from "../services/whatsapp-client.js";
 
 function phonesMatch(a: string, b: string) {
@@ -309,18 +310,24 @@ export const contactRoutes: FastifyPluginAsync = async (app) => {
   app.get("/contact-lists/:id", async (req) => {
     const auth = await app.authenticate(req);
     const { id } = req.params as { id: string };
+    const q = pageQuerySchema.parse(req.query);
     const list = await prisma.contactList.findFirst({
       where: { id, organizationId: auth.orgId },
-      include: {
-        _count: { select: { members: true } },
-        members: {
-          include: { contact: true },
-          orderBy: { createdAt: "desc" },
-        },
-      },
+      include: { _count: { select: { members: true } } },
     });
     if (!list) throw new NotFoundError();
-    return ok(list);
+    const where = { contactListId: id };
+    const [members, total] = await Promise.all([
+      prisma.contactListMember.findMany({
+        where,
+        include: { contact: true },
+        orderBy: { createdAt: "desc" },
+        skip: pageSkip(q.page, q.limit),
+        take: q.limit,
+      }),
+      prisma.contactListMember.count({ where }),
+    ]);
+    return okPage({ ...list, members }, pageMeta(q.page, q.limit, total));
   });
 
   app.patch("/contact-lists/:id", async (req) => {

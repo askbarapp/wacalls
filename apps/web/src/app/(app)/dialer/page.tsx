@@ -164,7 +164,7 @@ export default function DialerPage() {
         success: true;
         data: { configs: DialerAgent[]; sarvamConfigured: boolean; geminiConfigured?: boolean };
       }>("/api/v1/ai-configs"),
-      api<{ success: true; data: DialerRecording[] }>("/api/v1/recordings"),
+      api<{ success: true; data: DialerRecording[] }>("/api/v1/recordings?limit=100"),
       api<{ success: true; data: { configured: boolean; envFallback?: boolean } }>("/api/v1/ai/sarvam"),
       api<{ success: true; data: { configured: boolean; envFallback?: boolean } }>("/api/v1/ai/gemini").catch(
         () => ({ data: { configured: false, envFallback: false } }),

@@ -7,7 +7,9 @@ import { PageHeader } from "@/components/page-header";
 import { formatCallDuration, type CallRow } from "@/lib/call-log";
 import { CallTranscriptButton } from "@/components/call-transcript";
 import { CallRecordingActions, UploadedRecordingActions } from "@/components/call-recording-actions";
+import { ListPagination } from "@/components/list-pagination";
 import { assertUploadAudioDuration } from "@/lib/audio-upload";
+import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
 
 type Recording = {
   id: string;
@@ -21,21 +23,51 @@ type Recording = {
 export default function RecordingsPage() {
   const [rows, setRows] = useState<Recording[]>([]);
   const [calls, setCalls] = useState<CallRow[]>([]);
+  const [recMeta, setRecMeta] = useState<ListMeta>(emptyMeta(25));
+  const [callMeta, setCallMeta] = useState<ListMeta>(emptyMeta(25));
+  const [recPage, setRecPage] = useState(1);
+  const [callPage, setCallPage] = useState(1);
+  const [recPageSize, setRecPageSize] = useState<PageSize>(25);
+  const [callPageSize, setCallPageSize] = useState<PageSize>(25);
+  const [loadingCalls, setLoadingCalls] = useState(true);
+  const [loadingRecs, setLoadingRecs] = useState(true);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  async function load() {
-    const [campaign, live] = await Promise.all([
-      api<{ success: true; data: Recording[] }>("/api/v1/recordings"),
-      api<{ success: true; data: CallRow[] }>("/api/v1/calls?hasRecording=true&limit=50"),
-    ]);
-    setRows(campaign.data);
-    setCalls(live.data ?? []);
+  async function loadCalls(page = callPage, limit = callPageSize) {
+    setLoadingCalls(true);
+    try {
+      const live = await api<{ success: true; data: CallRow[]; meta?: ListMeta }>(
+        `/api/v1/calls?hasRecording=true&page=${page}&limit=${limit}`,
+      );
+      setCalls(live.data ?? []);
+      setCallMeta(live.meta ?? { ...emptyMeta(limit), total: live.data?.length ?? 0, page });
+    } finally {
+      setLoadingCalls(false);
+    }
   }
+
+  async function loadRecordings(page = recPage, limit = recPageSize) {
+    setLoadingRecs(true);
+    try {
+      const campaign = await api<{ success: true; data: Recording[]; meta?: ListMeta }>(
+        `/api/v1/recordings?page=${page}&limit=${limit}`,
+      );
+      setRows(campaign.data);
+      setRecMeta(campaign.meta ?? { ...emptyMeta(limit), total: campaign.data?.length ?? 0, page });
+    } finally {
+      setLoadingRecs(false);
+    }
+  }
+
   useEffect(() => {
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
-  }, []);
+    void loadCalls().catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+  }, [callPage, callPageSize]);
+
+  useEffect(() => {
+    void loadRecordings().catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+  }, [recPage, recPageSize]);
 
   async function upload(file: File) {
     setError("");
@@ -59,7 +91,8 @@ export default function RecordingsPage() {
         return;
       }
       setMsg("Recording uploaded. Attach it to a Recorded voice campaign.");
-      await load();
+      setRecPage(1);
+      await loadRecordings(1, recPageSize);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -77,7 +110,7 @@ export default function RecordingsPage() {
       {msg ? <p className="mb-4 text-sm text-brand-400">{msg}</p> : null}
 
       <h2 className="mb-3 text-sm font-medium text-white">Call recordings</h2>
-      <ul className="mb-10 space-y-2">
+      <ul className="mb-2 space-y-2">
         {calls.map((c) => (
           <li key={c.id} className="rounded-xl border border-white/10 bg-ink-900 px-4 py-3 text-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -103,9 +136,22 @@ export default function RecordingsPage() {
           </li>
         ) : null}
       </ul>
+      <ListPagination
+        className="mb-10"
+        meta={callMeta}
+        loading={loadingCalls}
+        pageSize={callPageSize}
+        onPageChange={setCallPage}
+        onPageSizeChange={(size) => {
+          setCallPageSize(size);
+          setCallPage(1);
+        }}
+      />
 
       <h2 className="mb-3 text-sm font-medium text-white">Campaign audio</h2>
-      <label className={`mb-6 inline-flex cursor-pointer rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-ink-950 hover:bg-brand-400 ${uploading ? "pointer-events-none opacity-50" : ""}`}>
+      <label
+        className={`mb-6 inline-flex cursor-pointer rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-ink-950 hover:bg-brand-400 ${uploading ? "pointer-events-none opacity-50" : ""}`}
+      >
         {uploading ? "Uploading…" : "Upload WAV / MP3 (max 3 min)"}
         <input
           type="file"
@@ -134,7 +180,7 @@ export default function RecordingsPage() {
                 recordingId={r.id}
                 filename={r.name}
                 mimeType={r.mimeType}
-                onDeleted={() => load()}
+                onDeleted={() => void loadRecordings()}
               />
             </div>
           </li>
@@ -145,6 +191,16 @@ export default function RecordingsPage() {
           </li>
         ) : null}
       </ul>
+      <ListPagination
+        meta={recMeta}
+        loading={loadingRecs}
+        pageSize={recPageSize}
+        onPageChange={setRecPage}
+        onPageSizeChange={(size) => {
+          setRecPageSize(size);
+          setRecPage(1);
+        }}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma, listOpenSlots, listContactMemories, getContactMemory, saveContactMemoryManual, deleteContactMemory, memoryPhoneKey, intentAnalytics, getMemoryRetentionDays, DEFAULT_MEMORY_RETENTION_DAYS } from "@wacalls/database";
 import { NotFoundError, ConflictError, ok } from "@wacalls/shared";
+import { okPage, pageMeta, pageQuerySchema } from "../lib/pagination.js";
 import {
   SARVAM_CHAT_MODEL,
   GEMINI_CHAT_MODEL,
@@ -414,13 +415,15 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/ai/memories", async (req) => {
     const auth = await app.authenticate(req);
-    const q = z
-      .object({
-        q: z.string().optional(),
-        limit: z.coerce.number().int().min(1).max(200).optional(),
-      })
+    const q = pageQuerySchema
+      .extend({ q: z.string().optional() })
       .parse(req.query ?? {});
-    return ok(await listContactMemories(prisma, auth.orgId, { q: q.q, limit: q.limit }));
+    const result = await listContactMemories(prisma, auth.orgId, {
+      q: q.q,
+      limit: q.limit,
+      page: q.page,
+    });
+    return okPage(result.rows, pageMeta(result.page, result.limit, result.total));
   });
 
   app.get("/ai/memories/:phone", async (req) => {

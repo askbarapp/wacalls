@@ -438,17 +438,37 @@ export async function visitAnalytics(organizationId: string, visitId: string) {
   };
 }
 
-export async function listVisitConversations(organizationId: string, visitId: string) {
+export async function listVisitConversations(
+  organizationId: string,
+  visitId: string,
+  opts?: { page?: number; limit?: number },
+) {
   await requireOrgVisit(organizationId, visitId);
-  return prisma.visitConversation.findMany({
-    where: { visitId, organizationId },
-    include: {
-      department: { select: { id: true, name: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
+  const page = Math.max(1, opts?.page ?? 1);
+  const limit = Math.min(100, Math.max(1, opts?.limit ?? 25));
+  const where = { visitId, organizationId };
+  const [rows, total] = await Promise.all([
+    prisma.visitConversation.findMany({
+      where,
+      include: {
+        department: { select: { id: true, name: true } },
+        messages: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+      orderBy: { lastMessageAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.visitConversation.count({ where }),
+  ]);
+  return {
+    rows,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
     },
-    orderBy: { lastMessageAt: "desc" },
-    take: 80,
-  });
+  };
 }
 
 export async function getVisitConversation(organizationId: string, visitId: string, conversationId: string) {

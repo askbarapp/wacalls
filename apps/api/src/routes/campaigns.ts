@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma, hasCallTranscript, type Prisma } from "@wacalls/database";
 import { CAMPAIGN_TYPES, ConflictError, NotFoundError, ok } from "@wacalls/shared";
 import { campaignQueue } from "../queues.js";
+import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
 import { enqueueWebhook } from "../services/webhooks.js";
 import { STARTER_MESSAGE_TEMPLATES } from "./message-templates.js";
 
@@ -51,24 +52,31 @@ function parseSchedule(value?: string) {
 export const campaignRoutes: FastifyPluginAsync = async (app) => {
   app.get("/campaigns", async (req) => {
     const auth = await app.authenticate(req);
-    const campaigns = await prisma.campaign.findMany({
-      where: { organizationId: auth.orgId },
-      include: {
-        _count: { select: { campaignContacts: true, calls: true, messages: true } },
-        channel: true,
-        campaignChannels: {
-          include: { channel: { select: { id: true, displayName: true, status: true, phoneNumber: true, provider: true } } },
-          orderBy: { sortOrder: "asc" },
+    const q = pageQuerySchema.parse(req.query);
+    const where = { organizationId: auth.orgId };
+    const [campaigns, total] = await Promise.all([
+      prisma.campaign.findMany({
+        where,
+        include: {
+          _count: { select: { campaignContacts: true, calls: true, messages: true } },
+          channel: true,
+          campaignChannels: {
+            include: { channel: { select: { id: true, displayName: true, status: true, phoneNumber: true, provider: true } } },
+            orderBy: { sortOrder: "asc" },
+          },
+          recording: { select: { id: true, name: true } },
+          voiceTemplate: { select: { id: true, name: true } },
+          messageTemplate: { select: { id: true, name: true } },
+          contactList: { select: { id: true, name: true } },
+          aiConfig: { select: { id: true, name: true, knowledgeBase: { select: { id: true, name: true } } } },
         },
-        recording: { select: { id: true, name: true } },
-        voiceTemplate: { select: { id: true, name: true } },
-        messageTemplate: { select: { id: true, name: true } },
-        contactList: { select: { id: true, name: true } },
-        aiConfig: { select: { id: true, name: true, knowledgeBase: { select: { id: true, name: true } } } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    return ok(campaigns);
+        orderBy: { createdAt: "desc" },
+        skip: pageSkip(q.page, q.limit),
+        take: q.limit,
+      }),
+      prisma.campaign.count({ where }),
+    ]);
+    return okPage(campaigns, pageMeta(q.page, q.limit, total));
   });
 
   app.post("/campaigns", async (req) => {

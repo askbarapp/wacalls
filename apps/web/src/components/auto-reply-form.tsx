@@ -84,7 +84,7 @@ export function AutoReplyForm({ ruleId, defaultTrigger }: { ruleId?: string; def
   const [loaded, setLoaded] = useState(!ruleId);
 
   useEffect(() => {
-    void api<{ success: true; data: Campaign[] }>("/api/v1/campaigns")
+    void api<{ success: true; data: Campaign[] }>("/api/v1/campaigns?limit=100")
       .then((r) => setCampaigns(r.data))
       .catch(() => undefined);
     void api<{ success: true; data: { starter: MsgTemplate[]; custom: MsgTemplate[] } }>("/api/v1/message-templates")

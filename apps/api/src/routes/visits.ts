@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@wacalls/database";
 import { NotFoundError, ok } from "@wacalls/shared";
 import { createVisit, submitVisitEnquiry, updateVisit, publicVisitConfig } from "../services/visits.js";
+import { okPage, pageMeta, pageQuerySchema } from "../lib/pagination.js";
 import {
   agentReplyVisitChat,
   createDepartment,
@@ -72,7 +73,9 @@ export const visitRoutes: FastifyPluginAsync = async (app) => {
     const auth = await app.authenticate(req);
     await app.requirePermission("visits.manage")(req);
     const { id } = req.params as { id: string };
-    return ok(await listVisitConversations(auth.orgId, id));
+    const q = pageQuerySchema.parse(req.query);
+    const { rows, meta } = await listVisitConversations(auth.orgId, id, q);
+    return okPage(rows, meta);
   });
 
   app.get("/visits/:id/conversations/:cid", async (req) => {
@@ -124,14 +127,20 @@ export const visitRoutes: FastifyPluginAsync = async (app) => {
     const auth = await app.authenticate(req);
     await app.requirePermission("visits.manage")(req);
     const { id } = req.params as { id: string };
+    const q = pageQuerySchema.parse(req.query);
     const visit = await prisma.visit.findFirst({ where: { id, organizationId: auth.orgId } });
     if (!visit) throw new NotFoundError("Website Visit not found");
-    const leads = await prisma.visitLead.findMany({
-      where: { visitId: id },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
-    return ok(leads);
+    const where = { visitId: id };
+    const [leads, total] = await Promise.all([
+      prisma.visitLead.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (q.page - 1) * q.limit,
+        take: q.limit,
+      }),
+      prisma.visitLead.count({ where }),
+    ]);
+    return okPage(leads, pageMeta(q.page, q.limit, total));
   });
 
   app.post("/visits", async (req) => {
