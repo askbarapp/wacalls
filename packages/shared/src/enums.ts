@@ -1,3 +1,6 @@
+/** Max length for user-uploaded campaign / dialer audio (WAV / MP3). */
+export const MAX_UPLOAD_AUDIO_DURATION_MS = 3 * 60 * 1000;
+
 export const ROLES = ["SUPER_ADMIN", "ORG_ADMIN", "MANAGER", "AGENT"] as const;
 export type Role = (typeof ROLES)[number];
 

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { api, ensureAccessToken } from "@/lib/api";
 import { callResultLabel, formatCallDuration, type CallRow } from "@/lib/call-log";
+import { assertUploadAudioDuration } from "@/lib/audio-upload";
 import { startCallAudio, type CallAudioHandle } from "@/lib/call-audio";
 import { playDialTone } from "@/lib/dtmf";
 import { ConnectionBadge } from "@/components/status-badge";
@@ -268,6 +269,7 @@ export default function DialerPage() {
     setError("");
     setUploading(true);
     try {
+      await assertUploadAudioDuration(file);
       const token = (await ensureAccessToken()) ?? "";
       const base = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
       const fd = new FormData();
@@ -290,6 +292,23 @@ export default function DialerPage() {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function deleteRecording(id: string) {
+    if (!id) return;
+    const name = recordings.find((r) => r.id === id)?.name || "this audio";
+    if (!confirm(`Delete “${name}”? This cannot be undone.`)) return;
+    setError("");
+    try {
+      await api(`/api/v1/recordings/${id}`, { method: "DELETE" });
+      setRecordings((rows) => {
+        const next = rows.filter((r) => r.id !== id);
+        setRecordingId((current) => (current === id ? next[0]?.id || "" : current));
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
     }
   }
 
@@ -653,6 +672,7 @@ export default function DialerPage() {
         ttsSpeaker={ttsSpeaker}
         onTtsSpeaker={setTtsSpeaker}
         onUpload={(file) => void uploadRecording(file)}
+        onDeleteRecording={(id) => void deleteRecording(id)}
         uploading={uploading}
         disabled={!connected}
         inCall={inCall}

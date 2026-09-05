@@ -72,6 +72,7 @@ export function DialerModePanel({
   ttsSpeaker,
   onTtsSpeaker,
   onUpload,
+  onDeleteRecording,
   uploading,
   disabled,
   inCall,
@@ -96,6 +97,7 @@ export function DialerModePanel({
   ttsSpeaker: string;
   onTtsSpeaker: (v: string) => void;
   onUpload: (file: File) => void;
+  onDeleteRecording?: (id: string) => void;
   uploading: boolean;
   disabled: boolean;
   inCall: boolean;
@@ -212,17 +214,34 @@ export function DialerModePanel({
         {mode === "recording" ? (
           <>
             <label className="block text-xs text-slate-400">Audio file</label>
-            <select value={recordingId} onChange={(e) => onRecordingId(e.target.value)} disabled={inCall}>
-              {recordings.length === 0 ? <option value="">Upload a WAV or MP3 first</option> : null}
-              {recordings.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                className="min-w-0 flex-1"
+                value={recordingId}
+                onChange={(e) => onRecordingId(e.target.value)}
+                disabled={inCall}
+              >
+                {recordings.length === 0 ? <option value="">Upload a WAV or MP3 first</option> : null}
+                {recordings.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+              {onDeleteRecording && recordingId ? (
+                <button
+                  type="button"
+                  disabled={inCall}
+                  onClick={() => onDeleteRecording(recordingId)}
+                  className="shrink-0 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-200 hover:bg-rose-500/20 disabled:opacity-50"
+                >
+                  Delete
+                </button>
+              ) : null}
+            </div>
             <label className="mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 px-3 py-3 text-sm text-slate-300">
               <Upload className="h-4 w-4" />
-              {uploading ? "Uploading…" : "Upload audio"}
+              {uploading ? "Uploading…" : "Upload audio (max 3 min)"}
               <input
                 type="file"
                 accept=".wav,.mp3,audio/wav,audio/mpeg"
@@ -235,7 +254,7 @@ export function DialerModePanel({
                 }}
               />
             </label>
-            <p className="text-[11px] text-slate-500">Played when they answer, then the call hangs up.</p>
+            <p className="text-[11px] text-slate-500">Played when they answer, then the call hangs up. Max 3 minutes.</p>
           </>
         ) : null}
 

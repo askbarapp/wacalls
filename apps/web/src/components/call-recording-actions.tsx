@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { api } from "@/lib/api";
 import {
   claimPlayback,
   downloadCallRecording,
@@ -13,20 +14,25 @@ import {
 type RecordingPlayerProps = {
   loadUrl: () => Promise<string>;
   onDownload: () => Promise<void>;
+  onDelete?: () => Promise<void>;
   compact?: boolean;
   playLabel?: string;
   downloadLabel?: string;
+  deleteLabel?: string;
 };
 
 function RecordingPlayer({
   loadUrl,
   onDownload,
+  onDelete,
   compact = false,
   playLabel = "Play recording",
   downloadLabel = "Download",
+  deleteLabel = "Delete",
 }: RecordingPlayerProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -82,12 +88,26 @@ function RecordingPlayer({
     }
   }
 
+  async function remove() {
+    if (!onDelete) return;
+    setError("");
+    setDeleting(true);
+    try {
+      stopRef.current();
+      await onDelete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className={compact ? "min-w-[11rem]" : "w-full"}>
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          disabled={loading}
+          disabled={loading || deleting}
           className={
             compact
               ? "text-brand-400 hover:underline disabled:opacity-50"
@@ -99,15 +119,30 @@ function RecordingPlayer({
         </button>
         <button
           type="button"
+          disabled={deleting}
           className={
             compact
-              ? "text-slate-300 hover:underline"
-              : "min-h-10 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/15"
+              ? "text-slate-300 hover:underline disabled:opacity-50"
+              : "min-h-10 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/15 disabled:opacity-50"
           }
           onClick={() => void download()}
         >
           {downloadLabel}
         </button>
+        {onDelete ? (
+          <button
+            type="button"
+            disabled={deleting}
+            className={
+              compact
+                ? "text-rose-300 hover:underline disabled:opacity-50"
+                : "min-h-10 rounded-lg bg-rose-500/15 px-3 py-1.5 text-sm text-rose-200 hover:bg-rose-500/25 disabled:opacity-50"
+            }
+            onClick={() => void remove()}
+          >
+            {deleting ? "Deleting…" : deleteLabel}
+          </button>
+        ) : null}
       </div>
       {url ? (
         <audio
@@ -145,17 +180,27 @@ export function UploadedRecordingActions({
   filename,
   mimeType,
   compact,
+  onDeleted,
 }: {
   recordingId: string;
   filename?: string;
   mimeType?: string | null;
   compact?: boolean;
+  onDeleted?: () => void | Promise<void>;
 }) {
+  async function remove() {
+    if (!confirm(`Delete “${filename || "this audio"}”? This cannot be undone.`)) return;
+    await api(`/api/v1/recordings/${recordingId}`, { method: "DELETE" });
+    await onDeleted?.();
+  }
+
   return (
     <RecordingPlayer
       compact={compact}
       loadUrl={() => playUploadedRecording(recordingId, mimeType)}
       onDownload={() => downloadUploadedRecording(recordingId, filename, mimeType)}
+      onDelete={onDeleted ? remove : undefined}
+      playLabel="Play audio"
     />
   );
 }
