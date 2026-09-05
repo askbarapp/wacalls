@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma, listOpenSlots } from "@wacalls/database";
 import { NotFoundError, ConflictError, ok } from "@wacalls/shared";
-import { SARVAM_CHAT_MODEL, extractSarvamApiKey, SarvamClient, buildVoiceAgentGreeting, buildVoiceAgentSystemPrompt } from "@wacalls/audio-engine";
+import { SARVAM_CHAT_MODEL, extractSarvamApiKey, SarvamClient, buildVoiceAgentGreeting, buildVoiceAgentSystemPrompt, inferSpokenLanguage } from "@wacalls/audio-engine";
 import { hasSarvamApiKey, resolveSarvamApiKey } from "../services/sarvam-key.js";
 import { assertAiAgentQuota } from "../services/org.js";
 
@@ -168,6 +168,7 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
 
       let transcript: string | undefined;
       let reply: string;
+      let replyLanguage = ai.language || "hi-IN";
       if (!spoken && !typed && history.length === 0) {
         reply = buildVoiceAgentGreeting(ai.greeting, contact);
       } else {
@@ -185,7 +186,8 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
               model: ai.model || SARVAM_CHAT_MODEL,
             });
           }
-          transcript = await sarvam.transcribe(wav, ai.language);
+          const stt = await sarvam.transcribe(wav, "unknown");
+          transcript = stt.transcript;
           if (!transcript) {
             return ok({
               transcript: null,
@@ -197,8 +199,10 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
               model: ai.model || SARVAM_CHAT_MODEL,
             });
           }
+          replyLanguage = inferSpokenLanguage(transcript, stt.languageCode, ai.language);
         } else if (typed) {
           transcript = typed;
+          replyLanguage = inferSpokenLanguage(transcript, null, ai.language);
         } else {
           throw new ConflictError("Speak to continue the test call.");
         }
@@ -206,21 +210,22 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
           [
             { role: "system", content: buildVoiceAgentSystemPrompt(ai, contact) },
             ...history.slice(-12),
-            { role: "user", content: transcript },
+            { role: "user", content: `[Speak in ${replyLanguage}]\n${transcript}` },
           ],
           {
             model: ai.model || SARVAM_CHAT_MODEL,
-            temperature: ai.temperature,
-            maxTokens: ai.maxTokens,
+            temperature: Math.min(ai.temperature, 0.45),
+            maxTokens: Math.min(ai.maxTokens, 96),
           },
         );
         if (!reply.trim()) throw new ConflictError("Sarvam returned an empty reply. Try again.");
       }
 
       const wav = await sarvam.synthesize(reply, {
-        language: ai.language,
+        language: replyLanguage,
         speaker: ai.voice || "shubh",
         sampleRate: 16_000,
+        pace: 1.08,
       });
       const nextHistory = spoken || typed
         ? [...history, { role: "user" as const, content: transcript ?? "" }, { role: "assistant" as const, content: reply }].slice(-16)
@@ -229,6 +234,7 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
       return ok({
         transcript: transcript ?? null,
         reply,
+        language: replyLanguage,
         audioBase64: wav.toString("base64"),
         mimeType: "audio/wav",
         history: nextHistory,

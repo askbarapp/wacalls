@@ -28,17 +28,21 @@ export function buildVoiceAgentSystemPrompt(
   const kb = (ai.knowledgeBase?.documents ?? [])
     .map((d) => `### ${d.title}\n${d.content}`)
     .join("\n\n")
-    .slice(0, 8000);
-  const language = toBcp47(ai.language);
+    .slice(0, 4500);
+  const defaultLanguage = toBcp47(ai.language);
   return [
     ai.systemPrompt,
-    `You are a live phone agent having a two-way conversation. Listen to the person, answer their question, then ask one short follow-up. Keep replies under 40 words, spoken and natural, in language ${language}.`,
-    `Never ignore what they just said. Do not repeat the greeting after they have spoken.`,
-    `Caller name: ${name}. Phone: ${contact.phone ?? ""}.`,
+    `You are a live phone agent in a real two-way call. Sound human: warm, brief, natural — not a chatbot or FAQ page.`,
+    `Reply in the SAME language the caller just used. Hindi → Hindi. English → English. Hinglish → Hinglish. Never force ${defaultLanguage} if they switched.`,
+    `Keep each reply under 25 words, ideally one short sentence. Ask at most one follow-up question.`,
+    `Never ignore what they just said. Do not repeat the greeting after they have spoken. No markdown, bullets, or lists.`,
+    `Caller name: ${name}. Phone: ${contact.phone ?? ""}. Default greeting language: ${defaultLanguage}.`,
     ai.objective ? `Objective: ${ai.objective}` : "",
     ai.questions ? `Questions to cover if relevant: ${ai.questions}` : "",
     ai.disallowed ? `Never do: ${ai.disallowed}` : "",
-    kb ? `Knowledge base (${ai.knowledgeBase?.name}):\n${kb}` : "No knowledge documents. Be honest, ask what they need, and offer an appointment if slots exist.",
+    kb
+      ? `Knowledge base (${ai.knowledgeBase?.name}):\n${kb}`
+      : "No knowledge documents. Be honest, ask what they need, and offer an appointment if slots exist.",
     extra?.slots ?? "",
     "If you truly cannot help, offer an appointment or a callback — do not loop the same sentence.",
   ]

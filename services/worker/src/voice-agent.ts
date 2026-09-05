@@ -16,6 +16,9 @@ import {
   pcmFloatToWav,
   buildVoiceAgentGreeting,
   buildVoiceAgentSystemPrompt,
+  inferSpokenLanguage,
+  splitSpokenSentences,
+  toBcp47,
   type ChatTurn,
 } from "@wacalls/audio-engine";
 import { QUEUE_NAMES } from "@wacalls/queue";
@@ -117,6 +120,8 @@ class NativeVoiceAgent {
   private silenceSamples = 0;
   private bargeSamples = 0;
   private booked = false;
+  private activeLanguage: string;
+  private turnBusy = false;
   private readonly sampleRate = 16_000;
   private readonly contactName: string;
 
@@ -151,6 +156,7 @@ class NativeVoiceAgent {
     private readonly slots: OpenSlot[],
   ) {
     this.contactName = cfg.contactName?.trim() || "there";
+    this.activeLanguage = toBcp47(ai.language || "hi-IN");
     // Cache system prompts: rebuilding them every turn is expensive and adds avoidable latency.
     this.systemPromptNotBooked = buildVoiceAgentSystemPrompt(
       this.ai,
@@ -172,7 +178,7 @@ class NativeVoiceAgent {
       phone: this.cfg.phone,
     });
     this.history.push({ role: "assistant", content: greeting });
-    await this.saveTurns([{ role: "assistant", text: greeting }]);
+    void this.saveTurns([{ role: "assistant", text: greeting }]);
     await this.say(greeting);
   }
 
@@ -185,9 +191,10 @@ class NativeVoiceAgent {
     if (this.stopped || !pcm.length) return;
     if (this.speaking) {
       const energy = rms(pcm);
-      if (energy > 0.03) this.bargeSamples += pcm.length;
+      if (energy > 0.028) this.bargeSamples += pcm.length;
       else this.bargeSamples = 0;
-      if (this.bargeSamples >= this.sampleRate * 0.55) {
+      // Faster barge-in so the agent yields quickly when the caller talks over it.
+      if (this.bargeSamples >= this.sampleRate * 0.32) {
         this.interrupt = true;
         this.speaking = false;
         this.bargeSamples = 0;
@@ -197,12 +204,13 @@ class NativeVoiceAgent {
       }
       return;
     }
+    if (this.turnBusy) return;
     const merged = new Float32Array(this.pending.length + pcm.length);
     merged.set(this.pending);
     merged.set(pcm, this.pending.length);
     this.pending = merged;
     const energy = rms(pcm);
-    if (energy > 0.016) {
+    if (energy > 0.015) {
       this.speakingSamples += pcm.length;
       this.silenceSamples = 0;
     } else if (this.speakingSamples > 0) {
@@ -211,7 +219,8 @@ class NativeVoiceAgent {
     const speechMs = (this.speakingSamples / this.sampleRate) * 1000;
     const silenceMs = (this.silenceSamples / this.sampleRate) * 1000;
     const maxMs = (this.pending.length / this.sampleRate) * 1000;
-    if ((speechMs >= 400 && silenceMs >= 550) || (speechMs >= 350 && maxMs >= 10_000)) {
+    // Snappier end-of-turn: start STT sooner after the caller pauses.
+    if ((speechMs >= 280 && silenceMs >= 380) || (speechMs >= 300 && maxMs >= 8_000)) {
       const clip = this.pending;
       this.pending = new Float32Array(0);
       this.speakingSamples = 0;
@@ -224,26 +233,41 @@ class NativeVoiceAgent {
   }
 
   private async handleUtterance(pcm: Float32Array) {
-    if (this.stopped || this.speaking) return;
+    if (this.stopped || this.speaking || this.turnBusy) return;
+    this.turnBusy = true;
+    const started = Date.now();
     try {
       const wav = pcmFloatToWav(pcm, this.sampleRate, 1);
-      const text = await this.sarvam.transcribe(wav, this.ai.language);
+      // Auto-detect language so Hindi/English (and switches) follow the caller.
+      const stt = await this.sarvam.transcribe(wav, "unknown");
+      const text = stt.transcript;
       if (!text || this.stopped) return;
-      log.info({ callId: this.cfg.callId, text }, "callee said");
+      this.activeLanguage = inferSpokenLanguage(text, stt.languageCode, this.activeLanguage);
+      log.info(
+        { callId: this.cfg.callId, text, language: this.activeLanguage, sttMs: Date.now() - started },
+        "callee said",
+      );
+
+      const chatStarted = Date.now();
       let reply = await this.sarvam.chat(
         [
           { role: "system", content: this.systemPrompt() },
-          ...this.history.slice(-12),
-          { role: "user", content: text },
+          ...this.history.slice(-10),
+          {
+            role: "user",
+            content: `[Speak in ${this.activeLanguage}]\n${text}`,
+          },
         ],
         {
           model: this.ai.model || undefined,
-          temperature: this.ai.temperature,
-          // Voice replies are constrained to ~40 words; clamp tokens so the model returns faster.
-          maxTokens: Math.min(this.ai.maxTokens, 180),
+          temperature: Math.min(this.ai.temperature ?? 0.4, 0.45),
+          // Short voice turns — lower tokens = faster first reply.
+          maxTokens: Math.min(this.ai.maxTokens || 120, 96),
         },
       );
       if (!reply || this.stopped) return;
+      log.info({ callId: this.cfg.callId, chatMs: Date.now() - chatStarted }, "agent reply ready");
+
       const parsed = parseBookTag(reply);
       reply = parsed.spoken;
       if (parsed.iso && !this.booked && this.cfg.channelId) {
@@ -265,14 +289,17 @@ class NativeVoiceAgent {
         }
       }
       this.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
-      if (this.history.length > 16) this.history = this.history.slice(-16);
-      await this.saveTurns([
+      if (this.history.length > 14) this.history = this.history.slice(-14);
+      // Persist transcript in parallel — do not block speaking.
+      void this.saveTurns([
         { role: "user", text },
         { role: "assistant", text: reply },
       ]);
       await this.say(reply);
     } catch (err) {
       log.warn({ err, callId: this.cfg.callId }, "voice agent turn failed");
+    } finally {
+      this.turnBusy = false;
     }
   }
 
@@ -291,7 +318,7 @@ class NativeVoiceAgent {
     try {
       await appendCallTranscriptTurns(prisma, this.cfg.callId, turns, {
         source: "ai",
-        language: this.ai.language,
+        language: this.activeLanguage,
       });
     } catch (err) {
       log.warn({ err, callId: this.cfg.callId }, "could not save call transcript");
@@ -305,25 +332,37 @@ class NativeVoiceAgent {
     this.pending = new Float32Array(0);
     this.speakingSamples = 0;
     this.silenceSamples = 0;
+    const opts = {
+      language: this.activeLanguage,
+      speaker: this.ai.voice || "shubh",
+      sampleRate: this.sampleRate,
+      pace: 1.08,
+    };
     try {
-      const pcm = await this.sarvam.synthesizePcm(text, {
-        language: this.ai.language,
-        speaker: this.ai.voice || "shubh",
-        sampleRate: this.sampleRate,
-      });
-      if (this.stopped || this.interrupt) return;
-      const frame = 1600;
-      for (let i = 0; i < pcm.length; i += frame) {
+      const sentences = splitSpokenSentences(text);
+      let nextPcm: Promise<Float32Array> | null = sentences[0]
+        ? this.sarvam.synthesizePcm(sentences[0]!, opts)
+        : null;
+
+      for (let i = 0; i < sentences.length; i += 1) {
         if (this.stopped || this.interrupt) return;
-        await this.sendPcm(pcm.slice(i, i + frame));
-        await sleep(Math.round((Math.min(frame, pcm.length - i) / this.sampleRate) * 1000));
+        const pcm = await (nextPcm ?? this.sarvam.synthesizePcm(sentences[i]!, opts));
+        const upcoming = sentences[i + 1];
+        nextPcm = upcoming ? this.sarvam.synthesizePcm(upcoming, opts) : null;
+        if (this.stopped || this.interrupt) return;
+        const frame = 1600;
+        for (let j = 0; j < pcm.length; j += frame) {
+          if (this.stopped || this.interrupt) return;
+          await this.sendPcm(pcm.slice(j, j + frame));
+          await sleep(Math.round((Math.min(frame, pcm.length - j) / this.sampleRate) * 1000));
+        }
       }
     } catch (err) {
       log.warn({ err, callId: this.cfg.callId }, "voice agent TTS failed");
     } finally {
       this.speaking = false;
       this.interrupt = false;
-      await sleep(250);
+      await sleep(80);
     }
   }
 

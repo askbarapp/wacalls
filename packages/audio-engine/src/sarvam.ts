@@ -50,6 +50,7 @@ export type ChatTurn = { role: "system" | "user" | "assistant"; content: string 
 
 export function toBcp47(language: string): string {
   const raw = (language || "hi-IN").trim();
+  if (raw === "unknown" || raw === "auto") return "unknown";
   if (raw.includes("-")) return raw;
   const map: Record<string, string> = {
     hi: "hi-IN",
@@ -67,6 +68,47 @@ export function toBcp47(language: string): string {
   };
   return map[raw.toLowerCase()] ?? "hi-IN";
 }
+
+/** Pick TTS/reply language from STT detection + script heuristics. */
+export function inferSpokenLanguage(
+  text: string,
+  detected?: string | null,
+  fallback = "hi-IN",
+): string {
+  const code = (detected || "").trim();
+  if (code && code !== "unknown" && code !== "auto") return toBcp47(code);
+
+  const hasDeva = /[\u0900-\u097F]/.test(text);
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  const indic = (text.match(/[\u0900-\u097F]/g) || []).length;
+  if (hasDeva && indic >= latin) return "hi-IN";
+  if (!hasDeva && latin >= 4) return "en-IN";
+  if (hasDeva) return "hi-IN";
+  return toBcp47(fallback);
+}
+
+export function splitSpokenSentences(text: string): string[] {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const parts = clean
+    .split(/(?<=[.!?।…])\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) return [clean];
+  // Merge tiny fragments so TTS is not called for 1–2 word leftovers.
+  const merged: string[] = [];
+  for (const part of parts) {
+    const last = merged[merged.length - 1];
+    if (last && last.length < 28) merged[merged.length - 1] = `${last} ${part}`;
+    else merged.push(part);
+  }
+  return merged;
+}
+
+export type TranscribeResult = {
+  transcript: string;
+  languageCode: string | null;
+};
 
 export function renderVoiceScript(
   body: string,
@@ -132,12 +174,13 @@ export class SarvamClient {
     return wavToPcmFloat(wav).pcm;
   }
 
-  async transcribe(wav: Buffer, language?: string): Promise<string> {
+  async transcribe(wav: Buffer, language?: string): Promise<TranscribeResult> {
     const form = new FormData();
     form.set("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "speech.wav");
     form.set("model", SARVAM_STT_MODEL);
     form.set("mode", "transcribe");
-    if (language) form.set("language_code", toBcp47(language));
+    const lang = !language || language === "auto" || language === "unknown" ? "unknown" : toBcp47(language);
+    form.set("language_code", lang);
     const res = await fetch(`${BASE}/speech-to-text`, {
       method: "POST",
       headers: { "api-subscription-key": this.apiKey },
@@ -147,8 +190,10 @@ export class SarvamClient {
       const err = await res.text().catch(() => "");
       throw new Error(`Sarvam STT failed (${res.status}): ${err.slice(0, 240)}`);
     }
-    const json = (await res.json()) as { transcript?: string };
-    return (json.transcript ?? "").trim();
+    const json = (await res.json()) as { transcript?: string; language_code?: string };
+    const transcript = (json.transcript ?? "").trim();
+    const languageCode = json.language_code ? toBcp47(json.language_code) : null;
+    return { transcript, languageCode: languageCode === "unknown" ? null : languageCode };
   }
 
   async chat(messages: ChatTurn[], opts?: { model?: string; temperature?: number; maxTokens?: number }): Promise<string> {

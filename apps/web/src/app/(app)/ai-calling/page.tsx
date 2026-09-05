@@ -596,20 +596,29 @@ export default function AiCallingPage() {
               onChange={(e) => setAgent({ ...agent, objective: e.target.value })}
             />
             <div className="grid gap-2 md:grid-cols-2">
-              <select value={agent.language} onChange={(e) => setAgent({ ...agent, language: e.target.value })}>
-                {languages.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-              <select value={agent.voice} onChange={(e) => setAgent({ ...agent, voice: e.target.value })}>
-                {speakers.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">Greeting language</label>
+                <select value={agent.language} onChange={(e) => setAgent({ ...agent, language: e.target.value })}>
+                  {languages.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Opening line uses this. After that the agent mirrors Hindi / English automatically.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">Voice</label>
+                <select value={agent.voice} onChange={(e) => setAgent({ ...agent, voice: e.target.value })}>
+                  {speakers.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="mt-2">
               <label className="mb-1 block text-xs text-slate-400">Conversation model</label>

@@ -5,6 +5,8 @@ import {
   extractSarvamApiKey,
   pcmFloatToWav,
   renderVoiceScript,
+  inferSpokenLanguage,
+  splitSpokenSentences,
   toBcp47,
   type ChatTurn,
 } from "@wacalls/audio-engine";
@@ -72,6 +74,8 @@ class VoiceAgent {
   private pending = new Float32Array(0);
   private speakingSamples = 0;
   private silenceSamples = 0;
+  private turnBusy = false;
+  private activeLanguage: string;
   private readonly sampleRate = 16_000;
   private readonly contactName: string;
 
@@ -94,6 +98,7 @@ class VoiceAgent {
     private readonly sarvam: SarvamClient,
   ) {
     this.contactName = cfg.contactName?.trim() || "there";
+    this.activeLanguage = toBcp47(ai.language || "hi-IN");
   }
 
   async start() {
@@ -108,13 +113,13 @@ class VoiceAgent {
   }
 
   onDownlink(pcm: Float32Array) {
-    if (this.stopped || this.speaking || !pcm.length) return;
+    if (this.stopped || this.speaking || this.turnBusy || !pcm.length) return;
     const merged = new Float32Array(this.pending.length + pcm.length);
     merged.set(this.pending);
     merged.set(pcm, this.pending.length);
     this.pending = merged;
     const energy = rms(pcm);
-    if (energy > 0.018) {
+    if (energy > 0.015) {
       this.speakingSamples += pcm.length;
       this.silenceSamples = 0;
     } else if (this.speakingSamples > 0) {
@@ -123,7 +128,7 @@ class VoiceAgent {
     const speechMs = (this.speakingSamples / this.sampleRate) * 1000;
     const silenceMs = (this.silenceSamples / this.sampleRate) * 1000;
     const maxMs = (this.pending.length / this.sampleRate) * 1000;
-    if ((speechMs >= 500 && silenceMs >= 750) || (speechMs >= 400 && maxMs >= 12_000)) {
+    if ((speechMs >= 280 && silenceMs >= 380) || (speechMs >= 300 && maxMs >= 8_000)) {
       const clip = this.pending;
       this.pending = new Float32Array(0);
       this.speakingSamples = 0;
@@ -136,30 +141,35 @@ class VoiceAgent {
   }
 
   private async handleUtterance(pcm: Float32Array) {
-    if (this.stopped || this.speaking) return;
+    if (this.stopped || this.speaking || this.turnBusy) return;
+    this.turnBusy = true;
     try {
       const wav = pcmFloatToWav(pcm, this.sampleRate, 1);
-      const text = await this.sarvam.transcribe(wav, this.ai.language);
+      const stt = await this.sarvam.transcribe(wav, "unknown");
+      const text = stt.transcript;
       if (!text || this.stopped) return;
-      log.info({ callId: this.cfg.callId, text }, "callee said");
+      this.activeLanguage = inferSpokenLanguage(text, stt.languageCode, this.activeLanguage);
+      log.info({ callId: this.cfg.callId, text, language: this.activeLanguage }, "callee said");
       const reply = await this.sarvam.chat(
         [
           { role: "system", content: this.systemPrompt() },
-          ...this.history.slice(-12),
-          { role: "user", content: text },
+          ...this.history.slice(-10),
+          { role: "user", content: `[Speak in ${this.activeLanguage}]\n${text}` },
         ],
         {
           model: this.ai.model || undefined,
-          temperature: this.ai.temperature,
-          maxTokens: this.ai.maxTokens,
+          temperature: Math.min(this.ai.temperature ?? 0.4, 0.45),
+          maxTokens: Math.min(this.ai.maxTokens || 120, 96),
         },
       );
       if (!reply || this.stopped) return;
       this.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
-      if (this.history.length > 16) this.history = this.history.slice(-16);
+      if (this.history.length > 14) this.history = this.history.slice(-14);
       await this.say(reply);
     } catch (err) {
       log.warn({ err, callId: this.cfg.callId }, "voice agent turn failed");
+    } finally {
+      this.turnBusy = false;
     }
   }
 
@@ -167,11 +177,12 @@ class VoiceAgent {
     const kb = (this.ai.knowledgeBase?.documents ?? [])
       .map((d) => `### ${d.title}\n${d.content}`)
       .join("\n\n")
-      .slice(0, 8000);
+      .slice(0, 4500);
     const language = toBcp47(this.ai.language);
     return [
       this.ai.systemPrompt,
-      `You are a live phone agent. Keep replies under 40 words, spoken and natural, in language ${language}.`,
+      `You are a live phone agent. Sound human and brief. Mirror the caller's language (Hindi/English/Hinglish).`,
+      `Keep replies under 25 words. Default greeting language: ${language}.`,
       `Caller name: ${this.contactName}. Phone: ${this.cfg.phone}.`,
       this.ai.objective ? `Objective: ${this.ai.objective}` : "",
       this.ai.questions ? `Questions to cover if relevant: ${this.ai.questions}` : "",
@@ -186,18 +197,28 @@ class VoiceAgent {
   private async say(text: string) {
     if (this.stopped || !text.trim()) return;
     this.speaking = true;
+    const opts = {
+      language: this.activeLanguage,
+      speaker: this.ai.voice || "shubh",
+      sampleRate: this.sampleRate,
+      pace: 1.08,
+    };
     try {
-      const pcm = await this.sarvam.synthesizePcm(text, {
-        language: this.ai.language,
-        speaker: this.ai.voice || "shubh",
-        sampleRate: this.sampleRate,
-      });
-      if (this.stopped) return;
-      const frame = 1600;
-      for (let i = 0; i < pcm.length; i += frame) {
+      const sentences = splitSpokenSentences(text);
+      let nextPcm: Promise<Float32Array> | null = sentences[0]
+        ? this.sarvam.synthesizePcm(sentences[0]!, opts)
+        : null;
+      for (let i = 0; i < sentences.length; i += 1) {
         if (this.stopped) return;
-        await this.engine.sendAudio(this.cfg.callId, pcm.slice(i, i + frame));
-        await sleep(Math.round((Math.min(frame, pcm.length - i) / this.sampleRate) * 1000));
+        const pcm = await (nextPcm ?? this.sarvam.synthesizePcm(sentences[i]!, opts));
+        const upcoming = sentences[i + 1];
+        nextPcm = upcoming ? this.sarvam.synthesizePcm(upcoming, opts) : null;
+        const frame = 1600;
+        for (let j = 0; j < pcm.length; j += frame) {
+          if (this.stopped) return;
+          await this.engine.sendAudio(this.cfg.callId, pcm.slice(j, j + frame));
+          await sleep(Math.round((Math.min(frame, pcm.length - j) / this.sampleRate) * 1000));
+        }
       }
     } catch (err) {
       log.warn({ err, callId: this.cfg.callId }, "voice agent TTS failed");
