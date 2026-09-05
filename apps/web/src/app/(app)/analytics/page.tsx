@@ -74,6 +74,8 @@ export default function AnalyticsPage() {
     return <div className="surface h-48 animate-pulse bg-white/5" />;
   }
 
+  const summary = data;
+
   function exportCsv() {
     const dayRows = days.map((d) => ({
       day: d.day,
@@ -89,11 +91,11 @@ export default function AnalyticsPage() {
         { key: "value", label: "Value" },
       ],
       [
-        { metric: "Total calls", value: data.totalCalls },
-        { metric: "Answered", value: data.answeredCalls },
-        { metric: "Answer rate %", value: Math.round((data.answerRate ?? 0) * 100) },
-        { metric: "Avg talk (min)", value: Math.round((data.averageDurationMs || 0) / 60000) },
-        { metric: "Total talk (min)", value: Math.round((data.totalTalkTimeMs || 0) / 60000) },
+        { metric: "Total calls", value: summary.totalCalls },
+        { metric: "Answered", value: summary.answeredCalls },
+        { metric: "Answer rate %", value: Math.round((summary.answerRate ?? 0) * 100) },
+        { metric: "Avg talk (min)", value: Math.round((summary.averageDurationMs || 0) / 60000) },
+        { metric: "Total talk (min)", value: Math.round((summary.totalTalkTimeMs || 0) / 60000) },
         ...dayRows.map((d) => ({ metric: `Day ${d.day} total`, value: d.total })),
         ...dayRows.map((d) => ({ metric: `Day ${d.day} answered`, value: d.answered })),
         ...outcomeRows.map((o) => ({ metric: `Outcome ${o.name}`, value: o.value })),
