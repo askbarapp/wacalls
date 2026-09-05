@@ -96,10 +96,10 @@ export const STARTER_MESSAGE_TEMPLATES = [
     id: "starter-buttons",
     name: "Yes / No",
     kind: "BUTTON" as const,
-    body: "Namaste {{name}}, kya aap interested hain?",
+    body: "Namaste {{name}}, kya aap interested hain? Reply Yes or No.",
     buttons: [
-      { type: "reply" as const, text: "Haan" },
-      { type: "reply" as const, text: "Nahi" },
+      { type: "reply" as const, text: "Yes" },
+      { type: "reply" as const, text: "No" },
     ],
   },
   {
@@ -119,10 +119,10 @@ export const STARTER_MESSAGE_TEMPLATES = [
     id: "starter-call-answered",
     name: "After call received",
     kind: "BUTTON" as const,
-    body: "Hi {{name}}, thanks for taking our call from {{company}}. Are you interested in going ahead?",
+    body: "Hi {{name}}, thanks for taking our call from {{company}}. Are you interested in going ahead? Reply Yes or No.",
     buttons: [
-      { type: "reply" as const, text: "Interested" },
-      { type: "reply" as const, text: "Not interested" },
+      { type: "reply" as const, text: "Yes" },
+      { type: "reply" as const, text: "No" },
     ],
   },
   {
@@ -137,10 +137,10 @@ export const STARTER_MESSAGE_TEMPLATES = [
     id: "starter-call-unanswered",
     name: "After unanswered call",
     kind: "BUTTON" as const,
-    body: "Hi {{name}}, we called from {{company}} but couldn't reach you. Would you like us to call you back?",
+    body: "Hi {{name}}, we called from {{company}} but couldn't reach you. Would you like us to call you back? Reply Yes or No.",
     buttons: [
-      { type: "reply" as const, text: "Call me back" },
-      { type: "reply" as const, text: "Not now" },
+      { type: "reply" as const, text: "Yes" },
+      { type: "reply" as const, text: "No" },
     ],
   },
 ] as const;

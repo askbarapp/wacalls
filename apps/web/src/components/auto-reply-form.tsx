@@ -7,7 +7,7 @@ import { Check, Clock, TriangleAlert, X } from "lucide-react";
 import { api, getAccessToken } from "@/lib/api";
 
 export const TRIGGERS = [
-  { id: "ANSWERED", label: "Call received", hint: "Customer picked up. Send a thank-you — Interested / Not interested buttons work well." },
+  { id: "ANSWERED", label: "Call received", hint: "Customer picked up. Send a thank-you with Yes / No (buttons when WhatsApp supports them, otherwise reply text)." },
   { id: "NO_ANSWER", label: "Call unanswered", hint: "The call rang out. Leave a missed-call note and a call-back option." },
   { id: "REJECTED", label: "Call rejected", hint: "Customer declined. Explain why you called and that they can call back." },
   { id: "NOT_CONNECTED", label: "Not connected", hint: "The call couldn't connect. Ask them to reply when free." },
@@ -17,9 +17,9 @@ export type TriggerId = (typeof TRIGGERS)[number]["id"];
 
 const DEFAULT_BODY: Record<TriggerId, string> = {
   ANSWERED:
-    "Hi {{name}}, thanks for taking our call from {{company}}. Are you interested in going ahead?",
+    "Hi {{name}}, thanks for taking our call from {{company}}. Are you interested in going ahead? Reply Yes or No.",
   NO_ANSWER:
-    "Hi {{name}}, we called from {{company}} but couldn't reach you. Would you like us to call you back?",
+    "Hi {{name}}, we called from {{company}} but couldn't reach you. Would you like us to call you back? Reply Yes or No.",
   REJECTED:
     "Hi {{name}}, we just tried to call you. The purpose was to share an update and see if this is a good time. You can call us back on this chat whenever you are free.",
   NOT_CONNECTED: "Hi {{name}}, we couldn't connect just now. Reply here and we'll follow up.",
@@ -313,7 +313,7 @@ export function AutoReplyForm({ ruleId, defaultTrigger }: { ruleId?: string; def
               ))}
             </select>
             <p className="mt-1 text-xs text-slate-500">
-              Button templates can send Interested / Not interested after a received call. Design more templates in Messages.
+              Button templates try WhatsApp Yes/No buttons when the line supports them. On linked WhatsApp the same message also includes “Reply with Yes / No” text so customers can always answer.
             </p>
             <label className="mt-3 block text-xs uppercase tracking-wider text-slate-500">Text</label>
             <textarea className="mt-1 min-h-32" value={body} onChange={(e) => setBody(e.target.value)} />

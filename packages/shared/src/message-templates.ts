@@ -142,14 +142,45 @@ export function templatePreviewText(input: Pick<MessageTemplatePayload, "kind" |
   return input.body;
 }
 
+export function formatButtonReplyChoices(
+  body: string,
+  buttons?: Array<{ type?: string; text?: string } | null> | null,
+): string {
+  const choices = (buttons ?? [])
+    .filter((b) => b && b.type !== "url" && b.type !== "call")
+    .map((b) => String(b?.text ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const base = body.trim();
+  if (!choices.length) return base;
+  const lower = base.toLowerCase();
+  if (lower.includes("reply with") || lower.includes("reply *yes*")) return base;
+  const lines = choices.map((label, i) => `${i + 1}) ${label}`);
+  const joined = choices.join(" ").toLowerCase();
+  const hasYesNo = choices.some((label) => {
+    const l = label.toLowerCase();
+    return l === "yes" || l === "no" || l === "haan" || l === "nahi";
+  });
+  let extra = "";
+  if (!hasYesNo && (joined.includes("interest") || joined.includes("call me") || joined.includes("not now"))) {
+    extra = "\n\nOr simply reply *Yes* or *No*.";
+  } else if (!hasYesNo && choices.length === 2) {
+    extra = `\n\nOr reply *${choices[0]}* / *${choices[1]}*.`;
+  }
+  return `${base ? `${base}\n\n` : ""}Reply with:\n${lines.join("\n")}${extra}`.trim();
+}
+
 export function nativeMessagePayload(filled: MessageTemplatePayload) {
   const kind = filled.kind === "SIMPLE" ? "TEXT" : filled.kind;
+  const textBase =
+    filled.kind === "SIMPLE"
+      ? composeSimpleBody(filled.header ?? "", filled.body, filled.footer ?? "")
+      : filled.body;
+  const text =
+    filled.kind === "BUTTON" ? formatButtonReplyChoices(textBase, filled.buttons) : textBase;
   return {
     kind,
-    text:
-      filled.kind === "SIMPLE"
-        ? composeSimpleBody(filled.header ?? "", filled.body, filled.footer ?? "")
-        : filled.body,
+    text,
     header: filled.header ?? "",
     footer: filled.footer ?? "",
     imagePath: filled.mediaPath ?? "",

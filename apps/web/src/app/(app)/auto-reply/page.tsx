@@ -86,7 +86,7 @@ export default function AutoReplyPage() {
     <div>
       <PageHeader
         title="Call follow-up"
-        subtitle="After a WhatsApp call is received, rejected, or unanswered, send a personalized template — text, buttons like Interested / Not interested, or a call-back note."
+        subtitle="After a WhatsApp call is received, rejected, or unanswered, send a personalized template — Yes / No follow-up (buttons when supported, otherwise reply by text)."
         actions={
           <Link
             href={`/auto-reply/new?trigger=${tab}`}

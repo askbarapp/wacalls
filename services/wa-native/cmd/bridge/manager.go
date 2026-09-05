@@ -952,11 +952,14 @@ func (ch *Channel) SendChat(ctx context.Context, phone string, payload ChatPaylo
 	}
 	kind := strings.ToUpper(strings.TrimSpace(payload.Kind))
 	if kind == "BUTTON" && len(payload.Buttons) > 0 {
+		// Always include Yes/No (or option) text so the message stays usable if
+		// WhatsApp hides interactive buttons on linked / non-WABA accounts.
+		payload.Text = withButtonReplyChoices(payload.Text, payload.Buttons)
 		id, err := ch.sendButtons(ctx, jid, payload)
 		if err == nil {
 			return id, nil
 		}
-		ch.log.Warn("button template send failed, falling back", "err", err)
+		ch.log.Warn("button template send failed, falling back to text choices", "err", err)
 	}
 	if kind == "LIST" && len(payload.Sections) > 0 {
 		id, err := ch.sendList(ctx, jid, payload)
@@ -964,6 +967,7 @@ func (ch *Channel) SendChat(ctx context.Context, phone string, payload ChatPaylo
 			return id, nil
 		}
 		ch.log.Warn("list template send failed, falling back", "err", err)
+		payload.Text = withListReplyChoices(payload.Text, payload.Sections)
 	}
 	if payload.ImagePath != "" {
 		id, err := ch.sendImage(ctx, jid, payload.ImagePath, payload.Text)
@@ -985,6 +989,79 @@ func (ch *Channel) SendChat(ctx context.Context, phone string, payload ChatPaylo
 		return "", err
 	}
 	return resp.ID, nil
+}
+
+func replyButtonLabels(buttons []ChatButton) []string {
+	out := make([]string, 0, len(buttons))
+	for _, btn := range buttons {
+		typ := strings.ToLower(strings.TrimSpace(btn.Type))
+		if typ == "url" || typ == "call" {
+			continue
+		}
+		text := strings.TrimSpace(btn.Text)
+		if text == "" {
+			continue
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
+func withButtonReplyChoices(body string, buttons []ChatButton) string {
+	choices := replyButtonLabels(buttons)
+	if len(choices) == 0 {
+		return strings.TrimSpace(body)
+	}
+	base := strings.TrimSpace(body)
+	// Avoid duplicating the hint if the template already includes it.
+	lower := strings.ToLower(base)
+	if strings.Contains(lower, "reply with") || strings.Contains(lower, "reply *yes*") {
+		return base
+	}
+	var b strings.Builder
+	if base != "" {
+		b.WriteString(base)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("Reply with:\n")
+	for i, label := range choices {
+		b.WriteString(fmt.Sprintf("%d) %s\n", i+1, label))
+	}
+	joined := strings.ToLower(strings.Join(choices, " "))
+	hasYesNo := false
+	for _, label := range choices {
+		l := strings.ToLower(strings.TrimSpace(label))
+		if l == "yes" || l == "no" || l == "haan" || l == "nahi" || l == "हाँ" || l == "नहीं" {
+			hasYesNo = true
+			break
+		}
+	}
+	if !hasYesNo && (strings.Contains(joined, "interest") || strings.Contains(joined, "call me") || strings.Contains(joined, "not now")) {
+		b.WriteString("\nOr simply reply *Yes* or *No*.")
+	} else if !hasYesNo && len(choices) == 2 {
+		b.WriteString(fmt.Sprintf("\nOr reply *%s* / *%s*.", choices[0], choices[1]))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func withListReplyChoices(body string, sections []ChatSection) string {
+	labels := make([]string, 0)
+	for _, section := range sections {
+		for _, row := range section.Rows {
+			title := strings.TrimSpace(row.Title)
+			if title != "" {
+				labels = append(labels, title)
+			}
+		}
+	}
+	if len(labels) == 0 {
+		return strings.TrimSpace(body)
+	}
+	fake := make([]ChatButton, 0, len(labels))
+	for _, label := range labels {
+		fake = append(fake, ChatButton{Type: "reply", Text: label})
+	}
+	return withButtonReplyChoices(body, fake)
 }
 
 func (ch *Channel) sendButtons(ctx context.Context, jid types.JID, payload ChatPayload) (string, error) {
@@ -1023,11 +1100,13 @@ func (ch *Channel) sendButtons(ctx context.Context, jid types.JID, payload ChatP
 	if len(buttons) == 0 {
 		return "", fmt.Errorf("add at least one button")
 	}
+	msgVersion := int32(3)
 	interactive := &waE2E.InteractiveMessage{
 		Body: &waE2E.InteractiveMessage_Body{Text: proto.String(payload.Text)},
 		InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
 			NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
-				Buttons: buttons,
+				Buttons:        buttons,
+				MessageVersion: &msgVersion,
 			},
 		},
 	}
