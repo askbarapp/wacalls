@@ -10,8 +10,10 @@ import {
   ChannelWaitQueue,
   QUEUE_NAMES,
   channelLockIsStale,
+  type ChatInboundJob,
   type PlaceCallJob,
 } from "@wacalls/queue";
+import { processChatInbound } from "./chatbot.js";
 import { extractSarvamApiKey, renderVoiceScript, SarvamClient } from "@wacalls/audio-engine";
 import {
   cloudInteractivePayload,
@@ -37,9 +39,43 @@ const waitQueue = new ChannelWaitQueue(redis);
 const retryQueue = new Queue(QUEUE_NAMES.retries, { connection });
 const callQ = new Queue<PlaceCallJob>(QUEUE_NAMES.calls, { connection });
 const autoReplyQ = new Queue(QUEUE_NAMES.autoReplies, { connection });
+const chatbotQ = new Queue<ChatInboundJob>(QUEUE_NAMES.chatbot, { connection });
 const inboundSub = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+const eventsSub = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 inboundSub.on("error", (err) => log.warn({ err: err.message }, "inbound redis error"));
 void inboundSub.subscribe("wacalls:inbound").then(() => log.info("listening for inbound auto-answer"));
+void eventsSub.subscribe("wacalls:events").then(() => log.info("listening for chatbot inbound"));
+eventsSub.on("message", (_channel, raw) => {
+  void (async () => {
+    try {
+      const event = JSON.parse(raw) as {
+        type?: string;
+        channelId?: string;
+        organizationId?: string;
+        phone?: string;
+        text?: string;
+        messageId?: string;
+        displayName?: string;
+      };
+      if (event.type !== "inbound_chat" || !event.channelId || !event.phone || !event.text?.trim()) return;
+      const jobId = event.messageId ? `chat-${event.messageId}` : `chat-${event.channelId}-${Date.now()}`;
+      await chatbotQ.add(
+        "inbound",
+        {
+          channelId: event.channelId,
+          organizationId: event.organizationId ?? "",
+          phone: event.phone,
+          text: event.text,
+          messageId: event.messageId,
+          displayName: event.displayName,
+        },
+        { jobId, removeOnComplete: 500, removeOnFail: 200 },
+      );
+    } catch (err) {
+      log.warn({ err }, "chatbot enqueue failed");
+    }
+  })();
+});
 inboundSub.on("message", (_channel, raw) => {
   void (async () => {
     try {
@@ -1353,6 +1389,31 @@ const appointmentWorker = new Worker(
   { connection },
 );
 
+const chatbotWorker = new Worker(
+  QUEUE_NAMES.chatbot,
+  async (job) => {
+    const data = job.data as ChatInboundJob;
+    if (!data.organizationId && data.channelId) {
+      const ch = await prisma.whatsAppChannel.findUnique({
+        where: { id: data.channelId },
+        select: { organizationId: true },
+      });
+      if (ch) data.organizationId = ch.organizationId;
+    }
+    return processChatInbound(prisma, data, async (input) => {
+      await sendChannelText({
+        organizationId: input.organizationId,
+        channelId: input.channelId,
+        phone: input.phone,
+        contactId: input.contactId,
+        contactName: input.contactName,
+        body: input.body,
+      });
+    }, log);
+  },
+  { connection, concurrency: 8 },
+);
+
 const autoReplyWorker = new Worker(
   QUEUE_NAMES.autoReplies,
   async (job) => {
@@ -1440,10 +1501,13 @@ const shutdown = async () => {
     retryWorker.close(),
     appointmentWorker.close(),
     autoReplyWorker.close(),
+    chatbotWorker.close(),
     callQ.close(),
     autoReplyQ.close(),
+    chatbotQ.close(),
   ]);
   await inboundSub.quit().catch(() => undefined);
+  await eventsSub.quit().catch(() => undefined);
   redis.disconnect();
   await prisma.$disconnect();
   process.exit(0);

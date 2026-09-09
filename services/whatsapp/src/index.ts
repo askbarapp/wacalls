@@ -51,6 +51,17 @@ engine.onCallEvent(async (event) => {
     ? await prisma.whatsAppChannel.findUnique({ where: { id: event.channelId } })
     : null;
 
+  if (event.type === "inbound_chat") {
+    await redis.publish(
+      "wacalls:events",
+      JSON.stringify({
+        ...event,
+        organizationId: channel?.organizationId,
+      }),
+    );
+    return;
+  }
+
   if (event.type === "qr" || event.type === "channel_status") {
     if (event.type === "qr" && event.channelId && event.qrDataUrl) {
       await redis.set(`wacalls:qr:${event.channelId}`, event.qrDataUrl, "EX", 180);

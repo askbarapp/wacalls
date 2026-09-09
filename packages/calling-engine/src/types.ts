@@ -50,7 +50,8 @@ export type CallEventType =
   | "recording"
   | "playback_done"
   | "qr"
-  | "channel_status";
+  | "channel_status"
+  | "inbound_chat";
 
 export type CallEvent = {
   type: CallEventType;
@@ -65,6 +66,10 @@ export type CallEvent = {
   displayName?: string;
   pcm?: Float32Array;
   recordingPath?: string;
+  /** Inbound WhatsApp text (not voice). */
+  phone?: string;
+  text?: string;
+  messageId?: string;
 };
 
 export type CallEventHandler = (event: CallEvent) => void;

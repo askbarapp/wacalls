@@ -26,6 +26,7 @@ import { messageTemplateRoutes } from "./routes/message-templates.js";
 import { knowledgeRoutes } from "./routes/knowledge.js";
 import { incomingRoutes } from "./routes/incoming.js";
 import { autoReplyRoutes } from "./routes/auto-reply.js";
+import { chatbotRoutes } from "./routes/chatbot.js";
 import { metricsRoutes } from "./routes/metrics.js";
 import { messageRoutes } from "./routes/messages.js";
 import { platformRoutes } from "./routes/platform.js";
@@ -111,6 +112,7 @@ export async function buildApp() {
   await app.register(knowledgeRoutes, { prefix: "/api/v1" });
   await app.register(incomingRoutes, { prefix: "/api/v1" });
   await app.register(autoReplyRoutes, { prefix: "/api/v1" });
+  await app.register(chatbotRoutes, { prefix: "/api/v1" });
   await app.register(widgetRoutes);
 
   app.setErrorHandler((err, req, reply) => {

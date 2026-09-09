@@ -371,6 +371,25 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     });
 
     sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("messages.upsert", (upsert: { messages?: any[]; type?: string }) => {
+      if (upsert.type !== "notify") return;
+      for (const msg of upsert.messages ?? []) {
+        if (!msg?.key || msg.key.fromMe || msg.key.remoteJid?.endsWith("@g.us")) continue;
+        const text = baileysMessageText(msg.message);
+        if (!text.trim()) continue;
+        const phone = jidToPhone(String(msg.key.remoteJid ?? ""));
+        if (!phone) continue;
+        this.emit({
+          type: "inbound_chat",
+          channelId,
+          timestamp: iso(),
+          phone,
+          text,
+          messageId: msg.key.id ? String(msg.key.id) : undefined,
+          displayName: msg.pushName ? String(msg.pushName) : undefined,
+        });
+      }
+    });
     sock.ev.on("connection.update", async (update: any) => {
       if (update.qr) {
         logger.info({ channelId }, "WhatsApp QR received from Baileys");
@@ -553,6 +572,20 @@ function cryptoRandom() {
 function jidToPhone(jid: string): string | undefined {
   const user = jid.split("@")[0]?.split(":")[0];
   return user ? `+${user}` : undefined;
+}
+
+function baileysMessageText(message: any): string {
+  if (!message) return "";
+  if (typeof message.conversation === "string" && message.conversation) return message.conversation;
+  const ext = message.extendedTextMessage;
+  if (ext?.text) return String(ext.text);
+  const btn = message.buttonsResponseMessage;
+  if (btn?.selectedDisplayText) return String(btn.selectedDisplayText);
+  if (btn?.selectedButtonId) return String(btn.selectedButtonId);
+  const list = message.listResponseMessage;
+  if (list?.title) return String(list.title);
+  if (list?.singleSelectReply?.selectedRowId) return String(list.singleSelectReply.selectedRowId);
+  return "";
 }
 
 async function fileExists(p: string): Promise<boolean> {

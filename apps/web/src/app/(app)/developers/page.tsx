@@ -53,6 +53,9 @@ export default function DevelopersPage() {
             <code>GET /api/v1/calls/:id</code> — poll status
           </li>
           <li>
+            <code>POST /api/v1/messages</code> — send WhatsApp text (logged in chatbot inbox when enabled)
+          </li>
+          <li>
             Website Visit widget — <code>/visits</code> in the app, embed <code>/widget.js</code>
           </li>
         </ul>

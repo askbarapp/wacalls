@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@wacalls/database";
 import { ConflictError, NotFoundError, ok } from "@wacalls/shared";
 import { sendWhatsAppText } from "../services/messaging.js";
+import { logOutboundToConversation } from "../services/chatbot.js";
 import { STARTER_MESSAGE_TEMPLATES, templatePayloadFromRow } from "./message-templates.js";
 
 export const messageRoutes: FastifyPluginAsync = async (app) => {
@@ -87,6 +88,14 @@ export const messageRoutes: FastifyPluginAsync = async (app) => {
       email: contact?.email,
       template,
     });
+    await logOutboundToConversation({
+      organizationId: auth.orgId,
+      channelId: body.channel_id,
+      phone: body.phone,
+      body: text,
+      contactName: contact?.name,
+      source: "api",
+    }).catch(() => undefined);
     return ok(message);
   });
 };
