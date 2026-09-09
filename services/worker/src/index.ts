@@ -913,7 +913,7 @@ const callWorker = new Worker<PlaceCallJob>(
           await finalizeCampaignCall(call);
           return { status: call.status };
         }
-        if call) await sendNotice(call.status);
+        if (call) await sendNotice(call.status);
         if (!inbound && call && (call.status === "RINGING" || call.status === "CONNECTING")) {
           ringStarted ??= Date.now();
           if (Date.now() - ringStarted >= ringTimeoutMs) {
