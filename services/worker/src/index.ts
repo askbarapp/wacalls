@@ -913,8 +913,8 @@ const callWorker = new Worker<PlaceCallJob>(
           await finalizeCampaignCall(call);
           return { status: call.status };
         }
-        if (call) await sendNotice(call.status);
-        if (call && (call.status === "RINGING" || call.status === "CONNECTING")) {
+        if call) await sendNotice(call.status);
+        if (!inbound && call && (call.status === "RINGING" || call.status === "CONNECTING")) {
           ringStarted ??= Date.now();
           if (Date.now() - ringStarted >= ringTimeoutMs) {
             await wa(`/internal/calls/${call.engineCallId ?? call.id}/hangup`, { method: "POST" }).catch(

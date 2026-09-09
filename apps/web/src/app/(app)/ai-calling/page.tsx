@@ -61,6 +61,7 @@ type IncomingChannel = {
   displayName: string;
   phoneNumber?: string | null;
   status: string;
+  provider?: string;
   config: {
     enabled: boolean;
     aiConfigId: string;
@@ -1053,8 +1054,9 @@ export default function AiCallingPage() {
       {tab === "incoming" ? (
         <div className="space-y-4">
           <p className="text-sm text-slate-400">
-            WhatsApp linked rahe to incoming call server khud attend karega — browser khula hona zaroori nahi.
-            Line busy (campaign/dialer) ho to call reject ho jayegi. Channel CONNECTED hona chahiye.
+            WhatsApp Web line CONNECTED honi chahiye. Auto-answer on karte hi Save dabayein aur AI agent select karein —
+            tab incoming call server khud uthayega aur wahi agent baat karega. Browser khula hona zaroori nahi. Line busy
+            (campaign/dialer) ho to call reject ho jayegi. Cloud API channels cannot receive WhatsApp voice.
           </p>
           {incomingChannels.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-white/15 p-6 text-sm text-slate-500">
@@ -1561,41 +1563,52 @@ function IncomingCard({
   onError: (message: string) => void;
 }) {
   const [enabled, setEnabled] = useState(channel.config.enabled);
-  const [aiConfigId, setAiConfigId] = useState(channel.config.aiConfigId);
+  const [aiConfigId, setAiConfigId] = useState(channel.config.aiConfigId || agents[0]?.id || "");
   const [sendMessage, setSendMessage] = useState(channel.config.sendMessage);
   const [messageWhen, setMessageWhen] = useState<"answered" | "ringing">(channel.config.messageWhen);
   const [messageBody, setMessageBody] = useState(channel.config.messageBody);
   const [saving, setSaving] = useState(false);
+  const cloud = channel.provider === "CLOUD";
+  const connected = channel.status === "CONNECTED";
   useEffect(() => {
     setEnabled(channel.config.enabled);
-    setAiConfigId(channel.config.aiConfigId);
+    setAiConfigId(channel.config.aiConfigId || agents[0]?.id || "");
     setSendMessage(channel.config.sendMessage);
     setMessageWhen(channel.config.messageWhen);
     setMessageBody(channel.config.messageBody);
-  }, [channel]);
+  }, [channel, agents]);
+
+  async function save(next = { enabled, aiConfigId, sendMessage, messageWhen, messageBody }) {
+    if (next.enabled && !next.aiConfigId) {
+      onError("Pick an AI agent before turning auto-answer on.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api(`/api/v1/incoming-answer/${channel.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: next.enabled,
+          aiConfigId: next.aiConfigId || null,
+          sendMessage: next.sendMessage,
+          messageWhen: next.messageWhen,
+          messageBody: next.messageBody,
+        }),
+      });
+      await onSaved();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not save auto-answer");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <form
       className="rounded-2xl border border-white/10 bg-ink-900/80 p-4"
       onSubmit={async (e) => {
         e.preventDefault();
-        setSaving(true);
-        try {
-          await api(`/api/v1/incoming-answer/${channel.id}`, {
-            method: "PUT",
-            body: JSON.stringify({
-              enabled,
-              aiConfigId: aiConfigId || null,
-              sendMessage,
-              messageWhen,
-              messageBody,
-            }),
-          });
-          await onSaved();
-        } catch (err) {
-          onError(err instanceof Error ? err.message : "Could not save auto-answer");
-        } finally {
-          setSaving(false);
-        }
+        await save();
       }}
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1603,15 +1616,44 @@ function IncomingCard({
           <p className="font-medium text-white">{channel.displayName}</p>
           <p className="text-xs text-slate-500">
             {channel.phoneNumber || "No number yet"} · {channel.status}
+            {cloud ? " · Cloud API" : ""}
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-200">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={enabled}
+            disabled={cloud || saving}
+            onChange={(e) => {
+              const on = e.target.checked;
+              const agent = aiConfigId || agents[0]?.id || "";
+              if (on && !agent) {
+                onError("Create and select an AI agent first, then turn auto-answer on.");
+                return;
+              }
+              setEnabled(on);
+              if (on && !aiConfigId && agent) setAiConfigId(agent);
+              void save({ enabled: on, aiConfigId: agent, sendMessage, messageWhen, messageBody });
+            }}
+          />
           Auto-answer with AI
         </label>
       </div>
+      {cloud ? (
+        <p className="mb-3 text-xs text-amber-200">Cloud API lines cannot receive WhatsApp voice. Use a CONNECTED WhatsApp Web channel.</p>
+      ) : null}
+      {!cloud && !connected ? (
+        <p className="mb-3 text-xs text-amber-200">
+          This line is not CONNECTED. Open WhatsApp, Reconnect / scan QR, then incoming calls can be answered.
+        </p>
+      ) : null}
       <label className="mb-1 block text-xs text-slate-500">AI agent for incoming calls</label>
-      <select className="mb-3" value={aiConfigId} onChange={(e) => setAiConfigId(e.target.value)}>
+      <select
+        className="mb-3"
+        value={aiConfigId}
+        disabled={cloud}
+        onChange={(e) => setAiConfigId(e.target.value)}
+      >
         <option value="">{agents.length ? "Select AI agent" : "Create an AI agent first"}</option>
         {agents.map((a) => (
           <option key={a.id} value={a.id}>
@@ -1643,7 +1685,7 @@ function IncomingCard({
           <p className="mb-3 text-xs text-slate-500">Use {"{{name}}"} and {"{{phone}}"}.</p>
         </>
       ) : null}
-      <button type="submit" className="rounded-lg bg-brand-500 px-4 py-2 text-ink-950" disabled={saving}>
+      <button type="submit" className="rounded-lg bg-brand-500 px-4 py-2 text-ink-950" disabled={saving || cloud}>
         {saving ? "Saving…" : "Save incoming settings"}
       </button>
     </form>

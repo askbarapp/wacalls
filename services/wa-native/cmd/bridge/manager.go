@@ -577,7 +577,7 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		ch.rejectOffer(ctx, evt.From, info, "accept failed")
 		return
 	}
-	ch.emitCall(lc, "ringing", "")
+	ch.emitCall(lc, "connecting", "")
 	payload, _ := json.Marshal(map[string]any{
 		"callId":         callID,
 		"organizationId": ch.orgID,
@@ -588,6 +588,7 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		"sendMessage":    cfg.SendMessage,
 		"messageBody":    cfg.MessageBody,
 		"messageWhen":    cfg.MessageWhen,
+		"inbound":        true,
 	})
 	_ = ch.hub.rdb.Publish(ctx, "wacalls:inbound", payload).Err()
 	ch.log.Info("auto-answered inbound call", "call_id", callID, "peer", phone)
@@ -712,8 +713,10 @@ func (ch *Channel) wireCall(lc *liveCall) {
 			return
 		}
 		switch info.StateData.State {
-		case core.CallStateRinging, core.CallStateConnecting:
+		case core.CallStateIncomingRinging, core.CallStateRinging:
 			ch.emitCall(lc, "ringing", "")
+		case core.CallStateConnecting:
+			ch.emitCall(lc, "connecting", "")
 		case core.CallStateActive:
 			ch.startRecording(lc)
 			ch.emitCall(lc, "answered", "")

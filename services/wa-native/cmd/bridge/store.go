@@ -69,11 +69,17 @@ func (h *Hub) updateCall(ctx context.Context, callID, status, reason string, dur
 	}
 	switch status {
 	case "CONNECTING":
-		_, _ = h.db.ExecContext(ctx, `UPDATE calls SET status = 'CONNECTING', started_at = COALESCE(started_at, NOW()), updated_at = NOW() WHERE id = $1`, callID)
+		_, _ = h.db.ExecContext(ctx, `
+UPDATE calls SET status = 'CONNECTING', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
+WHERE id = $1 AND status IN ('QUEUED','CONNECTING','RINGING')`, callID)
 	case "RINGING":
-		_, _ = h.db.ExecContext(ctx, `UPDATE calls SET status = 'RINGING', updated_at = NOW() WHERE id = $1`, callID)
+		_, _ = h.db.ExecContext(ctx, `
+UPDATE calls SET status = 'RINGING', updated_at = NOW()
+WHERE id = $1 AND status IN ('QUEUED','CONNECTING','RINGING')`, callID)
 	case "ANSWERED":
-		_, _ = h.db.ExecContext(ctx, `UPDATE calls SET status = 'ANSWERED', answered_at = COALESCE(answered_at, NOW()), updated_at = NOW() WHERE id = $1`, callID)
+		_, _ = h.db.ExecContext(ctx, `
+UPDATE calls SET status = 'ANSWERED', answered_at = COALESCE(answered_at, NOW()), updated_at = NOW()
+WHERE id = $1 AND status NOT IN ('ENDED','FAILED','BUSY','NO_ANSWER','REJECTED','CANCELLED')`, callID)
 	case "ENDED", "FAILED", "BUSY", "NO_ANSWER", "REJECTED", "CANCELLED":
 		_, _ = h.db.ExecContext(ctx, `
 UPDATE calls SET status = $2::"CallStatus", ended_at = NOW(), duration_ms = $3, failure_reason = NULLIF($4, ''), updated_at = NOW()

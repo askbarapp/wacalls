@@ -192,7 +192,9 @@ func (m *CallManager) HandleCallTransport(ctx context.Context, node *waBinary.No
 			call.RelayData = &core.RelayData{}
 		}
 		call.RelayData.Endpoints = relays
+		rd := call.RelayData
 		m.mu.Unlock()
+		m.setupIncomingMedia(call, rd)
 		m.connectRelays(relays)
 	}
 }
