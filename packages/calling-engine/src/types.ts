@@ -69,6 +69,16 @@ export type CallEvent = {
 
 export type CallEventHandler = (event: CallEvent) => void;
 
+export type InboundTextEvent = {
+  channelId: string;
+  phone: string;
+  text: string;
+  messageId?: string;
+  timestamp: string;
+};
+
+export type InboundTextHandler = (event: InboundTextEvent) => void;
+
 export interface CallingEngine {
   readonly name: EngineName;
   readonly capabilities: EngineCapabilities;
@@ -91,6 +101,7 @@ export interface CallingEngine {
   getProfilePicture?(channelId: string, phoneNumber: string): Promise<string | null>;
 
   onCallEvent(handler: CallEventHandler): () => void;
+  onInboundText(handler: InboundTextHandler): () => void;
 
   /** Probe optional modules such as baileys-caller so capabilities.outboundVoice is accurate. */
   warmup?(): Promise<void>;

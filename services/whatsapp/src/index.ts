@@ -1,7 +1,9 @@
 import Fastify from "fastify";
 import { Redis } from "ioredis";
+import { Queue } from "bullmq";
 import { prisma } from "@wacalls/database";
 import { createCallingEngine, type CallingEngine } from "@wacalls/calling-engine";
+import { QUEUE_NAMES, type ChatInboundJob } from "@wacalls/queue";
 import { pushAgentDownlink, startVoiceAgent, stopVoiceAgent } from "./voice-agent.js";
 
 process.on("unhandledRejection", (reason) => {
@@ -19,6 +21,10 @@ const APP_ENV = process.env.APP_ENV ?? "production";
 const CALLING_ENGINE = process.env.CALLING_ENGINE ?? "selfhosted";
 
 const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+const chatbotQueue = new Queue<ChatInboundJob>(QUEUE_NAMES.chatbot, {
+  connection: { url: REDIS_URL },
+  defaultJobOptions: { attempts: 5, backoff: { type: "exponential", delay: 2000 }, removeOnComplete: 500, removeOnFail: 200 },
+});
 
 const engine: CallingEngine = createCallingEngine({
   name: CALLING_ENGINE,
@@ -45,6 +51,28 @@ const callIndex = new Map<
     contactName?: string | null;
   }
 >();
+
+engine.onInboundText((event) => {
+  void (async () => {
+    try {
+      const channel = await prisma.whatsAppChannel.findUnique({ where: { id: event.channelId } });
+      if (!channel) return;
+      const job: ChatInboundJob = {
+        organizationId: channel.organizationId,
+        channelId: event.channelId,
+        phone: event.phone,
+        text: event.text,
+        externalId: event.messageId,
+      };
+      await chatbotQueue.add("inbound", job, {
+        jobId: event.messageId ? `chat-${event.channelId}-${event.messageId}` : undefined,
+      });
+      await redis.publish("wacalls:chat-inbound", JSON.stringify({ ...job, timestamp: event.timestamp }));
+    } catch (err) {
+      console.warn("[whatsapp] chatbot enqueue failed", err);
+    }
+  })();
+});
 
 engine.onCallEvent(async (event) => {
   const channel = event.channelId

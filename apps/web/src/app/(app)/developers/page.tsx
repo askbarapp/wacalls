@@ -33,6 +33,47 @@ export default function DevelopersPage() {
   client.sendMessage({ phone: "+9198xxxxxxxx", text: "Hello from our site" });
 </script>`;
 
+  const curlSnippet = `curl -sS -X POST "${origin}/api/v1/messages" \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: wc_live_YOUR_KEY" \\
+  -d '{
+    "channel_id": "${channelId}",
+    "phone": "+9198xxxxxxxx",
+    "text": "Hello from our website form"
+  }'`;
+
+  const nodeSnippet = `const res = await fetch("${origin}/api/v1/messages", {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "x-api-key": process.env.WACALLS_API_KEY,
+  },
+  body: JSON.stringify({
+    channel_id: "${channelId}",
+    phone: "+9198xxxxxxxx",
+    text: "Hello from Node",
+  }),
+});
+const json = await res.json();`;
+
+  const formSnippet = `<script src="${origin}/sdk/wacalls.js"></script>
+<form id="lead">
+  <input name="phone" placeholder="+9198xxxxxxxx" required />
+  <textarea name="text">Thanks — we got your form.</textarea>
+  <button type="submit">Send WhatsApp</button>
+</form>
+<script>
+  const client = WaCalls.init({
+    token: "wc_pub_YOUR_KEY",
+    channelId: "${channelId}"
+  });
+  document.getElementById("lead").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    await client.sendMessage({ phone: fd.get("phone"), text: fd.get("text") });
+  });
+</script>`;
+
   return (
     <div className="max-w-3xl">
       <PageHeader
@@ -53,16 +94,32 @@ export default function DevelopersPage() {
             <code>GET /api/v1/calls/:id</code> — poll status
           </li>
           <li>
+            <code>POST /api/v1/messages</code> — send WhatsApp text (CONNECTED Web line or Cloud channel)
+          </li>
+          <li>
             Website Visit widget — <code>/visits</code> in the app, embed <code>/widget.js</code>
           </li>
         </ul>
       </section>
+      <h2 className="mb-2 text-sm font-medium text-white">Browser SDK</h2>
       <pre className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40 p-4 text-xs text-slate-200">
         {snippet}
       </pre>
+      <h2 className="mb-2 mt-8 text-sm font-medium text-white">REST — curl</h2>
+      <pre className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40 p-4 text-xs text-slate-200">
+        {curlSnippet}
+      </pre>
+      <h2 className="mb-2 mt-8 text-sm font-medium text-white">REST — Node</h2>
+      <pre className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40 p-4 text-xs text-slate-200">
+        {nodeSnippet}
+      </pre>
+      <h2 className="mb-2 mt-8 text-sm font-medium text-white">HTML form</h2>
+      <pre className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40 p-4 text-xs text-slate-200">
+        {formSnippet}
+      </pre>
       <p className="mt-4 text-xs text-slate-500">
-        Voice calls need a WhatsApp Web channel that is CONNECTED. Cloud API channels are for text only. Never commit
-        live keys to a public repo.
+        Voice calls and inbound chatbot replies need a WhatsApp Web channel that is CONNECTED. Cloud API channels are
+        for outbound text only. Never commit live keys to a public repo. Copy the channel UUID from the WhatsApp page.
       </p>
     </div>
   );

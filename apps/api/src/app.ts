@@ -33,6 +33,7 @@ import { accountRoutes } from "./routes/account.js";
 import { brandingRoutes, publicBrandingRoutes } from "./routes/branding.js";
 import { publicRoutes } from "./routes/public.js";
 import { publicVisitRoutes, visitRoutes } from "./routes/visits.js";
+import { chatbotRoutes } from "./routes/chatbot.js";
 import { registerAuth } from "./plugins/auth.js";
 import { registerWs } from "./ws.js";
 import { AppError } from "@wacalls/shared";
@@ -111,6 +112,7 @@ export async function buildApp() {
   await app.register(knowledgeRoutes, { prefix: "/api/v1" });
   await app.register(incomingRoutes, { prefix: "/api/v1" });
   await app.register(autoReplyRoutes, { prefix: "/api/v1" });
+  await app.register(chatbotRoutes, { prefix: "/api/v1" });
   await app.register(widgetRoutes);
 
   app.setErrorHandler((err, req, reply) => {

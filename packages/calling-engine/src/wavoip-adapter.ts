@@ -8,6 +8,7 @@ import {
   type EngineName,
   type ConnectOptions,
   type InitiateCallOptions,
+  type InboundTextHandler,
 } from "./types.js";
 import type { ChannelStatus } from "@wacalls/shared";
 
@@ -60,6 +61,10 @@ export class WavoipAdapter implements CallingEngine {
   }
 
   onCallEvent(_handler: CallEventHandler): () => void {
+    return () => undefined;
+  }
+
+  onInboundText(_handler: InboundTextHandler): () => void {
     return () => undefined;
   }
 }

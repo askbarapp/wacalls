@@ -15,6 +15,7 @@ import {
 } from "@wacalls/shared";
 import { whatsappClient } from "./whatsapp-client.js";
 import { enqueueWebhook } from "./webhooks.js";
+import { recordApiChatSend } from "./chat-log.js";
 
 export async function sendWhatsAppText(input: {
   organizationId: string;
@@ -27,6 +28,7 @@ export async function sendWhatsAppText(input: {
   company?: string | null;
   email?: string | null;
   template?: MessageTemplatePayload;
+  chatSource?: string;
 }) {
   const org = await prisma.organization.findUnique({
     where: { id: input.organizationId },
@@ -126,6 +128,15 @@ export async function sendWhatsAppText(input: {
       channel_id: input.channelId,
       phone: phone.e164,
     });
+    await recordApiChatSend({
+      organizationId: input.organizationId,
+      channelId: input.channelId,
+      phone: phone.e164,
+      body: preview,
+      contactId: input.contactId,
+      source: input.chatSource ?? "api",
+      externalId,
+    }).catch(() => undefined);
     return updated;
   } catch (err) {
     const message = err instanceof Error ? err.message : "send failed";

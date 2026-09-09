@@ -49,6 +49,97 @@ Content-Type: application/json
 | POST | `/api/v1/calls/:id/mute` |
 | POST | `/api/v1/calls/:id/result` |
 
+## Messages (WhatsApp text)
+
+Send WhatsApp **text** through a **CONNECTED** WhatsApp Web line (or a Cloud API channel if your plan allows it). This is WaCalls’ own send API, not Meta’s product name. Daily plan limits apply.
+
+Auth: `Authorization: Bearer <jwt>` or `X-API-Key: wc_live_…` / `wc_pub_…` with scope `messages:write`.
+
+```http
+POST /api/v1/messages
+Content-Type: application/json
+X-API-Key: wc_live_...
+
+{
+  "channel_id": "CHANNEL_UUID",
+  "phone": "+9198xxxxxxxx",
+  "text": "Hello from our website form"
+}
+```
+
+Optional body fields: `template_id`, `contact_id`. `text` can be omitted when `template_id` is set.
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "status": "SENT",
+    "phone": "+9198xxxxxxxx",
+    "body": "Hello from our website form"
+  }
+}
+```
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/api/v1/messages` | Paginated send log |
+| POST | `/api/v1/messages` | Send text (channel must be CONNECTED for Web) |
+
+Errors: `409` if the line is disconnected, Cloud credentials are missing, or the daily message cap is reached. `400` if `text` and `template_id` are both empty.
+
+### curl
+
+```bash
+curl -sS -X POST "$ORIGIN/api/v1/messages" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $WACALLS_API_KEY" \
+  -d "{\"channel_id\":\"$CHANNEL_ID\",\"phone\":\"+9198xxxxxxxx\",\"text\":\"Hello from our form\"}"
+```
+
+### Node
+
+```js
+const res = await fetch(`${origin}/api/v1/messages`, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "x-api-key": process.env.WACALLS_API_KEY,
+  },
+  body: JSON.stringify({
+    channel_id: process.env.WACALLS_CHANNEL_ID,
+    phone: "+9198xxxxxxxx",
+    text: "Hello from Node",
+  }),
+});
+const json = await res.json();
+if (!json.success) throw new Error(json.error?.message || "send failed");
+```
+
+### HTML form (browser SDK)
+
+Use a **publishable** key (`wc_pub_…`) and `/sdk/wacalls.js`:
+
+```html
+<script src="https://YOUR_DOMAIN/sdk/wacalls.js"></script>
+<form id="lead">
+  <input name="phone" placeholder="+9198xxxxxxxx" required />
+  <textarea name="text">Thanks for contacting us.</textarea>
+  <button type="submit">Send WhatsApp</button>
+</form>
+<script>
+  const client = WaCalls.init({
+    token: "wc_pub_...",
+    channelId: "CHANNEL_UUID",
+  });
+  document.getElementById("lead").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    await client.sendMessage({ phone: fd.get("phone"), text: fd.get("text") });
+  });
+</script>
+```
+
 ## Other resources
 
 | Method | Path |

@@ -11,6 +11,9 @@ describe("RBAC", () => {
   it("gives org admin tenant admin powers", () => {
     expect(roleHas("ORG_ADMIN", "visits.manage")).toBe(true);
     expect(roleHas("ORG_ADMIN", "messages.send")).toBe(true);
+    expect(roleHas("ORG_ADMIN", "chatbot.manage")).toBe(true);
     expect(roleHas("AGENT", "visits.manage")).toBe(false);
+    expect(roleHas("AGENT", "chatbot.inbox")).toBe(true);
+    expect(roleHas("AGENT", "chatbot.manage")).toBe(false);
   });
 });

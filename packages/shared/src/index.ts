@@ -4,3 +4,4 @@ export * from "./errors.js";
 export * from "./api.js";
 export * from "./retry.js";
 export * from "./message-templates.js";
+export * from "./chatbot.js";

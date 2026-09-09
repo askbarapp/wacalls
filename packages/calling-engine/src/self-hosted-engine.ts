@@ -16,8 +16,10 @@ import {
   type EngineCapabilities,
   type EngineName,
   type InitiateCallOptions,
+  type InboundTextHandler,
 } from "./types.js";
 import { attachVoipToSocket, type AttachedVoip, type VoipCallHandle } from "./voip-attach.js";
+import { parseBaileysInbound } from "./inbound-text.js";
 
 const logger = pino({ name: "selfhosted-engine", level: process.env.LOG_LEVEL ?? "info" });
 
@@ -69,6 +71,7 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
   readonly name: EngineName = "selfhosted";
   private caps: EngineCapabilities = { ...SELFHOSTED_BASE_CAPABILITIES };
   private readonly events = new EventEmitter();
+  private readonly inbound = new EventEmitter();
   private readonly channels = new Map<string, ChannelRuntime>();
   private readonly callsById = new Map<string, ActiveCall>();
   private readonly pairing = new Set<string>();
@@ -77,6 +80,7 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
 
   constructor(private readonly options: SelfHostedEngineOptions) {
     this.events.setMaxListeners(100);
+    this.inbound.setMaxListeners(100);
     void this.warmup();
   }
 
@@ -337,6 +341,11 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     return () => this.events.off("event", handler);
   }
 
+  onInboundText(handler: InboundTextHandler): () => void {
+    this.inbound.on("inbound", handler);
+    return () => this.inbound.off("inbound", handler);
+  }
+
   private async connectBaileys(channelId: string, authDir: string, baileys: any): Promise<void> {
     const {
       default: makeWASocket,
@@ -371,6 +380,20 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
     });
 
     sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("messages.upsert", (upsert: { type?: string; messages?: unknown[] }) => {
+      if (upsert?.type && upsert.type !== "notify") return;
+      for (const raw of upsert?.messages ?? []) {
+        const parsed = parseBaileysInbound(raw);
+        if (!parsed) continue;
+        this.inbound.emit("inbound", {
+          channelId,
+          phone: parsed.phone,
+          text: parsed.text,
+          messageId: parsed.messageId,
+          timestamp: iso(),
+        });
+      }
+    });
     sock.ev.on("connection.update", async (update: any) => {
       if (update.qr) {
         logger.info({ channelId }, "WhatsApp QR received from Baileys");

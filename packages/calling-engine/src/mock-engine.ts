@@ -10,6 +10,7 @@ import {
   type EngineCapabilities,
   type EngineName,
   type InitiateCallOptions,
+  type InboundTextHandler,
 } from "./types.js";
 
 type Active = {
@@ -130,6 +131,10 @@ export class MockEngine implements CallingEngine {
   onCallEvent(handler: CallEventHandler): () => void {
     this.events.on("event", handler);
     return () => this.events.off("event", handler);
+  }
+
+  onInboundText(_handler: InboundTextHandler): () => void {
+    return () => undefined;
   }
 
   private emit(event: Parameters<CallEventHandler>[0]) {

@@ -142,6 +142,57 @@ const DEFAULT_PLAYBOOK: IntentRow[] = [
 
 const DURATION_OPTIONS = [60, 90, 120, 180, 240, 300];
 
+const BLANK_AGENT = {
+  name: "",
+  provider: "sarvam" as "sarvam" | "gemini",
+  model: "sarvam-105b-conversations",
+  language: "hi-IN",
+  voice: "shubh",
+  systemPrompt: "You are a helpful phone agent for our company. Be brief, polite, and accurate.",
+  greeting: "Namaste {{name}}, main aapki company se baat kar raha hoon. Main aapki kaise madad kar sakta hoon?",
+  objective: "",
+  questions: "",
+  knowledgeBaseId: "",
+  maxCallDurationSec: 120,
+  wrapUpSec: 25,
+  memoryRecallMode: "related_only" as "related_only" | "always" | "never",
+  intentPlaybook: DEFAULT_PLAYBOOK as IntentRow[],
+};
+
+function playbookFromAgent(a: Agent): IntentRow[] {
+  const rows = Array.isArray(a.intentPlaybook) ? a.intentPlaybook : [];
+  const mapped = rows
+    .map((row) => ({
+      intent: row.intent ?? "",
+      examples: typeof row.examples === "string" ? row.examples : String(row.examples ?? ""),
+      reply: row.reply ?? "",
+      action: row.action === "hangup" ? ("hangup" as const) : ("continue" as const),
+    }))
+    .filter((row) => row.intent.trim() || row.reply.trim());
+  return mapped.length ? mapped : DEFAULT_PLAYBOOK;
+}
+
+function formFromAgent(a: Agent) {
+  const provider = a.provider === "gemini" ? ("gemini" as const) : ("sarvam" as const);
+  return {
+    ...BLANK_AGENT,
+    name: a.name,
+    provider,
+    model: a.model || (provider === "gemini" ? "gemini-3.6-flash" : "sarvam-105b-conversations"),
+    language: a.language || "hi-IN",
+    voice: a.voice || (provider === "gemini" ? "Kore" : "shubh"),
+    systemPrompt: a.systemPrompt,
+    greeting: a.greeting ?? "",
+    objective: a.objective ?? "",
+    questions: a.questions ?? "",
+    knowledgeBaseId: a.knowledgeBaseId ?? a.knowledgeBase?.id ?? "",
+    maxCallDurationSec: a.maxCallDurationSec ?? 120,
+    wrapUpSec: a.wrapUpSec ?? 25,
+    memoryRecallMode: a.memoryRecallMode ?? "related_only",
+    intentPlaybook: playbookFromAgent(a),
+  };
+}
+
 export default function AiCallingPage() {
   const [tab, setTab] = useState<Tab>("knowledge");
   const [error, setError] = useState("");
@@ -165,22 +216,8 @@ export default function AiCallingPage() {
   const [testingId, setTestingId] = useState("");
   const [incomingChannels, setIncomingChannels] = useState<IncomingChannel[]>([]);
   const [inboundCalls, setInboundCalls] = useState<InboundCall[]>([]);
-  const [agent, setAgent] = useState({
-    name: "",
-    provider: "sarvam" as "sarvam" | "gemini",
-    model: "sarvam-105b-conversations",
-    language: "hi-IN",
-    voice: "shubh",
-    systemPrompt: "You are a helpful phone agent for our company. Be brief, polite, and accurate.",
-    greeting: "Namaste {{name}}, main aapki company se baat kar raha hoon. Main aapki kaise madad kar sakta hoon?",
-    objective: "",
-    questions: "",
-    knowledgeBaseId: "",
-    maxCallDurationSec: 120,
-    wrapUpSec: 25,
-    memoryRecallMode: "related_only" as "related_only" | "always" | "never",
-    intentPlaybook: DEFAULT_PLAYBOOK as IntentRow[],
-  });
+  const [agent, setAgent] = useState(BLANK_AGENT);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [memories, setMemories] = useState<
     Array<{
       phone: string;
@@ -1070,7 +1107,25 @@ export default function AiCallingPage() {
       {tab === "agents" ? (
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
-            <h2 className="mb-3 font-medium text-white">New AI agent</h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-medium text-white">{editingId ? "Edit AI agent" : "New AI agent"}</h2>
+              {editingId ? (
+                <button
+                  type="button"
+                  className="text-xs text-slate-400 underline"
+                  onClick={() => {
+                    setEditingId(null);
+                    setAgent({
+                      ...BLANK_AGENT,
+                      knowledgeBaseId: bases[0]?.id || "",
+                      intentPlaybook: DEFAULT_PLAYBOOK,
+                    });
+                  }}
+                >
+                  Cancel edit
+                </button>
+              ) : null}
+            </div>
             <p className="mb-3 text-xs text-slate-500">
               {agents.length} of {quota.maxAiAgents} agents on your plan. After you save one, tap Test, enable the
               microphone, and talk to it like a WhatsApp call.
@@ -1323,37 +1378,45 @@ export default function AiCallingPage() {
               className="mt-3 rounded-lg bg-brand-500 px-4 py-2 text-ink-950"
               onClick={async () => {
                 setError("");
+                const payload = {
+                  ...agent,
+                  knowledgeBaseId: agent.knowledgeBaseId || undefined,
+                  provider: agent.provider,
+                  maxCallDurationSec: agent.maxCallDurationSec,
+                  wrapUpSec: agent.wrapUpSec,
+                  memoryRecallMode: agent.memoryRecallMode,
+                  intentPlaybook: agent.intentPlaybook.filter((r) => r.intent.trim() && r.reply.trim()),
+                  model:
+                    agent.model ||
+                    (agent.provider === "gemini" ? "gemini-3.6-flash" : "sarvam-105b-conversations"),
+                };
                 try {
-                  await api("/api/v1/ai-configs", {
-                    method: "POST",
-                    body: JSON.stringify({
-                      ...agent,
-                      knowledgeBaseId: agent.knowledgeBaseId || undefined,
-                      provider: agent.provider,
-                      maxCallDurationSec: agent.maxCallDurationSec,
-                      wrapUpSec: agent.wrapUpSec,
-                      memoryRecallMode: agent.memoryRecallMode,
-                      intentPlaybook: agent.intentPlaybook.filter((r) => r.intent.trim() && r.reply.trim()),
-                      model:
-                        agent.model ||
-                        (agent.provider === "gemini" ? "gemini-3.6-flash" : "sarvam-105b-conversations"),
-                    }),
-                  });
-                  setAgent((f) => ({
-                    ...f,
-                    name: "",
+                  if (editingId) {
+                    await api(`/api/v1/ai-configs/${editingId}`, {
+                      method: "PATCH",
+                      body: JSON.stringify(payload),
+                    });
+                    setEditingId(null);
+                    setMsg("AI agent updated.");
+                  } else {
+                    await api("/api/v1/ai-configs", {
+                      method: "POST",
+                      body: JSON.stringify(payload),
+                    });
+                    setMsg("AI agent saved. Test it before starting a campaign.");
+                  }
+                  setAgent({
+                    ...BLANK_AGENT,
+                    knowledgeBaseId: bases[0]?.id || agent.knowledgeBaseId || "",
                     intentPlaybook: DEFAULT_PLAYBOOK,
-                    maxCallDurationSec: 120,
-                    wrapUpSec: 25,
-                  }));
-                  setMsg("AI agent saved. Test it before starting a campaign.");
+                  });
                   await load();
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "Could not save agent");
                 }
               }}
             >
-              Save agent
+              {editingId ? "Update agent" : "Save agent"}
             </button>
             {!agent.knowledgeBaseId ? (
               <p className="mt-2 text-xs text-amber-200">Assign a knowledge base before saving the agent.</p>
@@ -1363,8 +1426,26 @@ export default function AiCallingPage() {
             {agents.map((a) => (
               <div key={a.id} className="rounded-2xl border border-white/10 bg-ink-900/80 p-4">
                 <div className="flex justify-between gap-2">
-                  <div className="font-medium text-white">{a.name}</div>
+                  <div className="font-medium text-white">
+                    {a.name}
+                    {editingId === a.id ? (
+                      <span className="ml-2 text-xs font-normal text-brand-300">editing</span>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="rounded-lg bg-white/10 px-2 py-1 text-xs text-slate-200"
+                      onClick={() => {
+                        setError("");
+                        setEditingId(a.id);
+                        setAgent(formFromAgent(a));
+                        setTab("agents");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      Edit
+                    </button>
                     <button
                       type="button"
                       className="rounded-lg bg-brand-500/20 px-2 py-1 text-xs text-brand-300"
@@ -1375,6 +1456,15 @@ export default function AiCallingPage() {
                     <button
                       className="text-xs text-rose-300"
                       onClick={async () => {
+                        if (!window.confirm(`Delete AI agent “${a.name}”?`)) return;
+                        if (editingId === a.id) {
+                          setEditingId(null);
+                          setAgent({
+                            ...BLANK_AGENT,
+                            knowledgeBaseId: bases[0]?.id || "",
+                            intentPlaybook: DEFAULT_PLAYBOOK,
+                          });
+                        }
                         await api(`/api/v1/ai-configs/${a.id}`, { method: "DELETE" });
                         await load();
                       }}

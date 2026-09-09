@@ -105,6 +105,8 @@ export const PERMISSIONS = {
     "users.view",
     "messages.send",
     "visits.manage",
+    "chatbot.manage",
+    "chatbot.inbox",
   ],
   MANAGER: [
     "campaigns.manage",
@@ -117,8 +119,10 @@ export const PERMISSIONS = {
     "visits.manage",
     "ai.manage",
     "recordings.manage",
+    "chatbot.manage",
+    "chatbot.inbox",
   ],
-  AGENT: ["dialer.use", "contacts.assigned", "calls.own"],
+  AGENT: ["dialer.use", "contacts.assigned", "calls.own", "chatbot.inbox"],
 } as const;
 
 export function roleHas(role: Role, permission: string): boolean {

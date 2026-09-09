@@ -22,6 +22,7 @@ import {
 } from "@wacalls/shared";
 import { pickRotatedChannel, rotationPool } from "./rotation.js";
 import { startNativeVoiceAgent } from "./voice-agent.js";
+import { processChatInbound } from "./chatbot.js";
 
 const log = pino({ name: "worker", level: process.env.LOG_LEVEL ?? "info" });
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -1432,6 +1433,12 @@ const autoReplyWorker = new Worker(
   { connection, concurrency: 6 },
 );
 
+const chatbotWorker = new Worker(
+  QUEUE_NAMES.chatbot,
+  async (job) => processChatInbound(job.data),
+  { connection, concurrency: 8 },
+);
+
 const shutdown = async () => {
   await Promise.all([
     callWorker.close(),
@@ -1440,6 +1447,7 @@ const shutdown = async () => {
     retryWorker.close(),
     appointmentWorker.close(),
     autoReplyWorker.close(),
+    chatbotWorker.close(),
     callQ.close(),
     autoReplyQ.close(),
   ]);

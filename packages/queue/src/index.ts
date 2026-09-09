@@ -122,6 +122,7 @@ export const QUEUE_NAMES = {
   retries: "wacalls-retries",
   appointmentReminders: "wacalls-appointment-reminders",
   autoReplies: "wacalls-auto-replies",
+  chatbot: "wacalls-chatbot",
 } as const;
 
 export type PlaceCallJob = {
@@ -138,4 +139,12 @@ export type PlaceCallJob = {
   sendMessage?: boolean;
   messageBody?: string | null;
   messageWhen?: "ringing" | "answered";
+};
+
+export type ChatInboundJob = {
+  organizationId: string;
+  channelId: string;
+  phone: string;
+  text: string;
+  externalId?: string;
 };

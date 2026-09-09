@@ -107,6 +107,17 @@ enum AgentPresence {
   OFFLINE
 }
 
+enum ChatConversationStatus {
+  OPEN
+  HANDOFF
+  CLOSED
+}
+
+enum ChatMessageDirection {
+  IN
+  OUT
+}
+
 enum RecordingAfterAction {
   HANGUP
   WAIT_FOR_RESPONSE
@@ -180,6 +191,10 @@ model Organization {
   autoReplyRules      AutoReplyRule[]
   contactMemories     ContactMemory[]
   intentEvents        IntentEvent[]
+  chatBots            ChatBot[]
+  chatKeywords        ChatKeyword[]
+  chatConversations   ChatConversation[]
+  chatMessages        ChatMessage[]
 
   @@index([planId])
   @@index([status])
@@ -202,7 +217,8 @@ model User {
   refreshTokens  RefreshToken[]
   passwordResets PasswordReset[]
   auditLogs      AuditLog[]
-  callsAsAgent   Call[]         @relation("CallAgent")
+  callsAsAgent          Call[]              @relation("CallAgent")
+  assignedChats         ChatConversation[]  @relation("ChatAssignee")
 
   @@index([email])
   @@map("users")
@@ -302,6 +318,8 @@ model WhatsAppChannel {
   visitDepartments   VisitDepartment[]
   visitConversations VisitConversation[]
   incomingAnswer     IncomingAnswerConfig?
+  chatBot            ChatBot?
+  chatConversations  ChatConversation[]
 
   @@index([organizationId])
   @@index([status])
@@ -346,6 +364,7 @@ model Contact {
   calls            Call[]
   messages         Message[]
   appointments     Appointment[]
+  chatConversations ChatConversation[]
 
   @@unique([organizationId, phone])
   @@index([organizationId])
@@ -600,6 +619,7 @@ model KnowledgeBase {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   documents    KnowledgeBaseDocument[]
   aiConfigs    AiConfig[]
+  chatBots     ChatBot[]
 
   @@index([organizationId])
   @@map("knowledge_bases")
@@ -654,6 +674,7 @@ model AiConfig {
   appointments     Appointment[]
   incomingAnswers  IncomingAnswerConfig[]
   visits           Visit[]
+  chatBots         ChatBot[]
 
   @@index([organizationId])
   @@index([knowledgeBaseId])
@@ -808,6 +829,99 @@ model Message {
   @@index([status])
   @@index([createdAt])
   @@map("messages")
+}
+
+model ChatBot {
+  id               String   @id @default(uuid())
+  organizationId   String   @map("organization_id")
+  channelId        String   @unique @map("channel_id")
+  enabled          Boolean  @default(true)
+  aiEnabled        Boolean  @default(true) @map("ai_enabled")
+  aiConfigId       String?  @map("ai_config_id")
+  knowledgeBaseId  String?  @map("knowledge_base_id")
+  fallbackMessage  String   @default("Thanks for your message. A teammate will get back to you shortly.") @map("fallback_message")
+  optOutMessage    String   @default("You are unsubscribed from WhatsApp replies. Send START to opt in again.") @map("opt_out_message")
+  handoffMessage   String   @default("Connecting you with a teammate. You can keep messaging here.") @map("handoff_message")
+  unknownHandoff   Boolean  @default(false) @map("unknown_handoff")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel       WhatsAppChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  aiConfig      AiConfig?        @relation(fields: [aiConfigId], references: [id], onDelete: SetNull)
+  knowledgeBase KnowledgeBase?   @relation(fields: [knowledgeBaseId], references: [id], onDelete: SetNull)
+  keywords      ChatKeyword[]
+
+  @@index([organizationId])
+  @@map("chat_bots")
+}
+
+model ChatKeyword {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  chatBotId      String   @map("chat_bot_id")
+  trigger        String
+  matchType      String   @default("exact") @map("match_type")
+  reply          String
+  action         String   @default("reply")
+  enabled        Boolean  @default(true)
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chatBot      ChatBot      @relation(fields: [chatBotId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([chatBotId, sortOrder])
+  @@unique([chatBotId, trigger, matchType])
+  @@map("chat_keywords")
+}
+
+model ChatConversation {
+  id             String                 @id @default(uuid())
+  organizationId String                 @map("organization_id")
+  channelId      String                 @map("channel_id")
+  contactId      String?                @map("contact_id")
+  phone          String
+  status         ChatConversationStatus @default(OPEN)
+  optOut         Boolean                @default(false) @map("opt_out")
+  assignedUserId String?                @map("assigned_user_id")
+  lastMessageAt  DateTime               @default(now()) @map("last_message_at")
+  lastInboundAt  DateTime?              @map("last_inbound_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  contact      Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  assignee     User?           @relation("ChatAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  messages     ChatMessage[]
+
+  @@unique([organizationId, channelId, phone])
+  @@index([organizationId, lastMessageAt])
+  @@index([organizationId, status])
+  @@index([channelId])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id             String               @id @default(uuid())
+  organizationId String               @map("organization_id")
+  conversationId String               @map("conversation_id")
+  direction      ChatMessageDirection
+  source         String
+  body           String
+  keywordId      String?              @map("keyword_id")
+  externalId     String?              @map("external_id")
+  createdAt      DateTime             @default(now()) @map("created_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("chat_messages")
 }
 
 model AutoReplyRule {
