@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
@@ -84,6 +84,15 @@ function ChatbotInner() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [thread, setThread] = useState<Thread | null>(null);
   const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const box = chatScrollRef.current;
+    if (!box) return;
+    box.scrollTop = box.scrollHeight;
+  }, [thread?.id, thread?.messages.length]);
 
   function setTab(next: Tab) {
     router.replace(`/chatbot?tab=${next}`);
@@ -427,60 +436,79 @@ function ChatbotInner() {
       ) : null}
 
       {tab === "inbox" ? (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <section>
-            <ul className="space-y-2">
-              {rows.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setOpenId(c.id);
-                      const r = await api<{ success: true; data: Thread }>(`/api/v1/chat/conversations/${c.id}`);
-                      setThread(r.data);
-                    }}
-                    className={`w-full rounded-xl border px-4 py-3 text-left text-sm ${
-                      openId === c.id ? "border-brand-500/40 bg-brand-500/10" : "border-white/10 bg-ink-900/80"
-                    }`}
-                  >
-                    <div className="flex justify-between gap-2 text-white">
-                      <span>{c.contact?.name || c.phone}</span>
-                      <span className="text-xs text-slate-500">{c.status}</span>
-                    </div>
-                    <p className="mt-1 truncate text-xs text-slate-400">
-                      {c.messages?.[0]?.body || "No messages yet"}
-                    </p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {rows.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-white/15 p-6 text-sm text-slate-500">
-                Inbound WhatsApp texts on this line will show up here after the channel is CONNECTED.
-              </p>
-            ) : null}
-            <ListPagination
-              meta={meta}
-              pageSize={pageSize}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
-            />
+        <div className="flex h-[min(70dvh,40rem)] min-h-[22rem] flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-900/80 lg:flex-row">
+          <section
+            className={`flex min-h-0 w-full shrink-0 flex-col border-white/10 lg:w-80 lg:border-r ${
+              thread ? "hidden lg:flex" : "flex"
+            }`}
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+              <ul className="space-y-2">
+                {rows.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setOpenId(c.id);
+                        const r = await api<{ success: true; data: Thread }>(`/api/v1/chat/conversations/${c.id}`);
+                        setThread(r.data);
+                      }}
+                      className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm ${
+                        openId === c.id ? "border-brand-500/40 bg-brand-500/10" : "border-white/10 bg-ink-950/40"
+                      }`}
+                    >
+                      <div className="flex justify-between gap-2 text-white">
+                        <span className="truncate">{c.contact?.name || c.phone}</span>
+                        <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{c.status}</span>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-slate-400">
+                        {c.messages?.[0]?.body || "No messages yet"}
+                      </p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {rows.length === 0 ? (
+                <p className="p-4 text-sm text-slate-500">
+                  Inbound WhatsApp texts on this line will show up here after the channel is CONNECTED.
+                </p>
+              ) : null}
+            </div>
+            <div className="shrink-0 border-t border-white/10 px-3 py-2">
+              <ListPagination
+                className="mt-0"
+                meta={meta}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={(size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }}
+              />
+            </div>
           </section>
-          <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-4">
+          <section className={`min-h-0 min-w-0 flex-1 flex-col ${thread ? "flex" : "hidden lg:flex"}`}>
             {thread ? (
               <>
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="font-medium text-white">{thread.contact?.name || thread.phone}</div>
-                    <div className="text-xs text-slate-500">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <button
+                      type="button"
+                      className="mb-1 text-xs text-slate-400 lg:hidden"
+                      onClick={() => {
+                        setThread(null);
+                        setOpenId(null);
+                      }}
+                    >
+                      ← Conversations
+                    </button>
+                    <div className="truncate font-medium text-white">{thread.contact?.name || thread.phone}</div>
+                    <div className="truncate text-xs text-slate-500">
                       {thread.phone} · {thread.status}
                       {thread.optOut ? " · opted out" : ""}
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex shrink-0 gap-2">
                     <button
                       type="button"
                       className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white"
@@ -511,51 +539,78 @@ function ChatbotInner() {
                     </button>
                   </div>
                 </div>
-                <div className="mb-3 max-h-[28rem] space-y-2 overflow-y-auto">
-                  {thread.messages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`rounded-lg px-3 py-2 text-sm ${
-                        m.direction === "IN" ? "bg-white/5 text-slate-200" : "bg-brand-500/15 text-brand-100"
-                      }`}
-                    >
-                      <p>{m.body}</p>
-                      <p className="mt-1 text-[10px] text-slate-500">
-                        {m.source} · {new Date(m.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                  ))}
+                <div
+                  ref={chatScrollRef}
+                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3"
+                >
+                  <div className="flex flex-col gap-2">
+                    {thread.messages.map((m) => {
+                      const fromUser = m.direction === "IN";
+                      return (
+                        <div
+                          key={m.id}
+                          className={`flex ${fromUser ? "justify-end" : "justify-start"}`}
+                        >
+                          <div
+                            className={`max-w-[min(85%,22rem)] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+                              fromUser
+                                ? "rounded-br-md bg-emerald-700/80 text-white"
+                                : "rounded-bl-md bg-white/10 text-slate-100"
+                            }`}
+                          >
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-white/50">
+                              {fromUser ? "User" : m.source === "agent" ? "Agent" : "Bot"}
+                            </p>
+                            <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                            <p className="mt-1 text-[10px] text-white/40">
+                              {new Date(m.createdAt).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={chatEndRef} />
+                  </div>
                 </div>
                 <form
-                  className="flex gap-2"
+                  className="flex shrink-0 gap-2 border-t border-white/10 p-3"
                   onSubmit={async (e) => {
                     e.preventDefault();
-                    if (!reply.trim()) return;
-                    await api(`/api/v1/chat/conversations/${thread.id}/reply`, {
-                      method: "POST",
-                      body: JSON.stringify({ text: reply }),
-                    });
-                    setReply("");
-                    const r = await api<{ success: true; data: Thread }>(
-                      `/api/v1/chat/conversations/${thread.id}`,
-                    );
-                    setThread(r.data);
-                    await loadInbox();
+                    if (!reply.trim() || sending) return;
+                    setSending(true);
+                    try {
+                      await api(`/api/v1/chat/conversations/${thread.id}/reply`, {
+                        method: "POST",
+                        body: JSON.stringify({ text: reply }),
+                      });
+                      setReply("");
+                      const r = await api<{ success: true; data: Thread }>(
+                        `/api/v1/chat/conversations/${thread.id}`,
+                      );
+                      setThread(r.data);
+                      await loadInbox();
+                    } finally {
+                      setSending(false);
+                    }
                   }}
                 >
                   <input
-                    className="flex-1"
+                    className="min-w-0 flex-1"
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
                     placeholder="Reply as agent…"
                   />
-                  <button type="submit" className="rounded-lg bg-brand-500 px-3 py-2 text-sm text-ink-950">
+                  <button
+                    type="submit"
+                    disabled={sending}
+                    className="shrink-0 rounded-lg bg-brand-500 px-3 py-2 text-sm text-ink-950 disabled:opacity-60"
+                  >
                     Send
                   </button>
                 </form>
               </>
             ) : (
-              <p className="text-sm text-slate-500">Select a conversation.</p>
+              <p className="m-auto p-6 text-sm text-slate-500">Select a conversation.</p>
             )}
           </section>
         </div>
