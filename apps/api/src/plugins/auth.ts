@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { prisma } from "@wacalls/database";
 import {
+  isWaCallsApiKey,
   sha256,
   verifyAccessToken,
   type AccessClaims,
@@ -26,12 +27,15 @@ async function authenticate(req: FastifyRequest): Promise<AccessClaims> {
   const cookie = req.cookies?.access_token;
   const apiKey = req.headers["x-api-key"];
 
-  if (typeof apiKey === "string" && (apiKey.startsWith("wc_live_") || apiKey.startsWith("wc_pub_"))) {
+  if (typeof apiKey === "string" && isWaCallsApiKey(apiKey)) {
     const prefix = apiKey.slice(0, 16);
-    const row = await prisma.apiKey.findFirst({
+    const candidates = await prisma.apiKey.findMany({
       where: { prefix, revokedAt: null },
+      take: 8,
     });
-    if (!row || sha256(apiKey) !== row.keyHash) {
+    const digest = sha256(apiKey);
+    const row = candidates.find((item) => item.keyHash === digest);
+    if (!row) {
       throw new UnauthorizedError("Invalid API key");
     }
     const org = await prisma.organization.findUnique({

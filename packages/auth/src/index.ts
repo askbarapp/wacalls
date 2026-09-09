@@ -57,8 +57,37 @@ export function assertPermission(role: Role, permission: string): void {
   }
 }
 
+/** Letters + digits, skipping look-alikes (0/O, 1/l/I) so keys are easy to copy. */
+const API_KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+export const API_KEY_BODY_LENGTH = 16;
+export const API_KEY_PREFIX_LENGTH = 16;
+
+function randomAlphanumeric(length: number): string {
+  const alphabet = API_KEY_ALPHABET;
+  const chars: string[] = [];
+  while (chars.length < length) {
+    const bytes = randomBytes(length);
+    for (const byte of bytes) {
+      if (byte >= 248) continue;
+      chars.push(alphabet[byte % alphabet.length]!);
+      if (chars.length === length) break;
+    }
+  }
+  const joined = chars.join("");
+  const hasLetter = /[A-Za-z]/.test(joined);
+  const hasDigit = /[0-9]/.test(joined);
+  if (hasLetter && hasDigit) return joined;
+  chars[0] = "K";
+  chars[1] = "7";
+  return chars.join("");
+}
+
 export function newApiKey(kind: "secret" | "publishable" = "secret"): { plaintext: string; prefix: string } {
-  const raw = randomBytes(24).toString("base64url");
+  const raw = randomAlphanumeric(API_KEY_BODY_LENGTH);
   const plaintext = kind === "publishable" ? `wc_pub_${raw}` : `wc_live_${raw}`;
-  return { plaintext, prefix: plaintext.slice(0, 16) };
+  return { plaintext, prefix: plaintext.slice(0, API_KEY_PREFIX_LENGTH) };
+}
+
+export function isWaCallsApiKey(value: string): boolean {
+  return value.startsWith("wc_live_") || value.startsWith("wc_pub_");
 }

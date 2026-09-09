@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "@wacalls/database";
 import { newApiKey, sha256 } from "@wacalls/auth";
-import { ok } from "@wacalls/shared";
+import { NotFoundError, ok } from "@wacalls/shared";
 
 export const keyRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api-keys", async (req) => {
@@ -11,6 +11,7 @@ export const keyRoutes: FastifyPluginAsync = async (app) => {
     const keys = await prisma.apiKey.findMany({
       where: { organizationId: auth.orgId },
       select: { id: true, name: true, prefix: true, scopes: true, lastUsedAt: true, revokedAt: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
     });
     return ok(keys);
   });
@@ -48,8 +49,18 @@ export const keyRoutes: FastifyPluginAsync = async (app) => {
     const auth = await app.authenticate(req);
     await app.requirePermission("api_keys.manage")(req);
     const { id } = req.params as { id: string };
+    const query = z.object({ permanent: z.coerce.boolean().optional() }).parse(req.query);
+    if (query.permanent) {
+      const removed = await prisma.apiKey.deleteMany({
+        where: { id, organizationId: auth.orgId, revokedAt: { not: null } },
+      });
+      if (!removed.count) {
+        throw new NotFoundError("Revoke the key before deleting it.");
+      }
+      return ok({ deleted: true });
+    }
     await prisma.apiKey.updateMany({
-      where: { id, organizationId: auth.orgId },
+      where: { id, organizationId: auth.orgId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
     return ok({ revoked: true });

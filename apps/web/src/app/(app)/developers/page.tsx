@@ -82,9 +82,10 @@ const json = await res.json();`;
       />
       <section className="mb-8 rounded-2xl border border-white/10 bg-ink-900/80 p-5 text-sm leading-relaxed text-slate-300">
         <p>
-          Create a <strong className="text-white">secret</strong> key (<code>wc_live_</code>) for your backend, or a{" "}
-          <strong className="text-white">publishable</strong> key (<code>wc_pub_</code>) for browser widgets. Both go in
-          the <code>X-API-Key</code> header.
+          Create <strong className="text-white">one Production key</strong> on API keys. The same{" "}
+          <code>wc_live_</code> value works for voice calls and WhatsApp SMS. Put it in the{" "}
+          <code>X-API-Key</code> header on your server — one key, not two. Use a{" "}
+          <strong className="text-white">website key</strong> (<code>wc_pub_</code>) only in browser widgets.
         </p>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-slate-400">
           <li>
