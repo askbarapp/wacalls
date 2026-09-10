@@ -472,6 +472,7 @@ export default function DialerPage() {
         (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || Boolean(el?.isContentEditable));
       if (typingElsewhere) return;
       if (e.key === "Enter") {
+        if (tag === "TEXTAREA") return;
         e.preventDefault();
         void call();
         return;
@@ -587,12 +588,6 @@ export default function DialerPage() {
                       return;
                     }
                     setNumber(digits.slice(0, 15));
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void call();
-                    }
                   }}
                   inputMode="tel"
                   autoComplete="off"
