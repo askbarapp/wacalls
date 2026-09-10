@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bot, Clock, Megaphone, Sparkles, Upload, Video, Volume2, X } from "lucide-react";
-import { api, getAccessToken } from "@/lib/api";
+import { Bot, CheckCircle2, Clock, Megaphone, Sparkles, Upload, Video, Volume2, X } from "lucide-react";
+import { api, apiUploadWithProgress, ensureAccessToken, getAccessToken } from "@/lib/api";
 import { assertUploadVideoFile } from "@/lib/video-upload";
 import { PageHeader } from "@/components/page-header";
 import { TemplateKindBadge } from "@/components/message-template-form";
+import { UploadProgress } from "@/components/upload-progress";
 
 type Channel = {
   id: string;
@@ -83,6 +84,8 @@ export default function NewCampaignPage() {
     videoOrientation: "portrait" as "portrait" | "landscape",
   });
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(0);
+  const [videoUploaded, setVideoUploaded] = useState("");
 
   useEffect(() => {
     void Promise.all([
@@ -633,7 +636,7 @@ export default function NewCampaignPage() {
                 <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-brand-400/40 bg-brand-500/5 px-4 py-8 text-center">
                   <Upload className="h-6 w-6 text-brand-300" />
                   <span className="text-sm text-slate-200">
-                    {uploadingVideo ? "Uploading…" : "Click to upload an MP4 / MOV (up to 50 MB)"}
+                    {uploadingVideo ? "Uploading video…" : "Click to upload an MP4 / MOV (up to 50 MB)"}
                   </span>
                   <input
                     type="file"
@@ -645,29 +648,23 @@ export default function NewCampaignPage() {
                       e.target.value = "";
                       if (!file) return;
                       setError("");
+                      setVideoUploaded("");
                       setUploadingVideo(true);
+                      setUploadPercent(0);
                       try {
                         assertUploadVideoFile(file);
-                        const token = getAccessToken() ?? "";
-                        const base =
-                          process.env.NEXT_PUBLIC_API_URL ||
-                          (typeof window !== "undefined" ? window.location.origin : "");
+                        await ensureAccessToken();
                         const fd = new FormData();
                         fd.append("file", file);
-                        const res = await fetch(`${base}/api/v1/recordings`, {
-                          method: "POST",
-                          headers: token ? { authorization: `Bearer ${token}` } : {},
-                          body: fd,
-                          credentials: "include",
-                        });
-                        const json = (await res.json().catch(() => ({}))) as {
-                          data?: Recording;
-                          error?: { message?: string };
-                          message?: string;
-                        };
-                        if (!res.ok || !json.data) throw new Error(json.error?.message ?? json.message ?? "Upload failed");
+                        const json = await apiUploadWithProgress<{ data?: Recording }>(
+                          "/api/v1/recordings",
+                          fd,
+                          setUploadPercent,
+                        );
+                        if (!json.data) throw new Error("Upload failed");
                         setRecordings((rows) => [json.data as Recording, ...rows]);
                         setForm((f) => ({ ...f, recordingId: json.data!.id }));
+                        setVideoUploaded("Video uploaded.");
                       } catch (err) {
                         setError(err instanceof Error ? err.message : "Upload failed");
                       } finally {
@@ -676,6 +673,13 @@ export default function NewCampaignPage() {
                     }}
                   />
                 </label>
+                {uploadingVideo ? <UploadProgress percent={uploadPercent} /> : null}
+                {videoUploaded && !uploadingVideo ? (
+                  <p className="flex items-center justify-center gap-2 text-sm text-emerald-300">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    {videoUploaded}
+                  </p>
+                ) : null}
                 {recordings.filter((r) => r.kind === "video").length ? (
                   <select
                     className="min-h-11"

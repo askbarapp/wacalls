@@ -13,7 +13,7 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { api, ensureAccessToken } from "@/lib/api";
+import { api, apiUploadWithProgress, ensureAccessToken } from "@/lib/api";
 import { callResultLabel, formatCallDuration, type CallRow } from "@/lib/call-log";
 import { assertUploadAudioDuration } from "@/lib/audio-upload";
 import { assertUploadVideoFile } from "@/lib/video-upload";
@@ -132,8 +132,13 @@ export default function DialerPage() {
   const [ttsSpeaker, setTtsSpeaker] = useState("shubh");
   const [recipientName, setRecipientName] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(0);
+  const [uploadSuccess, setUploadSuccess] = useState("");
   const [busy, setBusy] = useState(false);
   const audioRef = useRef<CallAudioHandle | null>(null);
+  const numberInputRef = useRef<HTMLInputElement>(null);
+  const inCallRef = useRef(false);
+  const showPadRef = useRef(false);
 
   function resetLocalCall() {
     setCallId(null);
@@ -228,6 +233,8 @@ export default function DialerPage() {
   const channel = channels.find((c) => c.id === channelId);
   const connected = channel?.status === "CONNECTED";
   const inCall = IN_CALL.includes(status);
+  inCallRef.current = inCall;
+  showPadRef.current = showPad;
   const elapsed = useMemo(() => {
     if (!started) return "00:00";
     const s = Math.floor((Date.now() - started) / 1000);
@@ -280,28 +287,25 @@ export default function DialerPage() {
     setNumber((n) => (n + digit).replace(/[^\d+#*]/g, "").slice(0, 15));
   }
 
+  useEffect(() => {
+    if (!uploadSuccess) return;
+    const t = window.setTimeout(() => setUploadSuccess(""), 6000);
+    return () => window.clearTimeout(t);
+  }, [uploadSuccess]);
+
   async function uploadRecording(file: File) {
     setError("");
+    setUploadSuccess("");
     setUploading(true);
+    setUploadPercent(0);
     try {
       await assertUploadAudioDuration(file);
-      const token = (await ensureAccessToken()) ?? "";
-      const base = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+      await ensureAccessToken();
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch(`${base}/api/v1/recordings`, {
-        method: "POST",
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-        body: fd,
-        credentials: "include",
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        data?: DialerRecording;
-        error?: { message?: string };
-        message?: string;
-      };
-      if (!res.ok || !json.data) throw new Error(json.error?.message ?? json.message ?? "Upload failed");
-      const row = json.data as DialerRecording;
+      const json = await apiUploadWithProgress<{ data?: DialerRecording }>("/api/v1/recordings", fd, setUploadPercent);
+      const row = json.data;
+      if (!row) throw new Error("Upload failed");
       setRecordings((rows) => [row, ...rows]);
       if (row.kind === "video") setVideoRecordingId(row.id);
       else setRecordingId(row.id);
@@ -314,28 +318,20 @@ export default function DialerPage() {
 
   async function uploadVideo(file: File) {
     setError("");
+    setUploadSuccess("");
     setUploading(true);
+    setUploadPercent(0);
     try {
       assertUploadVideoFile(file);
-      const token = (await ensureAccessToken()) ?? "";
-      const base = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+      await ensureAccessToken();
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch(`${base}/api/v1/recordings`, {
-        method: "POST",
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-        body: fd,
-        credentials: "include",
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        data?: DialerRecording;
-        error?: { message?: string };
-        message?: string;
-      };
-      if (!res.ok || !json.data) throw new Error(json.error?.message ?? json.message ?? "Upload failed");
-      const row = json.data as DialerRecording;
+      const json = await apiUploadWithProgress<{ data?: DialerRecording }>("/api/v1/recordings", fd, setUploadPercent);
+      const row = json.data;
+      if (!row) throw new Error("Upload failed");
       setRecordings((rows) => [row, ...rows]);
       setVideoRecordingId(row.id);
+      setUploadSuccess("Video uploaded.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -369,7 +365,7 @@ export default function DialerPage() {
     }
     const phone = `${cc}${number}`.replace(/\D/g, "");
     if (phone.length < 8) {
-      setError("Enter a valid number on the keypad.");
+      setError("Enter a valid number.");
       return;
     }
     if (mode === "video" && !videoRecordingId) {
@@ -465,6 +461,36 @@ export default function DialerPage() {
     audioRef.current?.setSpeaker(next);
   }
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (inCallRef.current && !showPadRef.current) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      const isNumberField = el === numberInputRef.current;
+      const typingElsewhere =
+        !isNumberField &&
+        (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || Boolean(el?.isContentEditable));
+      if (typingElsewhere) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void call();
+        return;
+      }
+      if (isNumberField) return;
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        setNumber((n) => n.slice(0, -1));
+        return;
+      }
+      if (/^[0-9*#]$/.test(e.key)) {
+        e.preventDefault();
+        press(e.key);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const display = formatPhone(cc, number);
   const shownName = recipientName.trim() || waName;
   const modeHint =
@@ -546,12 +572,33 @@ export default function DialerPage() {
                     {shownName ? <p className="mb-1 text-sm font-medium text-white">{shownName}</p> : null}
                   </>
                 ) : null}
-                <div className="break-all text-[2rem] font-light tracking-[0.04em] text-white">{display || " "}</div>
                 <input
-                  className="mx-auto mt-3 w-20 border-0 bg-transparent text-center text-xs text-slate-500"
-                  value={cc}
-                  onChange={(e) => setCc(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                  aria-label="Country code"
+                  ref={numberInputRef}
+                  className="dialer-display-input w-full text-center text-[2rem] font-light tracking-[0.04em] text-white placeholder:text-white/20"
+                  value={display}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "");
+                    if (!digits) {
+                      setNumber("");
+                      return;
+                    }
+                    if (cc && digits.startsWith(cc)) {
+                      setNumber(digits.slice(cc.length).slice(0, 15));
+                      return;
+                    }
+                    setNumber(digits.slice(0, 15));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void call();
+                    }
+                  }}
+                  inputMode="tel"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-label="Phone number"
                 />
               </div>
 
@@ -734,6 +781,8 @@ export default function DialerPage() {
         onUploadVideo={(file) => void uploadVideo(file)}
         onDeleteRecording={(id) => void deleteRecording(id)}
         uploading={uploading}
+        uploadPercent={uploadPercent}
+        uploadSuccess={uploadSuccess}
         videoOrientation={videoOrientation}
         onVideoOrientation={setVideoOrientation}
         loopClip={loopClip}

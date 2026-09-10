@@ -53,8 +53,12 @@ export const recordingRoutes: FastifyPluginAsync = async (app) => {
     try {
       durationMs = await probeAudioDurationMs(filePath, ext);
     } catch {
-      await unlink(filePath).catch(() => undefined);
-      throw new ConflictError(isVideo ? "Could not read that video. Upload a valid MP4 or MOV." : "Could not read audio duration. Upload a valid WAV or MP3.");
+      if (isVideo) {
+        durationMs = 0;
+      } else {
+        await unlink(filePath).catch(() => undefined);
+        throw new ConflictError("Could not read audio duration. Upload a valid WAV or MP3.");
+      }
     }
     if (!isVideo && durationMs > MAX_UPLOAD_AUDIO_DURATION_MS) {
       await unlink(filePath).catch(() => undefined);

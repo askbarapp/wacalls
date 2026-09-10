@@ -167,23 +167,48 @@ export async function api<T>(path: string, init?: ApiInit): Promise<T> {
 }
 
 export async function apiUpload<T>(path: string, form: FormData, retry = false): Promise<T> {
+  return apiUploadWithProgress<T>(path, form, undefined, retry);
+}
+
+export async function apiUploadWithProgress<T>(
+  path: string,
+  form: FormData,
+  onProgress?: (percent: number) => void,
+  retry = false,
+): Promise<T> {
   const token = getAccessToken();
-  const res = await fetch(`${API}${path}`, {
-    method: "POST",
-    headers: {
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-    body: form,
-    credentials: "include",
+  const json = await new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API}${path}`);
+    xhr.withCredentials = true;
+    if (token) xhr.setRequestHeader("authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (!onProgress) return;
+      if (event.lengthComputable && event.total > 0) {
+        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+      }
+    };
+    xhr.onload = () => {
+      let body: unknown = {};
+      try {
+        body = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+      } catch {
+        body = {};
+      }
+      resolve({ status: xhr.status, body });
+    };
+    xhr.onerror = () => reject(new Error("Upload failed"));
+    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    xhr.send(form);
   });
-  const json = await res.json().catch(() => ({}));
-  if (res.status === 401 && !retry) {
+  if (json.status === 401 && !retry) {
     const next = await refreshAccessToken();
-    if (next) return apiUpload<T>(path, form, true);
+    if (next) return apiUploadWithProgress<T>(path, form, onProgress, true);
     storeToken(null);
   }
-  if (!res.ok) {
-    throw new Error(apiErrorMessage(json, res.status));
+  if (json.status < 200 || json.status >= 300) {
+    throw new Error(apiErrorMessage(json.body, json.status));
   }
-  return json as T;
+  onProgress?.(100);
+  return json.body as T;
 }

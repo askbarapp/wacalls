@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { AudioLines, MessageSquareText, Phone, Sparkles, Upload, Video, type LucideIcon } from "lucide-react";
+import { AudioLines, CheckCircle2, MessageSquareText, Phone, Sparkles, Upload, Video, type LucideIcon } from "lucide-react";
+import { UploadProgress } from "@/components/upload-progress";
 
 export type CallMode = "ai" | "tts" | "recording" | "video" | "live";
 
@@ -84,6 +85,8 @@ export function DialerModePanel({
   onUploadVideo,
   onDeleteRecording,
   uploading,
+  uploadPercent,
+  uploadSuccess,
   videoOrientation,
   onVideoOrientation,
   loopClip,
@@ -115,6 +118,8 @@ export function DialerModePanel({
   onUploadVideo?: (file: File) => void;
   onDeleteRecording?: (id: string) => void;
   uploading: boolean;
+  uploadPercent?: number;
+  uploadSuccess?: string;
   videoOrientation?: "portrait" | "landscape";
   onVideoOrientation?: (v: "portrait" | "landscape") => void;
   loopClip?: boolean;
@@ -301,9 +306,9 @@ export function DialerModePanel({
               <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/20 text-rose-300">
                 <Upload className="h-4 w-4" />
               </span>
-              <span>
+              <span className="min-w-0 flex-1">
                 <span className="block font-medium text-white">
-                  {uploading ? "Uploading…" : "Choose a video to stream"}
+                  {uploading ? "Uploading video…" : "Choose a video to stream"}
                 </span>
                 <span className="text-[11px] text-slate-500">MP4 / MOV, up to 50 MB</span>
               </span>
@@ -319,6 +324,13 @@ export function DialerModePanel({
                 }}
               />
             </label>
+            {uploading ? <UploadProgress percent={uploadPercent ?? 0} /> : null}
+            {uploadSuccess && !uploading ? (
+              <p className="flex items-center gap-2 text-sm text-emerald-300">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                {uploadSuccess}
+              </p>
+            ) : null}
             {recordings.filter((r) => r.kind === "video").length ? (
               <select
                 value={recordingId}

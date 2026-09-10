@@ -47,10 +47,30 @@
   }
 }
 
-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not(.dialer-display-input),
 select,
 textarea {
   @apply w-full rounded-xl border border-white/15 bg-ink-800/90 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-400/30;
+}
+
+input.dialer-display-input {
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+}
+
+input.dialer-display-input:focus {
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 
 input[type="checkbox"],
