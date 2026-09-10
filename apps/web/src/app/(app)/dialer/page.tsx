@@ -503,7 +503,9 @@ export default function DialerPage() {
         : mode === "recording"
           ? "Playing recording"
           : mode === "video"
-            ? "Streaming video clip"
+            ? status === "ANSWERED"
+              ? "Streaming video clip"
+              : "Video call ringing — answer on WhatsApp to see the clip"
             : micReady
             ? "Mic live · voice from this browser"
             : "Waiting for microphone";

@@ -22,8 +22,10 @@ func videoMediaNode(orientation string) waBinary.Node {
 	if orientation == "landscape" {
 		width, height = "640", "480"
 	}
+	// H.264 attrs are ACKed by the server but the handset never rings.
+	// Companion VP8 attrs are what actually rings the phone.
 	return waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{
-		"enc": "h264", "dec": "h264", "orientation": "0",
+		"enc": "vp8", "dec": "vp8", "orientation": "0",
 		"screen_width": width, "screen_height": height, "device_orientation": "0",
 	}}
 }

@@ -118,7 +118,7 @@ func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid type
 	m.videoOrientation = orientation
 	if isVideo {
 		m.selfVideoSsrc = media.GenerateSecureSsrc(callID, selfJid, 1)
-		m.videoRtp = media.NewWhatsAppH264Session(m.selfVideoSsrc)
+		m.videoRtp = media.NewWhatsAppVp8Session(m.selfVideoSsrc)
 	} else {
 		m.selfVideoSsrc = 0
 		m.videoRtp = nil
@@ -259,7 +259,7 @@ func (m *CallManager) resyncVideoSessionLocked(callID, ourDeviceJid string) {
 	vid := media.GenerateSecureSsrc(callID, ourDeviceJid, 1)
 	if vid != m.selfVideoSsrc || m.videoRtp == nil {
 		m.selfVideoSsrc = vid
-		m.videoRtp = media.NewWhatsAppH264Session(vid)
+		m.videoRtp = media.NewWhatsAppVp8Session(vid)
 		m.relay.SetVideoSsrc(vid)
 	}
 }

@@ -83,7 +83,7 @@ func (m *CallManager) FeedCapturedVP8(frame []byte, timestampInc uint32) {
 		return
 	}
 	m.vp8PictureID++
-	packets := media.PacketizeH264(frame, 1200)
+	packets := media.PacketizeVp8(frame, 1200, m.vp8PictureID)
 	sent := 0
 	for i, payload := range packets {
 		marker := i == len(packets)-1
