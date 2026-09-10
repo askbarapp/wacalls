@@ -181,7 +181,20 @@ func NewWhatsAppVp8Session(ssrc uint32) *RtpSession {
 }
 
 func NewWhatsAppH264Session(ssrc uint32) *RtpSession {
-	return NewRtpSession(ssrc, core.PayloadTypeWhatsAppH264, 90000, 6000)
+	s := NewRtpSession(ssrc, core.PayloadTypeWhatsAppH264, 90000, 6000)
+	s.sequenceNumber = 1
+	s.timestamp = 0
+	return s
+}
+
+// ApplyWarpSpeechHeader writes the 16-byte WARP RTP header (X=1, 0xDEBE, 0 words).
+func ApplyWarpSpeechHeader(pkt *RtpPacket) {
+	if pkt == nil || pkt.Header == nil {
+		return
+	}
+	pkt.Header.Extension = true
+	pkt.Header.ExtensionProfile = 0xbede
+	pkt.Header.ExtensionData = nil
 }
 
 func (s *RtpSession) CreatePacket(payload []byte, marker bool) *RtpPacket {

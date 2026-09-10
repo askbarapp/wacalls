@@ -224,3 +224,23 @@ func TestDeriveSrtpKeyReference(t *testing.T) {
 		t.Fatalf("deriveSrtpKey mismatch:\n got=%x\nwant=%x", got, want)
 	}
 }
+
+func TestApplyWarpSpeechHeaderIs16Bytes(t *testing.T) {
+	s := NewWhatsAppH264Session(0x11111111)
+	pkt := s.CreatePacketWithDuration([]byte{0x67, 0x42}, 0, false)
+	ApplyWarpSpeechHeader(pkt)
+	if pkt.Header.Size() != 16 {
+		t.Fatalf("header size %d want 16", pkt.Header.Size())
+	}
+	buf := make([]byte, pkt.Header.Size())
+	n, err := pkt.Header.Encode(buf)
+	if err != nil || n != 16 {
+		t.Fatal(err)
+	}
+	if buf[0] != 0x90 {
+		t.Fatalf("first byte %x want 0x90", buf[0])
+	}
+	if binary.BigEndian.Uint16(buf[12:14]) != 0xbede {
+		t.Fatalf("ext profile %x", buf[12:14])
+	}
+}

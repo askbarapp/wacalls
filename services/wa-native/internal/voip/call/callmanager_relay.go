@@ -8,6 +8,7 @@ import (
 type RelayTransport interface {
 	SetSsrc(ssrc uint32)
 	SetVideoSsrc(ssrc uint32)
+	SetVideoSsrcs(ssrcs []uint32)
 	SetSubscriptionSsrc(ssrc uint32)
 	SetOnConnected(fn func(ip string, port int))
 	SetOnReceive(fn func(data []byte))
@@ -80,7 +81,7 @@ func (m *CallManager) connectRelays(endpoints []core.RelayEndpoint) {
 	}
 	m.mu.Lock()
 	m.relay.SetSsrc(m.selfSsrc)
-	m.relay.SetVideoSsrc(m.selfVideoSsrc)
+	m.relay.SetVideoSsrcs([]uint32{m.selfVideoSsrc, m.selfVideoSsrcAlt})
 	m.relay.SetSubscriptionSsrc(firstSsrc(m.peerSsrcs))
 	m.mu.Unlock()
 	m.relay.ConfigureRelays(relays)
@@ -97,6 +98,7 @@ func (m *CallManager) cleanupMedia() {
 	}
 	m.rtpSession = nil
 	m.videoRtp = nil
+	m.videoRtpAlt = nil
 	m.srtpSession = nil
 	m.firstPacketSent = false
 	m.initialTransportSent = false
@@ -111,6 +113,7 @@ func (m *CallManager) cleanupMedia() {
 	m.totalVideoSent = 0
 	m.totalRelayRecv = 0
 	m.selfVideoSsrc = 0
+	m.selfVideoSsrcAlt = 0
 	m.mu.Unlock()
 
 	m.relay.Cleanup()

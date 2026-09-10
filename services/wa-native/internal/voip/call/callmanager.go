@@ -25,11 +25,13 @@ type CallManager struct {
 	rtpSession  *media.RtpSession
 	srtpSession *media.SrtpSession
 	videoRtp    *media.RtpSession
+	videoRtpAlt *media.RtpSession
 	codec       media.Codec
 	relay       RelayTransport
 
-	selfSsrc      uint32
-	selfVideoSsrc uint32
+	selfSsrc         uint32
+	selfVideoSsrc    uint32
+	selfVideoSsrcAlt uint32
 	peerSsrcs     []uint32
 	actualPeerSet bool
 	videoOrientation string
@@ -117,10 +119,14 @@ func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid type
 	m.videoOrientation = orientation
 	if isVideo {
 		m.selfVideoSsrc = media.GenerateSecureSsrc(callID, selfJid, 1)
+		m.selfVideoSsrcAlt = media.GenerateSecureSsrc(callID, selfJid, 4)
 		m.videoRtp = media.NewWhatsAppH264Session(m.selfVideoSsrc)
+		m.videoRtpAlt = media.NewWhatsAppH264Session(m.selfVideoSsrcAlt)
 	} else {
 		m.selfVideoSsrc = 0
+		m.selfVideoSsrcAlt = 0
 		m.videoRtp = nil
+		m.videoRtpAlt = nil
 	}
 	m.initCodec()
 	m.mu.Unlock()
@@ -150,7 +156,7 @@ func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid type
 
 	m.HandleCallAck(ctx, ackNode)
 
-	m.log.Info("call offer sent", "call_id", callID, "peer", resolved.String(), "video", isVideo, "audio_ssrc", m.selfSsrc, "video_ssrc", m.selfVideoSsrc)
+	m.log.Info("call offer sent", "call_id", callID, "peer", resolved.String(), "video", isVideo, "audio_ssrc", m.selfSsrc, "video_ssrc", m.selfVideoSsrc, "video_ssrc_alt", m.selfVideoSsrcAlt)
 	return nil
 }
 
@@ -256,11 +262,16 @@ func (m *CallManager) resyncVideoSessionLocked(callID, ourDeviceJid string) {
 		return
 	}
 	vid := media.GenerateSecureSsrc(callID, ourDeviceJid, 1)
+	alt := media.GenerateSecureSsrc(callID, ourDeviceJid, 4)
 	if vid != m.selfVideoSsrc || m.videoRtp == nil {
 		m.selfVideoSsrc = vid
 		m.videoRtp = media.NewWhatsAppH264Session(vid)
-		m.relay.SetVideoSsrc(vid)
 	}
+	if alt != m.selfVideoSsrcAlt || m.videoRtpAlt == nil {
+		m.selfVideoSsrcAlt = alt
+		m.videoRtpAlt = media.NewWhatsAppH264Session(alt)
+	}
+	m.relay.SetVideoSsrcs([]uint32{vid, alt})
 }
 
 func (m *CallManager) ownCredJid() string {

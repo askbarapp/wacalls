@@ -84,23 +84,32 @@ func (m *CallManager) FeedCapturedH264(frame []byte, timestampInc uint32) {
 	}
 	packets := media.PacketizeH264(frame, 1200)
 	sent := 0
-	for i, payload := range packets {
-		marker := i == len(packets)-1
-		inc := 0
-		if marker {
-			inc = int(timestampInc)
-			if inc <= 0 {
-				inc = 6000
+	sessions := []*media.RtpSession{m.videoRtp}
+	if m.videoRtpAlt != nil {
+		sessions = append(sessions, m.videoRtpAlt)
+	}
+	for _, session := range sessions {
+		for i, payload := range packets {
+			marker := i == len(packets)-1
+			inc := 0
+			if marker {
+				inc = int(timestampInc)
+				if inc <= 0 {
+					inc = 6000
+				}
 			}
+			pkt := session.CreatePacketWithDuration(payload, inc, marker)
+			if m.debeEnabled {
+				media.ApplyWarpSpeechHeader(pkt)
+			}
+			srtp, err := m.srtpSession.Protect(pkt)
+			if err != nil {
+				m.log.Warn("video srtp protect error", "err", err)
+				return
+			}
+			m.relay.Broadcast(srtp)
+			sent++
 		}
-		pkt := m.videoRtp.CreatePacketWithDuration(payload, inc, marker)
-		srtp, err := m.srtpSession.Protect(pkt)
-		if err != nil {
-			m.log.Warn("video srtp protect error", "err", err)
-			return
-		}
-		m.relay.Broadcast(srtp)
-		sent++
 	}
 	if sent > 0 {
 		m.totalVideoSent++
@@ -147,9 +156,7 @@ func (m *CallManager) sendOpusFrameLocked(opus []byte) {
 	marker := !m.firstPacketSent
 	pkt := m.rtpSession.CreatePacketWithDuration(opus, m.codec.FrameSize(), marker)
 	if m.debeEnabled {
-		pkt.Header.Extension = true
-		pkt.Header.ExtensionProfile = 0xbede
-		pkt.Header.ExtensionData = nil
+		media.ApplyWarpSpeechHeader(pkt)
 	}
 	m.firstPacketSent = true
 	m.totalFramesSent++

@@ -31,9 +31,8 @@ func PacketizeH264(au []byte, mtu int) [][]byte {
 	if len(cleaned) == 0 {
 		return nil
 	}
-	if stap := packStapA(cleaned, mtu); stap != nil {
-		return [][]byte{stap}
-	}
+	// WhatsApp's H.264 path is RFC 6184 single-NAL / FU-A. STAP-A is not
+	// established on the WARP wire and phones drop aggregated units.
 	var out [][]byte
 	for _, nal := range cleaned {
 		out = append(out, packetizeNAL(nal, mtu)...)

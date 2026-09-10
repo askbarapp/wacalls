@@ -43,7 +43,7 @@ func TestPacketizeH264SingleAndFUA(t *testing.T) {
 	}
 }
 
-func TestPacketizeH264StapA(t *testing.T) {
+func TestPacketizeH264SendsSeparateNALs(t *testing.T) {
 	sps := []byte{0x67, 0x42, 0x00, 0x1e, 0x01}
 	pps := []byte{0x68, 0xce, 0x38, 0x80}
 	idr := []byte{0x65, 0x88, 0x80, 0x01, 0x02, 0x03}
@@ -53,10 +53,10 @@ func TestPacketizeH264StapA(t *testing.T) {
 		au = append(au, n...)
 	}
 	pkts := PacketizeH264(au, 1200)
-	if len(pkts) != 1 {
-		t.Fatalf("expected one STAP-A, got %d", len(pkts))
+	if len(pkts) != 3 {
+		t.Fatalf("expected SPS/PPS/IDR as separate packets, got %d", len(pkts))
 	}
-	if pkts[0][0]&0x1f != h264NalStapA {
-		t.Fatalf("type %x", pkts[0][0])
+	if pkts[0][0]&0x1f != 7 || pkts[1][0]&0x1f != 8 || pkts[2][0]&0x1f != 5 {
+		t.Fatalf("nal types %x %x %x", pkts[0][0], pkts[1][0], pkts[2][0])
 	}
 }
