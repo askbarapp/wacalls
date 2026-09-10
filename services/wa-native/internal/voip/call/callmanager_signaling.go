@@ -77,6 +77,13 @@ func (m *CallManager) HandleCallOffer(ctx context.Context, node *waBinary.Node, 
 	m.selfSsrc = media.GenerateSecureSsrc(callID, sj, 0)
 	m.rtpSession = media.NewWhatsAppOpusSession(m.selfSsrc)
 	m.peerSsrcs = []uint32{media.GenerateSecureSsrc(callID, peerJid.String(), 0)}
+	if isVideo {
+		m.selfVideoSsrc = media.GenerateSecureSsrc(callID, sj, 1)
+		m.videoRtp = media.NewWhatsAppVp8Session(m.selfVideoSsrc)
+	} else {
+		m.selfVideoSsrc = 0
+		m.videoRtp = nil
+	}
 	m.initCodec()
 	m.mu.Unlock()
 

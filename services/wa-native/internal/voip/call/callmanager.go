@@ -46,9 +46,11 @@ type CallManager struct {
 	lastCaptureAt time.Time
 	keepaliveStop chan struct{}
 
-	totalPCMRecv  int
+	totalPCMRecv    int
 	totalFramesSent int
+	totalVideoSent  int
 	totalRelayRecv  int
+	vp8PictureID    uint16
 
 	OnStateChange func(*CallInfo)
 	OnIncoming    func(*CallInfo)
@@ -116,6 +118,9 @@ func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid type
 	if isVideo {
 		m.selfVideoSsrc = media.GenerateSecureSsrc(callID, selfJid, 1)
 		m.videoRtp = media.NewWhatsAppVp8Session(m.selfVideoSsrc)
+	} else {
+		m.selfVideoSsrc = 0
+		m.videoRtp = nil
 	}
 	m.initCodec()
 	m.mu.Unlock()
@@ -138,7 +143,7 @@ func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid type
 		go m.HandleCallAck(context.Background(), ackNode)
 	}
 
-	m.log.Info("call offer sent", "call_id", callID, "peer", resolved.String())
+	m.log.Info("call offer sent", "call_id", callID, "peer", resolved.String(), "video", isVideo, "audio_ssrc", m.selfSsrc, "video_ssrc", m.selfVideoSsrc)
 	return nil
 }
 
@@ -247,6 +252,7 @@ func (m *CallManager) resyncVideoSessionLocked(callID, ourDeviceJid string) {
 	if vid != m.selfVideoSsrc || m.videoRtp == nil {
 		m.selfVideoSsrc = vid
 		m.videoRtp = media.NewWhatsAppVp8Session(vid)
+		m.relay.SetVideoSsrc(vid)
 	}
 }
 

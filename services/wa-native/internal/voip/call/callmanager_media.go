@@ -77,9 +77,14 @@ func (m *CallManager) FeedCapturedVP8(frame []byte, timestampInc uint32) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.videoRtp == nil || m.srtpSession == nil || !m.relay.HasConnection() {
+		if m.totalVideoSent == 0 {
+			m.log.Debug("FeedCapturedVP8: dropping", "videoRtp", m.videoRtp != nil, "srtp", m.srtpSession != nil, "relay", m.relay.HasConnection())
+		}
 		return
 	}
-	packets := media.PacketizeVp8(frame, 1200)
+	m.vp8PictureID++
+	packets := media.PacketizeVp8(frame, 1200, m.vp8PictureID)
+	sent := 0
 	for i, payload := range packets {
 		marker := i == len(packets)-1
 		inc := 0
@@ -97,10 +102,17 @@ func (m *CallManager) FeedCapturedVP8(frame []byte, timestampInc uint32) {
 		}
 		srtp, err := m.srtpSession.Protect(pkt)
 		if err != nil {
-			m.log.Debug("video srtp protect error", "err", err)
+			m.log.Warn("video srtp protect error", "err", err)
 			return
 		}
 		m.relay.Broadcast(srtp)
+		sent++
+	}
+	if sent > 0 {
+		m.totalVideoSent++
+		if m.totalVideoSent == 1 || m.totalVideoSent%30 == 0 {
+			m.log.Info("video frame sent", "frames", m.totalVideoSent, "packets", sent, "bytes", len(frame), "ssrc", m.selfVideoSsrc)
+		}
 	}
 }
 

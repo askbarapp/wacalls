@@ -23,8 +23,18 @@ func TestVarintEncoding(t *testing.T) {
 	}
 }
 
-func TestSenderSubscriptions(t *testing.T) {
+func TestSSRCSubscriptionListIncludesVideo(t *testing.T) {
+	got := BuildSSRCSubscriptionList([]uint32{0x10, 0x20}, []uint32{0x30}, 1, 2)
+	if len(got) == 0 {
+		t.Fatal("empty ssrc list")
+	}
+	audioOnly := BuildSSRCSubscriptionList([]uint32{0x10}, []uint32{0x30}, 1, 2)
+	if len(got) <= len(audioOnly) {
+		t.Fatalf("video ssrc should grow list: %d vs %d", len(got), len(audioOnly))
+	}
+}
 
+func TestSenderSubscriptions(t *testing.T) {
 	subs := BuildSenderSubscriptions(0x10)
 
 	inner := []byte{0x18, 0x10, 0x28, 0x00, 0x30, 0x00}

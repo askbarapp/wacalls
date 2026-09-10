@@ -7,6 +7,7 @@ import (
 
 type RelayTransport interface {
 	SetSsrc(ssrc uint32)
+	SetVideoSsrc(ssrc uint32)
 	SetSubscriptionSsrc(ssrc uint32)
 	SetOnConnected(fn func(ip string, port int))
 	SetOnReceive(fn func(data []byte))
@@ -69,6 +70,7 @@ func (m *CallManager) connectRelays(endpoints []core.RelayEndpoint) {
 	}
 	m.mu.Lock()
 	m.relay.SetSsrc(m.selfSsrc)
+	m.relay.SetVideoSsrc(m.selfVideoSsrc)
 	m.relay.SetSubscriptionSsrc(firstSsrc(m.peerSsrcs))
 	m.mu.Unlock()
 	m.relay.ConfigureRelays(relays)
@@ -93,10 +95,13 @@ func (m *CallManager) cleanupMedia() {
 	m.encodeBuf = nil
 	m.encodeBufPos = 0
 	m.pendingPCM = nil
-	m.log.Info("media cleaned up", "pcm_recv", m.totalPCMRecv, "frames_sent", m.totalFramesSent, "relay_recv", m.totalRelayRecv)
+	m.log.Info("media cleaned up", "pcm_recv", m.totalPCMRecv, "frames_sent", m.totalFramesSent, "video_frames", m.totalVideoSent, "relay_recv", m.totalRelayRecv)
 	m.totalPCMRecv = 0
 	m.totalFramesSent = 0
+	m.totalVideoSent = 0
 	m.totalRelayRecv = 0
+	m.vp8PictureID = 0
+	m.selfVideoSsrc = 0
 	m.mu.Unlock()
 
 	m.relay.Cleanup()

@@ -40,9 +40,10 @@ func (ch *Channel) playVideoClip(lc *liveCall, path string) {
 		"-hide_banner", "-loglevel", "error",
 		"-stream_loop", loop, "-re", "-i", path,
 		"-an", "-vf", vf,
-		"-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8",
-		"-b:v", "400k", "-crf", "32", "-auto-alt-ref", "0", "-lag-in-frames", "0",
-		"-r", "15", "-g", "30", "-pix_fmt", "yuv420p",
+		"-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "4",
+		"-b:v", "500k", "-crf", "30", "-auto-alt-ref", "0", "-lag-in-frames", "0",
+		"-error-resilient", "1", "-r", "15", "-g", "15", "-keyint_min", "15",
+		"-pix_fmt", "yuv420p",
 		"-f", "ivf", "pipe:1",
 	)
 	audioOut, err := audioCmd.StdoutPipe()

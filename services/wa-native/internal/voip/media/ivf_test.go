@@ -49,12 +49,31 @@ func TestIvfRoundtripHeaderAndFrame(t *testing.T) {
 }
 
 func TestPacketizeVp8SingleAndSplit(t *testing.T) {
-	one := PacketizeVp8([]byte{1, 2, 3, 4}, 1200)
-	if len(one) != 1 || one[0][0]&0x10 == 0 {
+	one := PacketizeVp8([]byte{1, 2, 3, 4}, 1200, 7)
+	if len(one) != 1 {
 		t.Fatalf("single packet %#v", one)
 	}
+	if one[0][0]&0x80 == 0 {
+		t.Fatal("X bit must be set")
+	}
+	if one[0][0]&0x10 == 0 {
+		t.Fatal("first packet must have S bit")
+	}
+	if one[0][1] != 0x80 {
+		t.Fatal("I bit must be set")
+	}
+	if one[0][2]&0x80 == 0 {
+		t.Fatal("15-bit PictureID M bit must be set")
+	}
+	pid := uint16(one[0][2]&0x7f)<<8 | uint16(one[0][3])
+	if pid != 7 {
+		t.Fatalf("picture id %d", pid)
+	}
+	if !bytes.Equal(one[0][4:], []byte{1, 2, 3, 4}) {
+		t.Fatalf("payload %v", one[0][4:])
+	}
 	big := bytes.Repeat([]byte{9}, 2000)
-	parts := PacketizeVp8(big, 1200)
+	parts := PacketizeVp8(big, 1200, 9)
 	if len(parts) < 2 {
 		t.Fatalf("expected split, got %d", len(parts))
 	}
@@ -63,5 +82,8 @@ func TestPacketizeVp8SingleAndSplit(t *testing.T) {
 	}
 	if parts[1][0]&0x10 != 0 {
 		t.Fatal("continuation must clear S bit")
+	}
+	if parts[0][3] != parts[1][3] {
+		t.Fatal("picture id must match across fragments")
 	}
 }

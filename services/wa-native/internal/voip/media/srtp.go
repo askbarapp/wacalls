@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
+	"sync"
 	"wacalls/internal/voip/core"
 )
 
@@ -169,28 +170,100 @@ func (c *SrtpContext) computeAuthTag(data []byte, roc uint32, tagLen int) []byte
 }
 
 type SrtpSession struct {
-	sendCtx *SrtpContext
-	recvCtx *SrtpContext
+	mu          sync.Mutex
+	sendKey     core.SrtpKeyingMaterial
+	recvKey     core.SrtpKeyingMaterial
+	sendAuthLen int
+	recvAuthLen int
+	sendAuth    *core.SrtpKeyingMaterial
+	sendCtxs    map[uint32]*SrtpContext
+	recvCtxs    map[uint32]*SrtpContext
 }
 
 func NewSrtpSession(sendKey, recvKey core.SrtpKeyingMaterial, sendAuthLen, recvAuthLen int) (*SrtpSession, error) {
-	sc, err := NewSrtpContext(sendKey, sendAuthLen)
-	if err != nil {
-		return nil, err
+	if sendAuthLen <= 0 {
+		sendAuthLen = core.SRTPAuthTagLen
 	}
-	rc, err := NewSrtpContext(recvKey, recvAuthLen)
-	if err != nil {
-		return nil, err
+	if recvAuthLen <= 0 {
+		recvAuthLen = core.SRTPAuthTagLen
 	}
-	return &SrtpSession{sendCtx: sc, recvCtx: rc}, nil
+	return &SrtpSession{
+		sendKey:     sendKey,
+		recvKey:     recvKey,
+		sendAuthLen: sendAuthLen,
+		recvAuthLen: recvAuthLen,
+		sendCtxs:    map[uint32]*SrtpContext{},
+		recvCtxs:    map[uint32]*SrtpContext{},
+	}, nil
 }
 
-func (s *SrtpSession) Protect(packet *RtpPacket) ([]byte, error) { return s.sendCtx.Protect(packet) }
+func (s *SrtpSession) sendCtx(ssrc uint32) (*SrtpContext, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx, ok := s.sendCtxs[ssrc]; ok {
+		return ctx, nil
+	}
+	ctx, err := NewSrtpContext(s.sendKey, s.sendAuthLen)
+	if err != nil {
+		return nil, err
+	}
+	if s.sendAuth != nil {
+		if err := ctx.SetAuthKeying(*s.sendAuth); err != nil {
+			return nil, err
+		}
+	}
+	s.sendCtxs[ssrc] = ctx
+	return ctx, nil
+}
 
-func (s *SrtpSession) Unprotect(data []byte) (*RtpPacket, error) { return s.recvCtx.Unprotect(data) }
+func (s *SrtpSession) recvCtx(ssrc uint32) (*SrtpContext, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx, ok := s.recvCtxs[ssrc]; ok {
+		return ctx, nil
+	}
+	ctx, err := NewSrtpContext(s.recvKey, s.recvAuthLen)
+	if err != nil {
+		return nil, err
+	}
+	s.recvCtxs[ssrc] = ctx
+	return ctx, nil
+}
+
+func (s *SrtpSession) Protect(packet *RtpPacket) ([]byte, error) {
+	if packet == nil || packet.Header == nil {
+		return nil, &SrtpError{SrtpErrEncryption, "nil packet"}
+	}
+	ctx, err := s.sendCtx(packet.Header.Ssrc)
+	if err != nil {
+		return nil, err
+	}
+	return ctx.Protect(packet)
+}
+
+func (s *SrtpSession) Unprotect(data []byte) (*RtpPacket, error) {
+	if len(data) < 12 {
+		return nil, &SrtpError{SrtpErrPacketTooShort, fmt.Sprintf("packet too short: %d bytes", len(data))}
+	}
+	ssrc := uint32(data[8])<<24 | uint32(data[9])<<16 | uint32(data[10])<<8 | uint32(data[11])
+	ctx, err := s.recvCtx(ssrc)
+	if err != nil {
+		return nil, err
+	}
+	return ctx.Unprotect(data)
+}
 
 func (s *SrtpSession) SetSendAuthKeying(keying core.SrtpKeyingMaterial) error {
-	return s.sendCtx.SetAuthKeying(keying)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := keying
+	s.sendAuth = &cp
+	for _, ctx := range s.sendCtxs {
+		if err := ctx.SetAuthKeying(keying); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func deriveSrtpKey(masterKey, masterSalt []byte, label byte, length int) ([]byte, error) {

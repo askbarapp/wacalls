@@ -160,6 +160,50 @@ func TestSrtpRoundtrip(t *testing.T) {
 	}
 }
 
+func TestSrtpIndependentSsrcs(t *testing.T) {
+	callKey := bytes.Repeat([]byte{0x11}, 32)
+	sendKM, _ := DerivePerJidSrtpKey(callKey, "self:0@lid")
+	recvKM, _ := DerivePerJidSrtpKey(callKey, "peer:0@lid")
+	sender, err := NewSrtpSession(sendKM, recvKM, core.SRTPSendAuthTagLen, core.SRTPRecvAuthTagLen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := NewSrtpSession(recvKM, sendKM, core.SRTPRecvAuthTagLen, core.SRTPSendAuthTagLen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audio := NewWhatsAppOpusSession(0x11111111)
+	video := NewWhatsAppVp8Session(0x22222222)
+	aPayload := bytes.Repeat([]byte{0x41}, 20)
+	vPayload := bytes.Repeat([]byte{0x56}, 40)
+	for i := 0; i < 8; i++ {
+		ap := audio.CreatePacketWithDuration(aPayload, 960, i == 0)
+		protected, err := sender.Protect(ap)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := receiver.Unprotect(protected)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got.Payload, aPayload) {
+			t.Fatal("audio payload mismatch")
+		}
+		vp := video.CreatePacketWithDuration(vPayload, 6000, true)
+		protected, err = sender.Protect(vp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err = receiver.Unprotect(protected)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got.Payload, vPayload) {
+			t.Fatal("video payload mismatch")
+		}
+	}
+}
+
 func TestDeriveSrtpKeyReference(t *testing.T) {
 	masterKey := bytes.Repeat([]byte{0x01}, 16)
 	masterSalt := bytes.Repeat([]byte{0x02}, 14)
