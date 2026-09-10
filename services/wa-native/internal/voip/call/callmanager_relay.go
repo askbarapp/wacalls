@@ -24,12 +24,18 @@ var _ RelayTransport = (*transport.SctpRelayManager)(nil)
 func (m *CallManager) onRelayConnected() {
 	m.mu.Lock()
 	call := m.currentCall
-	if call != nil && call.StateData.State == core.CallStateConnecting {
+	if call == nil {
+		m.mu.Unlock()
+		return
+	}
+	if call.StateData.State == core.CallStateConnecting {
 		if err := call.ApplyTransition(Transition{Type: TransitionMediaConnected}); err == nil {
 			m.emitState()
 			m.startSilenceKeepaliveLocked()
 			m.log.Info("relay connected → active", "call_id", call.CallID)
 		}
+	} else {
+		m.log.Info("relay connected (waiting for accept)", "call_id", call.CallID, "state", string(call.StateData.State))
 	}
 	m.mu.Unlock()
 }

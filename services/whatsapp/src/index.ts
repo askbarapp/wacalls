@@ -355,7 +355,10 @@ app.post("/internal/calls", async (req, reply) => {
     callIndex.set(session.engineCallId, meta);
     await prisma.call.update({
       where: { id: body.callId },
-      data: { engineCallId: session.engineCallId, status: "CONNECTING", startedAt: new Date() },
+      data: {
+        engineCallId: session.engineCallId,
+        startedAt: new Date(),
+      },
     });
     return { success: true, session };
   } catch (err) {

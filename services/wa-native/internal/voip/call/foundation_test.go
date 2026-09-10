@@ -17,6 +17,9 @@ func TestCallStateMachine(t *testing.T) {
 	if c.StateData.State != core.CallStateRinging {
 		t.Fatal("should be Ringing after offer_sent")
 	}
+	if err := c.ApplyTransition(Transition{Type: TransitionMediaConnected}); err == nil {
+		t.Fatal("outgoing must stay Ringing until remote accept, even if the relay opens early")
+	}
 	if err := c.ApplyTransition(Transition{Type: TransitionRemoteAccepted}); err != nil {
 		t.Fatal(err)
 	}

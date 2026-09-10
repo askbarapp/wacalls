@@ -708,7 +708,8 @@ func (ch *Channel) StartCall(ctx context.Context, apiCallID, phone string, media
 		ch.removeCall(lc)
 		return "", err
 	}
-	ch.emitCall(lc, "connecting", "")
+	// Offer-sent already emits RINGING via OnStateChange. Do not clobber it
+	// with CONNECTING or the dialer stays on "Connecting…" while the phone rings.
 	return engineID, nil
 }
 

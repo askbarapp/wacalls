@@ -71,7 +71,7 @@ func (h *Hub) updateCall(ctx context.Context, callID, status, reason string, dur
 	case "CONNECTING":
 		_, _ = h.db.ExecContext(ctx, `
 UPDATE calls SET status = 'CONNECTING', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
-WHERE id = $1 AND status IN ('QUEUED','CONNECTING','RINGING')`, callID)
+WHERE id = $1 AND status IN ('QUEUED','CONNECTING')`, callID)
 	case "RINGING":
 		_, _ = h.db.ExecContext(ctx, `
 UPDATE calls SET status = 'RINGING', updated_at = NOW()
