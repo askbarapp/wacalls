@@ -269,6 +269,7 @@ func (h *Hub) handleCall(w http.ResponseWriter, r *http.Request) {
 		ch.orgID = body.OrganizationID
 	}
 	h.updateCall(r.Context(), body.CallID, "CONNECTING", "", 0)
+	h.log.Info("place call", "call_id", body.CallID, "video", body.IsVideo, "loop", body.LoopClip, "orientation", body.VideoOrientation)
 	engineID, err := ch.StartCall(r.Context(), body.CallID, body.Phone, body.AudioFilePath, body.HangupAfterPlayback, body.IsVideo, body.LoopClip, body.VideoOrientation)
 	if err != nil {
 		h.updateCall(r.Context(), body.CallID, "FAILED", err.Error(), 0)

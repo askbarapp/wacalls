@@ -11,8 +11,11 @@ import (
 )
 
 var (
-	capabilityOffer     = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
-	capabilityPreaccept = []byte{0x01, 0x05, 0xff, 0x09, 0xe4, 0xbb, 0x07}
+	// Audio-only offers keep the blob that already works on this stack.
+	capabilityOffer = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
+	capabilityPreaccept = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
+	// Video-capable WA clients advertise 0x13 on offer (wacrg stanza reference).
+	capabilityOfferVideo = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x13}
 )
 
 func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, callKey []byte, peerJid types.JID, isVideo bool, orientation string) (waBinary.Node, error) {
@@ -50,13 +53,17 @@ func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, 
 			width, height = "640", "480"
 		}
 		offerContent = append(offerContent, waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{
-			"enc": "vp8", "dec": "vp8", "orientation": "0",
+			"enc": "h264", "dec": "h264", "orientation": "0",
 			"screen_width": width, "screen_height": height, "device_orientation": "0",
 		}})
 	}
+	capBlob := capabilityOffer
+	if isVideo {
+		capBlob = capabilityOfferVideo
+	}
 	offerContent = append(offerContent,
 		waBinary.Node{Tag: "net", Attrs: waBinary.Attrs{"medium": "3"}},
-		waBinary.Node{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityOffer},
+		waBinary.Node{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capBlob},
 		waBinary.Node{Tag: "destination", Content: destinations},
 		waBinary.Node{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
 	)
@@ -104,7 +111,7 @@ func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string,
 		}
 	}
 	if isVideo {
-		acceptContent = append(acceptContent, waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{"enc": "vp8"}})
+		acceptContent = append(acceptContent, waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{"enc": "h264", "dec": "h264"}})
 	}
 
 	return waBinary.Node{
@@ -155,7 +162,7 @@ func BuildPreacceptStanza(peerJid types.JID, callID string, callCreator types.JI
 		{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityPreaccept},
 	}
 	if isVideo {
-		content = append([]waBinary.Node{{Tag: "video", Attrs: waBinary.Attrs{"enc": "vp8", "dec": "vp8"}}}, content...)
+		content = append([]waBinary.Node{{Tag: "video", Attrs: waBinary.Attrs{"enc": "h264", "dec": "h264"}}}, content...)
 	}
 	return waBinary.Node{
 		Tag:   "call",

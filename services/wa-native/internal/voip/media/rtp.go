@@ -180,6 +180,10 @@ func NewWhatsAppVp8Session(ssrc uint32) *RtpSession {
 	return NewRtpSession(ssrc, core.PayloadTypeWhatsAppVp8, 90000, 6000)
 }
 
+func NewWhatsAppH264Session(ssrc uint32) *RtpSession {
+	return NewRtpSession(ssrc, core.PayloadTypeWhatsAppH264, 90000, 6000)
+}
+
 func (s *RtpSession) CreatePacket(payload []byte, marker bool) *RtpPacket {
 	return s.CreatePacketWithDuration(payload, s.samplesPerPacket, marker)
 }
