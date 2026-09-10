@@ -12,6 +12,7 @@ import (
 	"wacalls/internal/voip/transport"
 	"wacalls/internal/voip/wanode"
 
+	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -183,11 +184,33 @@ func (m *CallManager) AcceptCall(ctx context.Context, callID string) error {
 	if key != nil {
 		acceptNode, err := signaling.BuildAcceptStanza(ctx, m.sock, callID, key, peer, creator, isVideo)
 		if err != nil {
-			m.log.Error("build accept failed", "err", err)
-		} else if err := m.sock.SendNode(ctx, acceptNode); err != nil {
-			m.log.Error("accept send error", "err", err)
+			return fmt.Errorf("build accept: %w", err)
+		}
+		ack, err := m.sock.Query(ctx, acceptNode)
+		if err != nil {
+			return fmt.Errorf("accept query: %w", err)
+		}
+		if ack != nil {
+			if ackErr := wanode.AttrString(ack.Attrs, "error"); ackErr != "" {
+				return fmt.Errorf("WhatsApp rejected the accept (%s)", ackErr)
+			}
+			m.log.Info("accept ack", "call_id", callID, "type", wanode.AttrString(ack.Attrs, "type"), "tag", ack.Tag)
 		}
 	}
+
+	transport := waBinary.Node{
+		Tag:   "call",
+		Attrs: waBinary.Attrs{"to": peer, "id": signaling.GenerateCallStanzaID()},
+		Content: []waBinary.Node{{
+			Tag: "transport",
+			Attrs: waBinary.Attrs{
+				"call-id": callID, "call-creator": creator,
+				"transport-message-type": "1", "p2p-cand-round": "1",
+			},
+			Content: []waBinary.Node{{Tag: "net", Attrs: waBinary.Attrs{"medium": "2", "protocol": "0"}}},
+		}},
+	}
+	_ = m.sock.SendNode(ctx, transport)
 
 	if relayData != nil {
 		m.setupIncomingMedia(call, relayData)

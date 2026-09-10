@@ -15,6 +15,9 @@ var (
 	// but the handset never rang. Video is advertised on the <video> node.
 	capabilityOffer     = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
 	capabilityPreaccept = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
+	// Offer/accept blob from WACRG SIG-01. Companion offers keep 0x07 so the
+	// handset rings; answering a phone-originated call uses 0x13.
+	capabilityAccept = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x13}
 )
 
 func videoMediaNode(orientation string) waBinary.Node {
@@ -105,9 +108,10 @@ func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string,
 
 	acceptContent := []waBinary.Node{
 		{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
-		{Tag: "net", Attrs: waBinary.Attrs{"medium": "3"}},
+		{Tag: "net", Attrs: waBinary.Attrs{"medium": "2"}},
 		*encNode,
 		{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
+		{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityAccept},
 	}
 	if includeDeviceIdentity {
 		if di, ok := sock.AccountDeviceIdentityNode(); ok {

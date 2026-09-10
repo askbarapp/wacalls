@@ -21,3 +21,12 @@ func TestVideoMediaNodeMatchesPhoneH264(t *testing.T) {
 		t.Fatalf("landscape size %s x %s", land.Attrs["screen_width"], land.Attrs["screen_height"])
 	}
 }
+
+func TestAcceptCapabilityMatchesPhoneOfferBlob(t *testing.T) {
+	if len(capabilityAccept) != 7 || capabilityAccept[6] != 0x13 {
+		t.Fatalf("accept capability %x want …13", capabilityAccept)
+	}
+	if capabilityOffer[6] != 0x07 {
+		t.Fatalf("companion offer capability must stay 0x07 so outbound calls ring")
+	}
+}

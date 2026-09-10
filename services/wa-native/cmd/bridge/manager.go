@@ -585,30 +585,51 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	ch.calls[callID] = lc
 	ch.mu.Unlock()
 
-	cm.HandleCallOffer(ctx, node, evt.From)
-	if err := cm.AcceptCall(ctx, info.CallID); err != nil {
-		ch.log.Warn("auto-answer accept failed", "err", err, "call_id", info.CallID)
-		ch.hub.failCall(ctx, callID, err.Error())
-		ch.releaseLock(callID)
-		ch.removeCall(lc)
-		ch.log.Info("inbound call left for the phone", "call_id", info.CallID, "reason", "accept failed")
-		return
-	}
-	ch.emitCall(lc, "connecting", "")
-	payload, _ := json.Marshal(map[string]any{
-		"callId":         callID,
-		"organizationId": ch.orgID,
-		"channelId":      ch.id,
-		"phone":          e164Phone(phone),
-		"contactName":    contactName,
-		"aiConfigId":     cfg.AiConfigID,
-		"sendMessage":    cfg.SendMessage,
-		"messageBody":    cfg.MessageBody,
-		"messageWhen":    cfg.MessageWhen,
-		"inbound":        true,
-	})
-	_ = ch.hub.rdb.Publish(ctx, "wacalls:inbound", payload).Err()
-	ch.log.Info("auto-answered inbound call", "call_id", callID, "peer", phone)
+	from := evt.From
+	inner := evt.Data
+	aiID := cfg.AiConfigID
+	sendMsg := cfg.SendMessage
+	msgBody := cfg.MessageBody
+	msgWhen := cfg.MessageWhen
+	engineID := info.CallID
+	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone)
+	go func() {
+		// Let whatsmeow ACK the offer first. Accepting in the event handler
+		// races the offer ack and WhatsApp terminates the call as uncallable.
+		time.Sleep(150 * time.Millisecond)
+		ctx := context.Background()
+		ch.mu.Lock()
+		_, still := ch.calls[engineID]
+		ch.mu.Unlock()
+		if !still {
+			return
+		}
+		node := wrapCall(from, inner)
+		cm.HandleCallOffer(ctx, node, from)
+		if err := cm.AcceptCall(ctx, engineID); err != nil {
+			ch.log.Warn("auto-answer accept failed", "err", err, "call_id", engineID)
+			ch.hub.failCall(ctx, callID, err.Error())
+			ch.releaseLock(callID)
+			ch.removeCall(lc)
+			ch.log.Info("inbound call left for the phone", "call_id", engineID, "reason", "accept failed")
+			return
+		}
+		ch.emitCall(lc, "connecting", "")
+		payload, _ := json.Marshal(map[string]any{
+			"callId":         callID,
+			"organizationId": ch.orgID,
+			"channelId":      ch.id,
+			"phone":          e164Phone(phone),
+			"contactName":    contactName,
+			"aiConfigId":     aiID,
+			"sendMessage":    sendMsg,
+			"messageBody":    msgBody,
+			"messageWhen":    msgWhen,
+			"inbound":        true,
+		})
+		_ = ch.hub.rdb.Publish(ctx, "wacalls:inbound", payload).Err()
+		ch.log.Info("auto-answered inbound call", "call_id", callID, "peer", phone)
+	}()
 }
 
 func (ch *Channel) rejectOffer(ctx context.Context, from types.JID, info *signaling.NodeInfo, reason string) {
