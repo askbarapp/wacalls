@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	// This blob is what WhatsApp actually rings with on this stack.
-	// Advertising 0x13 + <video enc="h264"> was ACKed by the server but the
-	// peer never preaccepted, so the dialer stuck on Connecting.
+	// Same blob that already rings on this companion-device stack.
+	// A video call is the <video/> child (WACRG SIG-02), not a codec attribute.
+	// enc=vp8 made phones treat the session as audio-only; enc=h264 + extra
+	// attrs was ACKed by the server but never rang the handset.
 	capabilityOffer     = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
 	capabilityPreaccept = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
 )
@@ -48,14 +49,8 @@ func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, 
 		waBinary.Node{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
 	)
 	if isVideo {
-		width, height := "480", "640"
-		if orientation == "landscape" {
-			width, height = "640", "480"
-		}
-		offerContent = append(offerContent, waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{
-			"enc": "vp8", "dec": "vp8", "orientation": "0",
-			"screen_width": width, "screen_height": height, "device_orientation": "0",
-		}})
+		// Bare marker: presence ⇒ video call. Do not set enc/dec/size attrs.
+		offerContent = append(offerContent, waBinary.Node{Tag: "video"})
 	}
 	offerContent = append(offerContent,
 		waBinary.Node{Tag: "net", Attrs: waBinary.Attrs{"medium": "3"}},
@@ -107,7 +102,7 @@ func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string,
 		}
 	}
 	if isVideo {
-		acceptContent = append(acceptContent, waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{"enc": "vp8", "dec": "vp8"}})
+		acceptContent = append(acceptContent, waBinary.Node{Tag: "video"})
 	}
 
 	return waBinary.Node{
@@ -158,7 +153,7 @@ func BuildPreacceptStanza(peerJid types.JID, callID string, callCreator types.JI
 		{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityPreaccept},
 	}
 	if isVideo {
-		content = append([]waBinary.Node{{Tag: "video", Attrs: waBinary.Attrs{"enc": "vp8", "dec": "vp8"}}}, content...)
+		content = append([]waBinary.Node{{Tag: "video"}}, content...)
 	}
 	return waBinary.Node{
 		Tag:   "call",

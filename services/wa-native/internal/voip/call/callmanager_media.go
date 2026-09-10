@@ -95,11 +95,6 @@ func (m *CallManager) FeedCapturedVP8(frame []byte, timestampInc uint32) {
 			}
 		}
 		pkt := m.videoRtp.CreatePacketWithDuration(payload, inc, marker)
-		if m.debeEnabled {
-			pkt.Header.Extension = true
-			pkt.Header.ExtensionProfile = 0xbede
-			pkt.Header.ExtensionData = nil
-		}
 		srtp, err := m.srtpSession.Protect(pkt)
 		if err != nil {
 			m.log.Warn("video srtp protect error", "err", err)

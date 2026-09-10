@@ -1,7 +1,8 @@
 package media
 
 const (
-	h264NalFuA = 28
+	h264NalFuA  = 28
+	h264NalStapA = 24
 )
 
 // PacketizeH264 maps an Annex-B or raw-NAL access unit onto RFC 6184 RTP payloads.
@@ -16,16 +17,50 @@ func PacketizeH264(au []byte, mtu int) [][]byte {
 	if len(nals) == 0 {
 		nals = [][]byte{au}
 	}
-	var out [][]byte
+	var cleaned [][]byte
 	for _, nal := range nals {
 		if len(nal) == 0 {
 			continue
 		}
 		nt := nal[0] & 0x1f
-		if nt == 0 || nt == 12 {
+		if nt == 0 || nt == 9 || nt == 12 {
 			continue
 		}
+		cleaned = append(cleaned, nal)
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+	if stap := packStapA(cleaned, mtu); stap != nil {
+		return [][]byte{stap}
+	}
+	var out [][]byte
+	for _, nal := range cleaned {
 		out = append(out, packetizeNAL(nal, mtu)...)
+	}
+	return out
+}
+
+func packStapA(nals [][]byte, mtu int) []byte {
+	if len(nals) < 2 {
+		return nil
+	}
+	nri := byte(0)
+	size := 1
+	for _, nal := range nals {
+		size += 2 + len(nal)
+		if nri < nal[0]&0x60 {
+			nri = nal[0] & 0x60
+		}
+	}
+	if size > mtu {
+		return nil
+	}
+	out := make([]byte, 0, size)
+	out = append(out, nri|h264NalStapA)
+	for _, nal := range nals {
+		out = append(out, byte(len(nal)>>8), byte(len(nal)))
+		out = append(out, nal...)
 	}
 	return out
 }

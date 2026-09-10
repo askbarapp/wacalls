@@ -42,3 +42,21 @@ func TestPacketizeH264SingleAndFUA(t *testing.T) {
 		t.Fatal("last FU must set E")
 	}
 }
+
+func TestPacketizeH264StapA(t *testing.T) {
+	sps := []byte{0x67, 0x42, 0x00, 0x1e, 0x01}
+	pps := []byte{0x68, 0xce, 0x38, 0x80}
+	idr := []byte{0x65, 0x88, 0x80, 0x01, 0x02, 0x03}
+	var au []byte
+	for _, n := range [][]byte{sps, pps, idr} {
+		au = append(au, 0, 0, 0, 1)
+		au = append(au, n...)
+	}
+	pkts := PacketizeH264(au, 1200)
+	if len(pkts) != 1 {
+		t.Fatalf("expected one STAP-A, got %d", len(pkts))
+	}
+	if pkts[0][0]&0x1f != h264NalStapA {
+		t.Fatalf("type %x", pkts[0][0])
+	}
+}

@@ -42,9 +42,9 @@ func (ch *Channel) playVideoClip(lc *liveCall, path string) {
 		"-an", "-vf", vf,
 		"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
 		"-profile:v", "baseline", "-level", "3.1", "-pix_fmt", "yuv420p",
-		"-b:v", "600k", "-maxrate", "800k", "-bufsize", "1200k",
+		"-b:v", "400k", "-maxrate", "600k", "-bufsize", "800k",
 		"-r", "15", "-g", "15", "-keyint_min", "15", "-bf", "0",
-		"-x264-params", "repeat-headers=1:scenecut=0",
+		"-x264-params", "repeat-headers=1:scenecut=0:aud=0:cabac=0:ref=1:bframes=0",
 		"-f", "h264", "pipe:1",
 	)
 	audioOut, err := audioCmd.StdoutPipe()
