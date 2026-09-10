@@ -59,8 +59,12 @@ func buildRelayConfigs(endpoints []core.RelayEndpoint) []transport.RelayConfig {
 		if name == "" {
 			name = ep.IP
 		}
+		port := ep.Port
+		if port == 0 {
+			port = 3478
+		}
 		relays = append(relays, transport.RelayConfig{
-			IP: ep.IP, Port: 3478, Token: ep.Token, AuthToken: ep.AuthToken,
+			IP: ep.IP, Port: port, Token: ep.Token, AuthToken: ep.AuthToken,
 			RawAuthToken: ep.RawAuthToken, RawToken: ep.RawToken, Key: ep.Key,
 			RelayID: ep.RelayID, Name: name, AuthTokenID: ep.AuthTokenID,
 		})
@@ -80,7 +84,7 @@ func (m *CallManager) connectRelays(endpoints []core.RelayEndpoint) {
 	m.relay.SetSubscriptionSsrc(firstSsrc(m.peerSsrcs))
 	m.mu.Unlock()
 	m.relay.ConfigureRelays(relays)
-	m.log.Info("relay configured", "connected", m.relay.ConnectedCount())
+	m.log.Info("relay configured", "count", len(relays), "first", relays[0].IP, "port", relays[0].Port, "connected", m.relay.ConnectedCount())
 }
 
 func (m *CallManager) cleanupMedia() {

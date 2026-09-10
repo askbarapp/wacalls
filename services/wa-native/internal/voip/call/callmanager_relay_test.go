@@ -35,6 +35,13 @@ func TestBuildRelayConfigs(t *testing.T) {
 	if got[1].IP != "5.5.5.5" || got[1].Name != "5.5.5.5" {
 		t.Errorf("expected name fallback to IP for second config: %+v", got[1])
 	}
+
+	ported := buildRelayConfigs([]core.RelayEndpoint{
+		{IP: "9.9.9.9", Port: 3480, Protocol: 0, Key: "k", RawToken: []byte{1}},
+	})
+	if len(ported) != 1 || ported[0].Port != 3480 {
+		t.Fatalf("should keep ack port, got %+v", ported)
+	}
 }
 
 func TestBuildRelayConfigsEmpty(t *testing.T) {

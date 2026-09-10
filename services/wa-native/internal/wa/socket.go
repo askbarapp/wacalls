@@ -2,6 +2,7 @@ package wa
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"wacalls/internal/voip/core"
@@ -51,9 +52,9 @@ func (s *Socket) Query(ctx context.Context, node waBinary.Node) (*waBinary.Node,
 	select {
 	case resp := <-ch:
 		return resp, nil
-	case <-time.After(15 * time.Second):
+	case <-time.After(20 * time.Second):
 		di.CancelResponse(id, ch)
-		return nil, nil
+		return nil, fmt.Errorf("WhatsApp did not acknowledge the call offer")
 	case <-ctx.Done():
 		di.CancelResponse(id, ch)
 		return nil, ctx.Err()

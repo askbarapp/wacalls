@@ -2,6 +2,7 @@ package call
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -133,15 +134,22 @@ func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid type
 	if err != nil {
 		return err
 	}
+	if ackNode == nil {
+		return fmt.Errorf("WhatsApp did not acknowledge the call offer")
+	}
+	ackType := wanode.AttrString(ackNode.Attrs, "type")
+	ackErr := wanode.AttrString(ackNode.Attrs, "error")
+	m.log.Info("call offer ack", "call_id", callID, "type", ackType, "error", ackErr, "tag", ackNode.Tag)
+	if ackErr != "" {
+		return fmt.Errorf("WhatsApp rejected the call offer (%s)", ackErr)
+	}
 
 	m.mu.Lock()
 	_ = m.currentCall.ApplyTransition(Transition{Type: TransitionOfferSent})
 	m.emitState()
 	m.mu.Unlock()
 
-	if ackNode != nil {
-		go m.HandleCallAck(context.Background(), ackNode)
-	}
+	m.HandleCallAck(ctx, ackNode)
 
 	m.log.Info("call offer sent", "call_id", callID, "peer", resolved.String(), "video", isVideo, "audio_ssrc", m.selfSsrc, "video_ssrc", m.selfVideoSsrc)
 	return nil

@@ -207,16 +207,16 @@ func (m *CallManager) HandleCallTransport(ctx context.Context, node *waBinary.No
 }
 
 func (m *CallManager) HandleCallAck(ctx context.Context, node *waBinary.Node) {
-	if t := wanode.AttrString(node.Attrs, "type"); t != "offer" {
-		return
-	}
-	if e := wanode.AttrString(node.Attrs, "error"); e != "" {
-		m.log.Error("offer ack error", "error", e)
+	ackType := wanode.AttrString(node.Attrs, "type")
+	ackErr := wanode.AttrString(node.Attrs, "error")
+	if ackErr != "" {
+		m.log.Error("offer ack error", "type", ackType, "error", ackErr)
 		return
 	}
 	parsed := signaling.ParseRelayFromAck(node)
-	m.log.Info("offer ack received", "relays", len(parsed.Relays), "participants", len(parsed.ParticipantJids))
+	m.log.Info("offer ack received", "type", ackType, "relays", len(parsed.Relays), "participants", len(parsed.ParticipantJids))
 	if len(parsed.Relays) == 0 {
+		m.log.Warn("offer ack had no usable WhatsApp media relays")
 		return
 	}
 

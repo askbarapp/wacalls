@@ -11,13 +11,22 @@ import (
 )
 
 var (
-	// Same blob that already rings on this companion-device stack.
-	// A video call is the <video/> child (WACRG SIG-02), not a codec attribute.
-	// enc=vp8 made phones treat the session as audio-only; enc=h264 + extra
-	// attrs was ACKed by the server but never rang the handset.
+	// Companion-originated calls only ring with this blob. 0x13 was ACKed
+	// but the handset never rang. Video is advertised on the <video> node.
 	capabilityOffer     = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
 	capabilityPreaccept = []byte{0x01, 0x05, 0xf7, 0x09, 0xe4, 0xbb, 0x07}
 )
+
+func videoMediaNode(orientation string) waBinary.Node {
+	width, height := "480", "640"
+	if orientation == "landscape" {
+		width, height = "640", "480"
+	}
+	return waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{
+		"enc": "h264", "dec": "h264", "orientation": "0",
+		"screen_width": width, "screen_height": height, "device_orientation": "0",
+	}}
+}
 
 func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, callKey []byte, peerJid types.JID, isVideo bool, orientation string) (waBinary.Node, error) {
 	creator := sock.OwnLID()
@@ -49,8 +58,9 @@ func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, 
 		waBinary.Node{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
 	)
 	if isVideo {
-		// Bare marker: presence ⇒ video call. Do not set enc/dec/size attrs.
-		offerContent = append(offerContent, waBinary.Node{Tag: "video"})
+		// Server drops a bare <video/> (no ack). Codec attrs are required.
+		// Keep this node after the two audio ads, same place WA Web uses.
+		offerContent = append(offerContent, videoMediaNode(orientation))
 	}
 	offerContent = append(offerContent,
 		waBinary.Node{Tag: "net", Attrs: waBinary.Attrs{"medium": "3"}},
@@ -102,7 +112,7 @@ func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string,
 		}
 	}
 	if isVideo {
-		acceptContent = append(acceptContent, waBinary.Node{Tag: "video"})
+		acceptContent = append(acceptContent, videoMediaNode(""))
 	}
 
 	return waBinary.Node{
@@ -153,7 +163,7 @@ func BuildPreacceptStanza(peerJid types.JID, callID string, callCreator types.JI
 		{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityPreaccept},
 	}
 	if isVideo {
-		content = append([]waBinary.Node{{Tag: "video"}}, content...)
+		content = append([]waBinary.Node{videoMediaNode("")}, content...)
 	}
 	return waBinary.Node{
 		Tag:   "call",
