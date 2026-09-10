@@ -329,6 +329,9 @@ app.post("/internal/calls", async (req, reply) => {
         organizationId: body.organizationId,
         aiConfigId: body.aiConfigId,
         hangupAfterPlayback: Boolean(body.hangupAfterPlayback),
+        isVideo: Boolean((body as { isVideo?: boolean }).isVideo),
+        loopClip: Boolean((body as { loopClip?: boolean }).loopClip),
+        videoOrientation: (body as { videoOrientation?: string }).videoOrientation,
         phone: body.phone,
         contactName: body.contactName,
       };
@@ -339,6 +342,9 @@ app.post("/internal/calls", async (req, reply) => {
         clientCallId: body.callId,
         aiConfigId: body.aiConfigId,
         hangupAfterPlayback: body.hangupAfterPlayback,
+        isVideo: (body as { isVideo?: boolean }).isVideo,
+        loopClip: (body as { loopClip?: boolean }).loopClip,
+        videoOrientation: (body as { videoOrientation?: string }).videoOrientation,
       });
     const latest = await prisma.call.findUnique({ where: { id: body.callId } });
     if (latest && ["ENDED", "FAILED", "BUSY", "NO_ANSWER", "REJECTED", "CANCELLED"].includes(latest.status)) {

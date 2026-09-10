@@ -63,6 +63,7 @@ enum CampaignType {
   TTS
   AI_VOICE
   MESSAGE
+  VIDEO_CLIP
 }
 
 enum AppointmentStatus {
@@ -418,6 +419,8 @@ model Campaign {
   recordingId     String?              @map("recording_id")
   voiceTemplateId String?              @map("voice_template_id")
   aiConfigId      String?              @map("ai_config_id")
+  loopClip        Boolean              @default(true) @map("loop_clip")
+  videoOrientation String              @default("portrait") @map("video_orientation")
   afterRecording  RecordingAfterAction @default(HANGUP) @map("after_recording")
   messageBody     String?              @map("message_body")
   messageTemplateId String?            @map("message_template_id")
@@ -554,6 +557,7 @@ model Recording {
   description    String?
   filePath       String   @map("file_path")
   mimeType       String   @map("mime_type")
+  kind           String   @default("audio")
   durationMs     Int      @default(0) @map("duration_ms")
   byteSize       Int      @default(0) @map("byte_size")
   createdAt      DateTime @default(now()) @map("created_at")

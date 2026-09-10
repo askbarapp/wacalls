@@ -4,7 +4,7 @@ import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { prisma } from "@wacalls/database";
-import { ConflictError, MAX_UPLOAD_AUDIO_DURATION_MS, NotFoundError, ok } from "@wacalls/shared";
+import { ConflictError, MAX_UPLOAD_AUDIO_DURATION_MS, MAX_UPLOAD_VIDEO_BYTES, NotFoundError, ok } from "@wacalls/shared";
 import { env } from "../env.js";
 import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
 import { probeAudioDurationMs } from "../services/audio-duration.js";
@@ -13,8 +13,8 @@ import { z } from "zod";
 export const recordingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/recordings", async (req) => {
     const auth = await app.authenticate(req);
-    const q = pageQuerySchema.parse(req.query);
-    const where = { organizationId: auth.orgId };
+    const q = pageQuerySchema.extend({ kind: z.enum(["audio", "video"]).optional() }).parse(req.query);
+    const where = { organizationId: auth.orgId, ...(q.kind ? { kind: q.kind } : {}) };
     const [rows, total] = await Promise.all([
       prisma.recording.findMany({
         where,
@@ -31,34 +31,43 @@ export const recordingRoutes: FastifyPluginAsync = async (app) => {
     const auth = await app.authenticate(req);
     await app.requirePermission("recordings.manage")(req);
     const file = await req.file();
-    if (!file) throw new ConflictError("Audio file required");
+    if (!file) throw new ConflictError("Audio or video file required");
     const ext = path.extname(file.filename).toLowerCase();
-    if (![".wav", ".mp3"].includes(ext)) throw new ConflictError("Only WAV and MP3 are accepted");
+    const isVideo = [".mp4", ".mov"].includes(ext);
+    if (!isVideo && ![".wav", ".mp3"].includes(ext)) {
+      throw new ConflictError("Upload WAV/MP3 audio or MP4/MOV video");
+    }
     const dir = path.join(env.RECORDINGS_DIR, auth.orgId);
     await mkdir(dir, { recursive: true });
     const stored = `${crypto.randomUUID()}${ext}`;
     const filePath = path.join(dir, stored);
     await pipeline(file.file, createWriteStream(filePath));
 
+    const byteSize = existsSync(filePath) ? statSync(filePath).size : Number(file.file.bytesRead ?? 0);
+    if (isVideo && byteSize > MAX_UPLOAD_VIDEO_BYTES) {
+      await unlink(filePath).catch(() => undefined);
+      throw new ConflictError("Video must be 50 MB or smaller.");
+    }
+
     let durationMs = 0;
     try {
       durationMs = await probeAudioDurationMs(filePath, ext);
     } catch {
       await unlink(filePath).catch(() => undefined);
-      throw new ConflictError("Could not read audio duration. Upload a valid WAV or MP3.");
+      throw new ConflictError(isVideo ? "Could not read that video. Upload a valid MP4 or MOV." : "Could not read audio duration. Upload a valid WAV or MP3.");
     }
-    if (durationMs > MAX_UPLOAD_AUDIO_DURATION_MS) {
+    if (!isVideo && durationMs > MAX_UPLOAD_AUDIO_DURATION_MS) {
       await unlink(filePath).catch(() => undefined);
       throw new ConflictError("Audio must be 3 minutes or shorter.");
     }
 
-    const byteSize = existsSync(filePath) ? statSync(filePath).size : Number(file.file.bytesRead ?? 0);
     const rec = await prisma.recording.create({
       data: {
         organizationId: auth.orgId,
         name: file.filename,
         filePath,
-        mimeType: file.mimetype,
+        mimeType: file.mimetype || (isVideo ? "video/mp4" : "audio/mpeg"),
+        kind: isVideo ? "video" : "audio",
         durationMs,
         byteSize,
       },

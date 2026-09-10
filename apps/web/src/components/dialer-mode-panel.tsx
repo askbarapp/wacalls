@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { AudioLines, MessageSquareText, Phone, Sparkles, Upload, type LucideIcon } from "lucide-react";
+import { AudioLines, MessageSquareText, Phone, Sparkles, Upload, Video, type LucideIcon } from "lucide-react";
 
-export type CallMode = "ai" | "tts" | "recording" | "live";
+export type CallMode = "ai" | "tts" | "recording" | "video" | "live";
 
 export type DialerAgent = {
   id: string;
@@ -14,7 +14,7 @@ export type DialerAgent = {
   language: string;
   voice?: string | null;
 };
-export type DialerRecording = { id: string; name: string };
+export type DialerRecording = { id: string; name: string; kind?: string };
 export type DialerLang = { code: string; label: string };
 
 const MODES: Array<{
@@ -37,6 +37,13 @@ const MODES: Array<{
     desc: "Speak a message.",
     icon: MessageSquareText,
     tint: "bg-sky-500/20 text-sky-300",
+  },
+  {
+    id: "video",
+    title: "Play Video",
+    desc: "Stream a video clip.",
+    icon: Video,
+    tint: "bg-rose-500/20 text-rose-300",
   },
   {
     id: "recording",
@@ -74,8 +81,13 @@ export function DialerModePanel({
   ttsSpeaker,
   onTtsSpeaker,
   onUpload,
+  onUploadVideo,
   onDeleteRecording,
   uploading,
+  videoOrientation,
+  onVideoOrientation,
+  loopClip,
+  onLoopClip,
   disabled,
   inCall,
   busy,
@@ -100,8 +112,13 @@ export function DialerModePanel({
   ttsSpeaker: string;
   onTtsSpeaker: (v: string) => void;
   onUpload: (file: File) => void;
+  onUploadVideo?: (file: File) => void;
   onDeleteRecording?: (id: string) => void;
   uploading: boolean;
+  videoOrientation?: "portrait" | "landscape";
+  onVideoOrientation?: (v: "portrait" | "landscape") => void;
+  loopClip?: boolean;
+  onLoopClip?: (v: boolean) => void;
   disabled: boolean;
   inCall: boolean;
   busy?: boolean;
@@ -236,12 +253,16 @@ export function DialerModePanel({
                 onChange={(e) => onRecordingId(e.target.value)}
                 disabled={inCall}
               >
-                {recordings.length === 0 ? <option value="">Upload a WAV or MP3 first</option> : null}
-                {recordings.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
+                {recordings.filter((r) => r.kind !== "video").length === 0 ? (
+                  <option value="">Upload a WAV or MP3 first</option>
+                ) : null}
+                {recordings
+                  .filter((r) => r.kind !== "video")
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
               </select>
               {onDeleteRecording && recordingId ? (
                 <button
@@ -270,6 +291,75 @@ export function DialerModePanel({
               />
             </label>
             <p className="text-[11px] text-slate-500">Played when they answer, then the call hangs up. Max 3 minutes.</p>
+          </>
+        ) : null}
+
+        {mode === "video" ? (
+          <>
+            <label className="block text-xs text-slate-400">Video clip</label>
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-rose-400/30 bg-rose-500/5 px-3 py-3 text-sm text-slate-200">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/20 text-rose-300">
+                <Upload className="h-4 w-4" />
+              </span>
+              <span>
+                <span className="block font-medium text-white">
+                  {uploading ? "Uploading…" : "Choose a video to stream"}
+                </span>
+                <span className="text-[11px] text-slate-500">MP4 / MOV, up to 50 MB</span>
+              </span>
+              <input
+                type="file"
+                accept=".mp4,.mov,video/mp4,video/quicktime"
+                className="hidden"
+                disabled={inCall || uploading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onUploadVideo?.(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {recordings.filter((r) => r.kind === "video").length ? (
+              <select
+                value={recordingId}
+                onChange={(e) => onRecordingId(e.target.value)}
+                disabled={inCall}
+              >
+                {recordings
+                  .filter((r) => r.kind === "video")
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+              </select>
+            ) : null}
+            <div>
+              <label className="mb-1 block text-xs text-slate-400">Orientation</label>
+              <div className="flex flex-wrap items-center gap-3">
+                <select
+                  className="min-w-0 flex-1"
+                  value={videoOrientation ?? "portrait"}
+                  onChange={(e) => onVideoOrientation?.(e.target.value as "portrait" | "landscape")}
+                  disabled={inCall}
+                >
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+                <label className="flex items-center gap-2 text-sm text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={loopClip !== false}
+                    onChange={(e) => onLoopClip?.(e.target.checked)}
+                    disabled={inCall}
+                  />
+                  Loop clip
+                </label>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              The clip’s own audio plays during the call. The recipient gets an incoming WhatsApp video call.
+            </p>
           </>
         ) : null}
 

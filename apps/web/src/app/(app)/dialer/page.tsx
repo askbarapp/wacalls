@@ -16,6 +16,7 @@ import {
 import { api, ensureAccessToken } from "@/lib/api";
 import { callResultLabel, formatCallDuration, type CallRow } from "@/lib/call-log";
 import { assertUploadAudioDuration } from "@/lib/audio-upload";
+import { assertUploadVideoFile } from "@/lib/video-upload";
 import { startCallAudio, type CallAudioHandle } from "@/lib/call-audio";
 import { playDialTone } from "@/lib/dtmf";
 import { ConnectionBadge } from "@/components/status-badge";
@@ -123,6 +124,9 @@ export default function DialerPage() {
   const [gemini, setGemini] = useState(false);
   const [aiConfigId, setAiConfigId] = useState("");
   const [recordingId, setRecordingId] = useState("");
+  const [videoRecordingId, setVideoRecordingId] = useState("");
+  const [videoOrientation, setVideoOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [loopClip, setLoopClip] = useState(true);
   const [ttsBody, setTtsBody] = useState("");
   const [ttsLanguage, setTtsLanguage] = useState("hi-IN");
   const [ttsSpeaker, setTtsSpeaker] = useState("shubh");
@@ -174,7 +178,10 @@ export default function DialerPage() {
         setAgents(ai.data.configs ?? []);
         setAiConfigId((id) => id || ai.data.configs?.[0]?.id || "");
         setRecordings(rec.data ?? []);
-        setRecordingId((id) => id || rec.data?.[0]?.id || "");
+        const audio = (rec.data ?? []).filter((r) => r.kind !== "video");
+        const video = (rec.data ?? []).filter((r) => r.kind === "video");
+        setRecordingId((id) => id || audio[0]?.id || "");
+        setVideoRecordingId((id) => id || video[0]?.id || "");
         setSarvam(Boolean(key.data.configured || key.data.envFallback || ai.data.sarvamConfigured));
         setGemini(Boolean(gemKey.data.configured || gemKey.data.envFallback || ai.data.geminiConfigured));
       })
@@ -294,8 +301,41 @@ export default function DialerPage() {
         message?: string;
       };
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? json.message ?? "Upload failed");
-      setRecordings((rows) => [json.data as DialerRecording, ...rows]);
-      setRecordingId(json.data.id);
+      const row = json.data as DialerRecording;
+      setRecordings((rows) => [row, ...rows]);
+      if (row.kind === "video") setVideoRecordingId(row.id);
+      else setRecordingId(row.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function uploadVideo(file: File) {
+    setError("");
+    setUploading(true);
+    try {
+      assertUploadVideoFile(file);
+      const token = (await ensureAccessToken()) ?? "";
+      const base = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${base}/api/v1/recordings`, {
+        method: "POST",
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+        body: fd,
+        credentials: "include",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        data?: DialerRecording;
+        error?: { message?: string };
+        message?: string;
+      };
+      if (!res.ok || !json.data) throw new Error(json.error?.message ?? json.message ?? "Upload failed");
+      const row = json.data as DialerRecording;
+      setRecordings((rows) => [row, ...rows]);
+      setVideoRecordingId(row.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -305,14 +345,15 @@ export default function DialerPage() {
 
   async function deleteRecording(id: string) {
     if (!id) return;
-    const name = recordings.find((r) => r.id === id)?.name || "this audio";
+    const name = recordings.find((r) => r.id === id)?.name || "this file";
     if (!confirm(`Delete “${name}”? This cannot be undone.`)) return;
     setError("");
     try {
       await api(`/api/v1/recordings/${id}`, { method: "DELETE" });
       setRecordings((rows) => {
         const next = rows.filter((r) => r.id !== id);
-        setRecordingId((current) => (current === id ? next[0]?.id || "" : current));
+        setRecordingId((current) => (current === id ? next.find((r) => r.kind !== "video")?.id || "" : current));
+        setVideoRecordingId((current) => (current === id ? next.find((r) => r.kind === "video")?.id || "" : current));
         return next;
       });
     } catch (err) {
@@ -329,6 +370,10 @@ export default function DialerPage() {
     const phone = `${cc}${number}`.replace(/\D/g, "");
     if (phone.length < 8) {
       setError("Enter a valid number on the keypad.");
+      return;
+    }
+    if (mode === "video" && !videoRecordingId) {
+      setError("Upload an MP4 or MOV clip first.");
       return;
     }
     setStatus("CONNECTING");
@@ -357,10 +402,13 @@ export default function DialerPage() {
             contact_name: recipientName.trim() || waName || undefined,
             mode,
             ai_config_id: mode === "ai" ? aiConfigId || undefined : undefined,
-            recording_id: mode === "recording" ? recordingId || undefined : undefined,
+            recording_id:
+              mode === "recording" ? recordingId || undefined : mode === "video" ? videoRecordingId || undefined : undefined,
             tts_body: mode === "tts" ? ttsBody : undefined,
             tts_language: mode === "tts" ? ttsLanguage : undefined,
             tts_speaker: mode === "tts" ? ttsSpeaker : undefined,
+            loop_clip: mode === "video" ? loopClip : undefined,
+            video_orientation: mode === "video" ? videoOrientation : undefined,
           }),
         },
       );
@@ -426,7 +474,9 @@ export default function DialerPage() {
         ? "Playing your message"
         : mode === "recording"
           ? "Playing recording"
-          : micReady
+          : mode === "video"
+            ? "Streaming video clip"
+            : micReady
             ? "Mic live · voice from this browser"
             : "Waiting for microphone";
 
@@ -435,7 +485,7 @@ export default function DialerPage() {
       <div className="mb-4 text-center lg:text-left">
         <h1 className="text-xl font-semibold text-white">Dialer</h1>
         <p className="mt-1 text-xs text-slate-500">
-          Pick a number, then choose AI agent, text-to-speech, uploaded audio, or talk yourself.
+          Pick a number, then choose AI agent, a spoken message, a video clip, uploaded audio, or talk yourself.
         </p>
       </div>
 
@@ -672,8 +722,8 @@ export default function DialerPage() {
         gemini={gemini}
         aiConfigId={aiConfigId}
         onAiConfigId={setAiConfigId}
-        recordingId={recordingId}
-        onRecordingId={setRecordingId}
+        recordingId={mode === "video" ? videoRecordingId : recordingId}
+        onRecordingId={mode === "video" ? setVideoRecordingId : setRecordingId}
         ttsBody={ttsBody}
         onTtsBody={setTtsBody}
         ttsLanguage={ttsLanguage}
@@ -681,8 +731,13 @@ export default function DialerPage() {
         ttsSpeaker={ttsSpeaker}
         onTtsSpeaker={setTtsSpeaker}
         onUpload={(file) => void uploadRecording(file)}
+        onUploadVideo={(file) => void uploadVideo(file)}
         onDeleteRecording={(id) => void deleteRecording(id)}
         uploading={uploading}
+        videoOrientation={videoOrientation}
+        onVideoOrientation={setVideoOrientation}
+        loopClip={loopClip}
+        onLoopClip={setLoopClip}
         disabled={!connected}
         inCall={inCall}
         busy={busy}

@@ -175,6 +175,11 @@ func NewWhatsAppOpusSession(ssrc uint32) *RtpSession {
 	return NewRtpSession(ssrc, core.PayloadTypeWhatsAppOpus, 16000, 960)
 }
 
+func NewWhatsAppVp8Session(ssrc uint32) *RtpSession {
+	// 90 kHz clock; duration is supplied per frame (typically 90000/15 = 6000).
+	return NewRtpSession(ssrc, core.PayloadTypeWhatsAppVp8, 90000, 6000)
+}
+
 func (s *RtpSession) CreatePacket(payload []byte, marker bool) *RtpPacket {
 	return s.CreatePacketWithDuration(payload, s.samplesPerPacket, marker)
 }

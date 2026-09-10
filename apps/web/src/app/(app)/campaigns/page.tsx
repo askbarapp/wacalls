@@ -181,7 +181,7 @@ export default function CampaignsPage() {
 function labelForType(type: string) {
   if (type === "RECORDED") return "Voice · recorded";
   if (type === "TTS") return "Voice · text";
-  if (type === "AI_VOICE") return "Voice · AI agent";
+  if (type === "VIDEO_CLIP") return "Voice · video clip";
   if (type === "MESSAGE") return "WhatsApp message";
   if (type === "SEQUENTIAL") return "Voice";
   return type;

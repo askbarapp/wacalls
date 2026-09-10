@@ -96,6 +96,8 @@ async function prepareOutboundAudio(
       speaker: string;
       pace: number;
     } | null;
+    loopClip?: boolean;
+    videoOrientation?: string | null;
   },
   contact: { name: string; phone: string; company: string | null; email: string | null },
 ): Promise<{
@@ -104,6 +106,9 @@ async function prepareOutboundAudio(
   hangupAfterPlayback: boolean;
   spokenScript?: string;
   language?: string;
+  isVideo?: boolean;
+  loopClip?: boolean;
+  videoOrientation?: string;
 }> {
   const hangupAfterPlayback = campaign.afterRecording === "HANGUP";
   if (campaign.type === "AI_VOICE") {
@@ -140,6 +145,17 @@ async function prepareOutboundAudio(
   if (campaign.type === "RECORDED") {
     if (!campaign.recording?.filePath) throw new Error("Upload a recording before starting this campaign.");
     return { recordingPath: campaign.recording.filePath, hangupAfterPlayback };
+  }
+  if (campaign.type === "VIDEO_CLIP") {
+    if (!campaign.recording?.filePath) throw new Error("Upload a video clip before starting this campaign.");
+    const loopClip = campaign.loopClip !== false;
+    return {
+      recordingPath: campaign.recording.filePath,
+      hangupAfterPlayback: loopClip ? false : hangupAfterPlayback,
+      isVideo: true,
+      loopClip,
+      videoOrientation: campaign.videoOrientation === "landscape" ? "landscape" : "portrait",
+    };
   }
   return {
     recordingPath: campaign.recording?.filePath ?? undefined,
@@ -807,6 +823,9 @@ const callWorker = new Worker<PlaceCallJob>(
       messageBody,
       messageWhen,
       campaignId,
+      isVideo,
+      loopClip,
+      videoOrientation,
     } = job.data;
     const owner = callId;
     let acquired = await lock.acquire(channelId, owner);
@@ -886,6 +905,9 @@ const callWorker = new Worker<PlaceCallJob>(
             aiConfigId,
             hangupAfterPlayback: Boolean(hangupAfterPlayback),
             contactName,
+            isVideo: Boolean(isVideo),
+            loopClip: Boolean(loopClip),
+            videoOrientation: videoOrientation || "portrait",
           }),
         });
       }
@@ -1203,6 +1225,9 @@ const campaignWorker = new Worker(
         recordingPath: outbound.recordingPath,
         aiConfigId: outbound.aiConfigId,
         hangupAfterPlayback: outbound.hangupAfterPlayback,
+        isVideo: outbound.isVideo,
+        loopClip: outbound.loopClip,
+        videoOrientation: outbound.videoOrientation,
       },
       { jobId: call.id, attempts: 60, backoff: { type: "fixed", delay: 4000 } },
     );

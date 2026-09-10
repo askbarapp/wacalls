@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bot, Clock, Megaphone, Sparkles, Upload, Volume2, X } from "lucide-react";
+import { Bot, Clock, Megaphone, Sparkles, Upload, Video, Volume2, X } from "lucide-react";
 import { api, getAccessToken } from "@/lib/api";
+import { assertUploadVideoFile } from "@/lib/video-upload";
 import { PageHeader } from "@/components/page-header";
 import { TemplateKindBadge } from "@/components/message-template-form";
 
@@ -16,7 +17,7 @@ type Channel = {
   provider?: string;
 };
 type List = { id: string; name: string; _count?: { members: number }; verifiedCount?: number };
-type Recording = { id: string; name: string };
+type Recording = { id: string; name: string; kind?: string };
 type Agent = { id: string; name: string; provider?: string | null; knowledgeBase?: { name: string } | null };
 type MsgTemplate = { id: string; name: string; body: string; kind?: string };
 type Lang = { code: string; label: string };
@@ -62,7 +63,7 @@ export default function NewCampaignPage() {
     name: "",
     contactListId: "",
     channelId: "",
-    voiceType: "TTS" as "RECORDED" | "TTS" | "AI_VOICE",
+    voiceType: "TTS" as "RECORDED" | "TTS" | "AI_VOICE" | "VIDEO_CLIP",
     recordingId: "",
     aiConfigId: "",
     ttsBody: DEFAULT_SCRIPT,
@@ -78,7 +79,10 @@ export default function NewCampaignPage() {
     messageBody: "",
     schedule: false,
     scheduleAt: "",
+    loopClip: true,
+    videoOrientation: "portrait" as "portrait" | "landscape",
   });
+  const [uploadingVideo, setUploadingVideo] = useState(false);
 
   useEffect(() => {
     void Promise.all([
@@ -220,6 +224,10 @@ export default function NewCampaignPage() {
       setError("Upload a recording first.");
       return;
     }
+    if (form.voiceType === "VIDEO_CLIP" && !form.recordingId) {
+      setError("Upload an MP4 or MOV clip first.");
+      return;
+    }
     if (form.voiceType === "AI_VOICE" && !form.aiConfigId) {
       setError("Create an AI agent on AI calling first.");
       return;
@@ -242,7 +250,11 @@ export default function NewCampaignPage() {
         payload.aiConfigId = form.aiConfigId;
         if (form.maxCallDurationSec > 0) payload.maxCallDurationSec = form.maxCallDurationSec;
       }
-      if (form.voiceType === "RECORDED") payload.recordingId = form.recordingId;
+      if (form.voiceType === "RECORDED" || form.voiceType === "VIDEO_CLIP") payload.recordingId = form.recordingId;
+      if (form.voiceType === "VIDEO_CLIP") {
+        payload.loopClip = form.loopClip;
+        payload.videoOrientation = form.videoOrientation;
+      }
       if (form.voiceType === "TTS") {
         payload.ttsBody = form.ttsBody.trim();
         payload.ttsLanguage = form.ttsLanguage;
@@ -445,7 +457,7 @@ export default function NewCampaignPage() {
 
             <div>
               <div className="mb-2 text-sm text-slate-300">Voice type</div>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {(
                   [
                     {
@@ -466,6 +478,12 @@ export default function NewCampaignPage() {
                       title: "AI Agent",
                       desc: "A conversational AI handles the call.",
                     },
+                    {
+                      type: "VIDEO_CLIP" as const,
+                      icon: Video,
+                      title: "Video Clip",
+                      desc: "Stream a video call to each contact.",
+                    },
                   ] as const
                 ).map((opt) => {
                   const Icon = opt.icon;
@@ -474,7 +492,15 @@ export default function NewCampaignPage() {
                     <button
                       key={opt.type}
                       type="button"
-                      onClick={() => setForm({ ...form, voiceType: opt.type })}
+                      onClick={() => {
+                        const nextId =
+                          opt.type === "VIDEO_CLIP"
+                            ? recordings.find((r) => r.kind === "video")?.id || ""
+                            : opt.type === "RECORDED"
+                              ? recordings.find((r) => r.kind !== "video")?.id || ""
+                              : form.recordingId;
+                        setForm({ ...form, voiceType: opt.type, recordingId: nextId });
+                      }}
                       className={`rounded-xl border p-3 text-left ${
                         on ? "border-brand-400 bg-brand-500/10" : "border-white/10 bg-ink-950/40 hover:border-white/20"
                       }`}
@@ -585,17 +611,113 @@ export default function NewCampaignPage() {
                   value={form.recordingId}
                   onChange={(e) => setForm({ ...form, recordingId: e.target.value })}
                 >
-                  {recordings.length === 0 ? <option value="">Upload one on Recordings first</option> : null}
-                  {recordings.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
+                  {recordings.filter((r) => r.kind !== "video").length === 0 ? (
+                    <option value="">Upload one on Recordings first</option>
+                  ) : null}
+                  {recordings
+                    .filter((r) => r.kind !== "video")
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
                 </select>
                 <Link href="/recordings" className="mt-2 inline-block text-xs text-brand-300">
                   Open Recordings
                 </Link>
               </label>
+            ) : null}
+
+            {form.voiceType === "VIDEO_CLIP" ? (
+              <div className="space-y-3">
+                <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-brand-400/40 bg-brand-500/5 px-4 py-8 text-center">
+                  <Upload className="h-6 w-6 text-brand-300" />
+                  <span className="text-sm text-slate-200">
+                    {uploadingVideo ? "Uploading…" : "Click to upload an MP4 / MOV (up to 50 MB)"}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".mp4,.mov,video/mp4,video/quicktime"
+                    className="hidden"
+                    disabled={uploadingVideo}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!file) return;
+                      setError("");
+                      setUploadingVideo(true);
+                      try {
+                        assertUploadVideoFile(file);
+                        const token = getAccessToken() ?? "";
+                        const base =
+                          process.env.NEXT_PUBLIC_API_URL ||
+                          (typeof window !== "undefined" ? window.location.origin : "");
+                        const fd = new FormData();
+                        fd.append("file", file);
+                        const res = await fetch(`${base}/api/v1/recordings`, {
+                          method: "POST",
+                          headers: token ? { authorization: `Bearer ${token}` } : {},
+                          body: fd,
+                          credentials: "include",
+                        });
+                        const json = (await res.json().catch(() => ({}))) as {
+                          data?: Recording;
+                          error?: { message?: string };
+                          message?: string;
+                        };
+                        if (!res.ok || !json.data) throw new Error(json.error?.message ?? json.message ?? "Upload failed");
+                        setRecordings((rows) => [json.data as Recording, ...rows]);
+                        setForm((f) => ({ ...f, recordingId: json.data!.id }));
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Upload failed");
+                      } finally {
+                        setUploadingVideo(false);
+                      }
+                    }}
+                  />
+                </label>
+                {recordings.filter((r) => r.kind === "video").length ? (
+                  <select
+                    className="min-h-11"
+                    value={form.recordingId}
+                    onChange={(e) => setForm({ ...form, recordingId: e.target.value })}
+                  >
+                    {recordings
+                      .filter((r) => r.kind === "video")
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                  </select>
+                ) : null}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm text-slate-300">
+                    Orientation
+                    <select
+                      className="mt-1 min-h-11"
+                      value={form.videoOrientation}
+                      onChange={(e) =>
+                        setForm({ ...form, videoOrientation: e.target.value as "portrait" | "landscape" })
+                      }
+                    >
+                      <option value="portrait">Portrait</option>
+                      <option value="landscape">Landscape</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2 pt-8 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={form.loopClip}
+                      onChange={(e) => setForm({ ...form, loopClip: e.target.checked })}
+                    />
+                    Loop clip during the call
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  The clip’s own audio plays during the call. Each contact receives an incoming WhatsApp video call.
+                </p>
+              </div>
             ) : null}
 
             {form.voiceType === "AI_VOICE" ? (

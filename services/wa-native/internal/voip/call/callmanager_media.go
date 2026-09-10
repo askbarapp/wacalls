@@ -70,6 +70,40 @@ func (m *CallManager) FeedCapturedPCM(data []float32) {
 	m.feedPCMInternal(data)
 }
 
+func (m *CallManager) FeedCapturedVP8(frame []byte, timestampInc uint32) {
+	if len(frame) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.videoRtp == nil || m.srtpSession == nil || !m.relay.HasConnection() {
+		return
+	}
+	packets := media.PacketizeVp8(frame, 1200)
+	for i, payload := range packets {
+		marker := i == len(packets)-1
+		inc := 0
+		if marker {
+			inc = int(timestampInc)
+			if inc <= 0 {
+				inc = 6000
+			}
+		}
+		pkt := m.videoRtp.CreatePacketWithDuration(payload, inc, marker)
+		if m.debeEnabled {
+			pkt.Header.Extension = true
+			pkt.Header.ExtensionProfile = 0xbede
+			pkt.Header.ExtensionData = nil
+		}
+		srtp, err := m.srtpSession.Protect(pkt)
+		if err != nil {
+			m.log.Debug("video srtp protect error", "err", err)
+			return
+		}
+		m.relay.Broadcast(srtp)
+	}
+}
+
 func (m *CallManager) feedPCMInternal(data []float32) {
 	m.lastCaptureAt = time.Now()
 	frameSize := m.codec.FrameSize()

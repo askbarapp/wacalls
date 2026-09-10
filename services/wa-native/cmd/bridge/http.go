@@ -252,6 +252,9 @@ func (h *Hub) handleCall(w http.ResponseWriter, r *http.Request) {
 		Phone               string `json:"phone"`
 		AudioFilePath       string `json:"audioFilePath"`
 		HangupAfterPlayback bool   `json:"hangupAfterPlayback"`
+		IsVideo             bool   `json:"isVideo"`
+		LoopClip            bool   `json:"loopClip"`
+		VideoOrientation    string `json:"videoOrientation"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid body")
@@ -266,7 +269,7 @@ func (h *Hub) handleCall(w http.ResponseWriter, r *http.Request) {
 		ch.orgID = body.OrganizationID
 	}
 	h.updateCall(r.Context(), body.CallID, "CONNECTING", "", 0)
-	engineID, err := ch.StartCall(r.Context(), body.CallID, body.Phone, body.AudioFilePath, body.HangupAfterPlayback)
+	engineID, err := ch.StartCall(r.Context(), body.CallID, body.Phone, body.AudioFilePath, body.HangupAfterPlayback, body.IsVideo, body.LoopClip, body.VideoOrientation)
 	if err != nil {
 		h.updateCall(r.Context(), body.CallID, "FAILED", err.Error(), 0)
 		writeErr(w, 409, err.Error())

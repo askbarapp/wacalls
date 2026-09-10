@@ -406,7 +406,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 function labelForType(type: string) {
   if (type === "RECORDED") return "WhatsApp voice · recorded";
   if (type === "TTS") return "WhatsApp voice · text";
-  if (type === "AI_VOICE") return "WhatsApp voice · AI agent";
+  if (type === "VIDEO_CLIP") return "WhatsApp video · clip";
   if (type === "MESSAGE") return "WhatsApp message";
   return type;
 }

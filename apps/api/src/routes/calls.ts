@@ -66,12 +66,14 @@ export const callRoutes: FastifyPluginAsync = async (app) => {
         contact_name: z.string().optional(),
         campaign_id: z.string().uuid().optional(),
         contact_id: z.string().uuid().optional(),
-        mode: z.enum(["live", "ai", "tts", "recording"]).optional(),
+        mode: z.enum(["live", "ai", "tts", "recording", "video"]).optional(),
         ai_config_id: z.string().uuid().optional(),
         recording_id: z.string().uuid().optional(),
         tts_body: z.string().optional(),
         tts_language: z.string().optional(),
         tts_speaker: z.string().optional(),
+        loop_clip: z.boolean().optional(),
+        video_orientation: z.enum(["portrait", "landscape"]).optional(),
       })
       .parse(req.body);
     const media = await prepareDialerMedia({
@@ -84,6 +86,8 @@ export const callRoutes: FastifyPluginAsync = async (app) => {
       ttsBody: body.tts_body,
       ttsLanguage: body.tts_language,
       ttsSpeaker: body.tts_speaker,
+      loopClip: body.loop_clip,
+      videoOrientation: body.video_orientation,
     });
     const { call, position } = await enqueueCall({
       organizationId: auth.orgId,

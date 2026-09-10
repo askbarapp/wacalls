@@ -81,6 +81,9 @@ type liveCall struct {
 	hangupAfter    bool
 	stopPlay       chan struct{}
 	playAudioPath  string
+	isVideo        bool
+	loopClip       bool
+	orientation    string
 	recorder      *recording.Recorder
 	recordingPath string
 	once          sync.Once
@@ -667,7 +670,7 @@ func wrapCall(from types.JID, inner *waBinary.Node) *waBinary.Node {
 	return &waBinary.Node{Tag: "call", Attrs: waBinary.Attrs{"from": from}, Content: content}
 }
 
-func (ch *Channel) StartCall(ctx context.Context, apiCallID, phone string, audioPath string, hangupAfter bool) (engineID string, err error) {
+func (ch *Channel) StartCall(ctx context.Context, apiCallID, phone string, mediaPath string, hangupAfter, isVideo, loopClip bool, orientation string) (engineID string, err error) {
 	if ch.client.Store.ID == nil || !ch.client.IsConnected() {
 		return "", fmt.Errorf("WhatsApp channel is not CONNECTED")
 	}
@@ -685,9 +688,12 @@ func (ch *Channel) StartCall(ctx context.Context, apiCallID, phone string, audio
 		orgID:        ch.orgID,
 		cm:           cm,
 		started:      time.Now(),
-		hangupAfter:  hangupAfter,
-		stopPlay:     make(chan struct{}),
-		playAudioPath: audioPath,
+		hangupAfter:   hangupAfter,
+		stopPlay:      make(chan struct{}),
+		playAudioPath: mediaPath,
+		isVideo:       isVideo,
+		loopClip:      loopClip,
+		orientation:   orientation,
 	}
 	ch.wireCall(lc)
 	ch.mu.Lock()
@@ -698,7 +704,7 @@ func (ch *Channel) StartCall(ctx context.Context, apiCallID, phone string, audio
 	ch.mu.Unlock()
 
 	_ = ch.client.SendPresence(ctx, types.PresenceAvailable)
-	if err := cm.StartCall(ctx, engineID, peer, false); err != nil {
+	if err := cm.StartCall(ctx, engineID, peer, isVideo, orientation); err != nil {
 		ch.removeCall(lc)
 		return "", err
 	}
@@ -721,11 +727,13 @@ func (ch *Channel) wireCall(lc *liveCall) {
 			ch.startRecording(lc)
 			ch.emitCall(lc, "answered", "")
 			if lc.playAudioPath != "" {
-				// Start playback only after the WhatsApp call is active; otherwise playback_done
-				// can fire early and hang up before the peer answers.
 				path := lc.playAudioPath
 				lc.playAudioPath = ""
-				go ch.playFile(lc, path)
+				if lc.isVideo {
+					go ch.playVideoClip(lc, path)
+				} else {
+					go ch.playFile(lc, path)
+				}
 			}
 		}
 	}

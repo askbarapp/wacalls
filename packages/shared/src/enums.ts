@@ -1,5 +1,7 @@
 /** Max length for user-uploaded campaign / dialer audio (WAV / MP3). */
 export const MAX_UPLOAD_AUDIO_DURATION_MS = 3 * 60 * 1000;
+/** Max size for dialer / campaign WhatsApp video clips (MP4 / MOV). */
+export const MAX_UPLOAD_VIDEO_BYTES = 50 * 1024 * 1024;
 
 export const ROLES = ["SUPER_ADMIN", "ORG_ADMIN", "MANAGER", "AGENT"] as const;
 export type Role = (typeof ROLES)[number];
@@ -41,7 +43,7 @@ export const CALL_OUTCOMES = [
 ] as const;
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 
-export const CAMPAIGN_TYPES = ["MANUAL", "SEQUENTIAL", "RECORDED", "TTS", "AI_VOICE", "MESSAGE"] as const;
+export const CAMPAIGN_TYPES = ["MANUAL", "SEQUENTIAL", "RECORDED", "TTS", "AI_VOICE", "MESSAGE", "VIDEO_CLIP"] as const;
 export type CampaignType = (typeof CAMPAIGN_TYPES)[number];
 
 export const CAMPAIGN_STATUSES = [

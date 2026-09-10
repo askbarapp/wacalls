@@ -109,6 +109,8 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         batchSize: z.number().int().min(0).max(500).optional(),
         sleepAfterBatchSec: z.number().int().min(0).max(3600).optional(),
         maxCallDurationSec: z.number().int().min(30).max(900).nullable().optional(),
+        loopClip: z.boolean().optional(),
+        videoOrientation: z.enum(["portrait", "landscape"]).optional(),
       })
       .parse(req.body);
 
@@ -117,6 +119,9 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     }
     if (body.type === "RECORDED" && !body.recordingId) {
       throw new ConflictError("Recorded campaigns need a recording. Upload one on Recordings first.");
+    }
+    if (body.type === "VIDEO_CLIP" && !body.recordingId) {
+      throw new ConflictError("Video campaigns need an MP4 or MOV clip.");
     }
     if (body.type === "TTS" && !body.voiceTemplateId && !body.ttsBody?.trim()) {
       throw new ConflictError("Type a voice script for this campaign.");
@@ -146,11 +151,14 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         );
       }
     }
-    if (body.type === "RECORDED") {
+    if (body.type === "RECORDED" || body.type === "VIDEO_CLIP") {
       const rec = await prisma.recording.findFirst({
         where: { id: body.recordingId, organizationId: auth.orgId },
       });
       if (!rec) throw new NotFoundError("Recording not found");
+      if (body.type === "VIDEO_CLIP" && rec.kind !== "video") {
+        throw new ConflictError("Pick an MP4 or MOV video clip for this campaign.");
+      }
     }
     let voiceTemplateId = body.voiceTemplateId;
     if (body.type === "TTS" && !voiceTemplateId && body.ttsBody?.trim()) {
@@ -275,6 +283,8 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
           recordingId: body.recordingId,
           voiceTemplateId,
           aiConfigId: body.aiConfigId,
+          loopClip: body.type === "VIDEO_CLIP" ? body.loopClip !== false : true,
+          videoOrientation: body.type === "VIDEO_CLIP" && body.videoOrientation === "landscape" ? "landscape" : "portrait",
           afterRecording: body.afterRecording ?? "HANGUP",
           messageBody: messageBody || null,
           messageTemplateId: savedTemplateId,

@@ -15,7 +15,7 @@ var (
 	capabilityPreaccept = []byte{0x01, 0x05, 0xff, 0x09, 0xe4, 0xbb, 0x07}
 )
 
-func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, callKey []byte, peerJid types.JID, isVideo bool) (waBinary.Node, error) {
+func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, callKey []byte, peerJid types.JID, isVideo bool, orientation string) (waBinary.Node, error) {
 	creator := sock.OwnLID()
 	if creator.IsEmpty() {
 		creator = sock.OwnPN()
@@ -45,9 +45,13 @@ func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, 
 		waBinary.Node{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
 	)
 	if isVideo {
+		width, height := "480", "640"
+		if orientation == "landscape" {
+			width, height = "640", "480"
+		}
 		offerContent = append(offerContent, waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{
 			"enc": "vp8", "dec": "vp8", "orientation": "0",
-			"screen_width": "1920", "screen_height": "1080", "device_orientation": "0",
+			"screen_width": width, "screen_height": height, "device_orientation": "0",
 		}})
 	}
 	offerContent = append(offerContent,
@@ -144,18 +148,22 @@ func BuildRejectStanza(peerJid types.JID, callID string, callCreator types.JID) 
 	})
 }
 
-func BuildPreacceptStanza(peerJid types.JID, callID string, callCreator types.JID) waBinary.Node {
+func BuildPreacceptStanza(peerJid types.JID, callID string, callCreator types.JID, isVideo bool) waBinary.Node {
+	content := []waBinary.Node{
+		{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
+		{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
+		{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityPreaccept},
+	}
+	if isVideo {
+		content = append([]waBinary.Node{{Tag: "video", Attrs: waBinary.Attrs{"enc": "vp8", "dec": "vp8"}}}, content...)
+	}
 	return waBinary.Node{
 		Tag:   "call",
 		Attrs: waBinary.Attrs{"to": peerJid, "id": GenerateCallStanzaID()},
 		Content: []waBinary.Node{{
-			Tag:   "preaccept",
-			Attrs: waBinary.Attrs{"call-id": callID, "call-creator": callCreator},
-			Content: []waBinary.Node{
-				{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
-				{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
-				{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityPreaccept},
-			},
+			Tag:     "preaccept",
+			Attrs:   waBinary.Attrs{"call-id": callID, "call-creator": callCreator},
+			Content: content,
 		}},
 	}
 }

@@ -134,11 +134,14 @@ export type PlaceCallJob = {
   campaignId?: string | null;
   recordingPath?: string | null;
   aiConfigId?: string | null;
-  hangupAfterPlayback?: boolean;
+	hangupAfterPlayback?: boolean;
   inbound?: boolean;
   sendMessage?: boolean;
   messageBody?: string | null;
   messageWhen?: "ringing" | "answered";
+  isVideo?: boolean;
+  loopClip?: boolean;
+  videoOrientation?: string;
 };
 
 export type ChatInboundJob = {

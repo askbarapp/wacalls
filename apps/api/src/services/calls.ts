@@ -76,7 +76,7 @@ function watchLockUntilDone(callId: string, channelId: string, owner: string) {
 
 export async function prepareDialerMedia(input: {
   organizationId: string;
-  mode: "live" | "ai" | "tts" | "recording";
+  mode: "live" | "ai" | "tts" | "recording" | "video";
   phone: string;
   contactName?: string;
   aiConfigId?: string;
@@ -84,10 +84,15 @@ export async function prepareDialerMedia(input: {
   ttsBody?: string;
   ttsLanguage?: string;
   ttsSpeaker?: string;
+  loopClip?: boolean;
+  videoOrientation?: string;
 }): Promise<{
   aiConfigId?: string;
   recordingPath?: string;
   hangupAfterPlayback?: boolean;
+  isVideo?: boolean;
+  loopClip?: boolean;
+  videoOrientation?: string;
   transcript?: { source: "ai" | "tts"; language?: string | null; turns: Array<{ role: "user" | "assistant"; text: string; at: string }> };
 }> {
   if (input.mode === "ai") {
@@ -107,6 +112,21 @@ export async function prepareDialerMedia(input: {
     });
     if (!rec?.filePath) throw new NotFoundError("Recording not found");
     return { recordingPath: rec.filePath, hangupAfterPlayback: true };
+  }
+  if (input.mode === "video") {
+    if (!input.recordingId) throw new ConflictError("Upload a video clip first.");
+    const rec = await prisma.recording.findFirst({
+      where: { id: input.recordingId, organizationId: input.organizationId, kind: "video" },
+    });
+    if (!rec?.filePath) throw new NotFoundError("Video clip not found");
+    const loopClip = input.loopClip !== false;
+    return {
+      recordingPath: rec.filePath,
+      hangupAfterPlayback: !loopClip,
+      isVideo: true,
+      loopClip,
+      videoOrientation: input.videoOrientation === "landscape" ? "landscape" : "portrait",
+    };
   }
   if (input.mode === "tts") {
     const script = renderVoiceScript(input.ttsBody ?? "", {
@@ -153,6 +173,9 @@ export async function enqueueCall(input: {
   recordingPath?: string;
   aiConfigId?: string;
   hangupAfterPlayback?: boolean;
+  isVideo?: boolean;
+  loopClip?: boolean;
+  videoOrientation?: string;
   transcript?: {
     source: "ai" | "tts";
     language?: string | null;
@@ -227,6 +250,9 @@ export async function enqueueCall(input: {
         recordingPath: input.recordingPath,
         aiConfigId: input.aiConfigId,
         hangupAfterPlayback: input.hangupAfterPlayback,
+        isVideo: input.isVideo,
+        loopClip: input.loopClip,
+        videoOrientation: input.videoOrientation,
       };
       if (input.aiConfigId || input.recordingPath) {
         await callQueue.add("place-call", job, { jobId: call.id });
@@ -238,6 +264,10 @@ export async function enqueueCall(input: {
             organizationId: input.organizationId,
             phone: phone.e164,
             audioFilePath: input.recordingPath,
+            hangupAfterPlayback: input.hangupAfterPlayback,
+            isVideo: input.isVideo,
+            loopClip: input.loopClip,
+            videoOrientation: input.videoOrientation,
           })
           .catch(async (err) => {
             const message = err instanceof Error ? err.message : "Call failed to start";
@@ -286,6 +316,9 @@ export async function enqueueCall(input: {
         recordingPath: input.recordingPath,
         aiConfigId: input.aiConfigId,
         hangupAfterPlayback: input.hangupAfterPlayback,
+        isVideo: input.isVideo,
+        loopClip: input.loopClip,
+        videoOrientation: input.videoOrientation,
       },
       { jobId: call.id },
     );

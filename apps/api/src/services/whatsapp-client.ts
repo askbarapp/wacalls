@@ -97,6 +97,9 @@ export const whatsappClient = {
     audioFilePath?: string;
     aiConfigId?: string;
     hangupAfterPlayback?: boolean;
+    isVideo?: boolean;
+    loopClip?: boolean;
+    videoOrientation?: string;
     contactName?: string | null;
   }) =>
     request<{ success: boolean; session?: { callId: string; engineCallId: string } }>("/internal/calls", {

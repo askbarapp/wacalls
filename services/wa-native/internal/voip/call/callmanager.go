@@ -23,12 +23,15 @@ type CallManager struct {
 
 	rtpSession  *media.RtpSession
 	srtpSession *media.SrtpSession
+	videoRtp    *media.RtpSession
 	codec       media.Codec
 	relay       RelayTransport
 
 	selfSsrc      uint32
+	selfVideoSsrc uint32
 	peerSsrcs     []uint32
 	actualPeerSet bool
+	videoOrientation string
 
 	firstPacketSent       bool
 	initialTransportSent  bool
@@ -81,7 +84,7 @@ func (m *CallManager) emitState() {
 	}
 }
 
-func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid types.JID, isVideo bool) error {
+func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid types.JID, isVideo bool, orientation string) error {
 	m.mu.Lock()
 	if m.currentCall != nil && !m.currentCall.IsEnded() {
 		m.mu.Unlock()
@@ -109,10 +112,15 @@ func (m *CallManager) StartCall(ctx context.Context, callID string, peerJid type
 	m.selfSsrc = media.GenerateSecureSsrc(callID, selfJid, 0)
 	m.rtpSession = media.NewWhatsAppOpusSession(m.selfSsrc)
 	m.peerSsrcs = []uint32{media.GenerateSecureSsrc(callID, resolved.String(), 0)}
+	m.videoOrientation = orientation
+	if isVideo {
+		m.selfVideoSsrc = media.GenerateSecureSsrc(callID, selfJid, 1)
+		m.videoRtp = media.NewWhatsAppVp8Session(m.selfVideoSsrc)
+	}
 	m.initCodec()
 	m.mu.Unlock()
 
-	offer, err := signaling.BuildOfferStanza(ctx, m.sock, callID, callKey, resolved, isVideo)
+	offer, err := signaling.BuildOfferStanza(ctx, m.sock, callID, callKey, resolved, isVideo, orientation)
 	if err != nil {
 		return err
 	}
@@ -183,6 +191,7 @@ func (m *CallManager) setupIncomingMedia(call *CallInfo, relayData *core.RelayDa
 			m.selfSsrc = newSelf
 			m.rtpSession = media.NewWhatsAppOpusSession(newSelf)
 		}
+		m.resyncVideoSessionLocked(call.CallID, ourDeviceJid)
 		if peer := firstPeerDevice(relayData.ParticipantJids, ourBase); peer != "" {
 			m.peerSsrcs = []uint32{media.GenerateSecureSsrc(call.CallID, ensureDeviceJid(peer), 0)}
 			m.actualPeerSet = true
@@ -228,6 +237,17 @@ func (m *CallManager) EndCall(ctx context.Context, reason core.EndCallReason) er
 	}
 	m.cleanupMedia()
 	return nil
+}
+
+func (m *CallManager) resyncVideoSessionLocked(callID, ourDeviceJid string) {
+	if m.currentCall == nil || m.currentCall.MediaType != core.CallMediaTypeVideo {
+		return
+	}
+	vid := media.GenerateSecureSsrc(callID, ourDeviceJid, 1)
+	if vid != m.selfVideoSsrc || m.videoRtp == nil {
+		m.selfVideoSsrc = vid
+		m.videoRtp = media.NewWhatsAppVp8Session(vid)
+	}
 }
 
 func (m *CallManager) ownCredJid() string {

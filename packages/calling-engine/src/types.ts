@@ -30,6 +30,9 @@ export type InitiateCallOptions = {
   clientCallId?: string;
   hangupAfterPlayback?: boolean;
   aiConfigId?: string;
+  isVideo?: boolean;
+  loopClip?: boolean;
+  videoOrientation?: string;
 };
 
 export type ConnectOptions = {
