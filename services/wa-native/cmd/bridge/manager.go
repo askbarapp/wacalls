@@ -513,30 +513,44 @@ func messageText(msg *waE2E.Message) string {
 	return ""
 }
 
+func inboundOfferAction(autoAnswer, busy, isVideo bool) string {
+	if busy {
+		return "reject-busy"
+	}
+	if !autoAnswer {
+		return "ignore"
+	}
+	if isVideo {
+		return "ignore-video"
+	}
+	return "answer"
+}
+
 func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	node := wrapCall(evt.From, evt.Data)
 	info := signaling.ExtractNodeInfo(node)
 	if info == nil {
 		return
 	}
-	if ch.hasLiveCall() {
-		ch.rejectOffer(ctx, evt.From, info, "already on a call")
-		return
-	}
+	isVideo := info.InnerNode != nil && hasChildTag(*info.InnerNode, "video")
 	cfg, err := ch.hub.loadIncomingConfig(ctx, ch.id)
 	if err != nil {
 		ch.log.Warn("incoming auto-answer config failed", "err", err)
-		ch.rejectOffer(ctx, evt.From, info, "auto-answer unavailable")
+	}
+	autoAnswer := err == nil && cfg != nil && cfg.Enabled && cfg.AiConfigID != ""
+	action := inboundOfferAction(autoAnswer, ch.hasLiveCall(), isVideo)
+	switch action {
+	case "reject-busy":
+		ch.rejectOffer(ctx, evt.From, info, "already on a call")
+		return
+	case "ignore":
+		ch.log.Info("inbound call left for the phone", "call_id", info.CallID, "reason", "auto-answer off")
+		return
+	case "ignore-video":
+		ch.log.Info("inbound video left for the phone", "call_id", info.CallID, "reason", "auto-answer is audio-only")
 		return
 	}
-	if cfg == nil || !cfg.Enabled || cfg.AiConfigID == "" {
-		ch.rejectOffer(ctx, evt.From, info, "auto-answer off")
-		return
-	}
-	if info.InnerNode != nil && hasChildTag(*info.InnerNode, "video") {
-		ch.rejectOffer(ctx, evt.From, info, "video not supported")
-		return
-	}
+
 	if ch.orgID == "" {
 		if org, orgErr := ch.hub.channelOrg(ctx, ch.id); orgErr == nil {
 			ch.orgID = org
@@ -546,7 +560,7 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	callID, contactName, err := ch.hub.createInboundCall(ctx, ch.orgID, ch.id, phone, info.CallID)
 	if err != nil {
 		ch.log.Warn("inbound call row failed", "err", err)
-		ch.rejectOffer(ctx, evt.From, info, "could not record inbound call")
+		ch.log.Info("inbound call left for the phone", "call_id", info.CallID, "reason", "could not record inbound call")
 		return
 	}
 	if !ch.hub.acquireChannelLock(ch.id, callID) {
@@ -577,7 +591,7 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		ch.hub.failCall(ctx, callID, err.Error())
 		ch.releaseLock(callID)
 		ch.removeCall(lc)
-		ch.rejectOffer(ctx, evt.From, info, "accept failed")
+		ch.log.Info("inbound call left for the phone", "call_id", info.CallID, "reason", "accept failed")
 		return
 	}
 	ch.emitCall(lc, "connecting", "")
