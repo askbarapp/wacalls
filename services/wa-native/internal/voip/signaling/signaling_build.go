@@ -22,10 +22,11 @@ func videoMediaNode(orientation string) waBinary.Node {
 	if orientation == "landscape" {
 		width, height = "640", "480"
 	}
-	// H.264 attrs are ACKed by the server but the handset never rings.
-	// Companion VP8 attrs are what actually rings the phone.
+	// Current Android/iOS offers use enc="h.264" (with the dot) and a
+	// decoder list. enc="vp8" still rings a companion call but the phone
+	// presents it as audio. enc="h264" (no dot) is dropped and never rings.
 	return waBinary.Node{Tag: "video", Attrs: waBinary.Attrs{
-		"enc": "vp8", "dec": "vp8", "orientation": "0",
+		"enc": "h.264", "dec": "H264,H265,AV1",
 		"screen_width": width, "screen_height": height, "device_orientation": "0",
 	}}
 }
@@ -60,8 +61,8 @@ func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, 
 		waBinary.Node{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
 	)
 	if isVideo {
-		// Server drops a bare <video/> (no ack). Codec attrs are required.
-		// Keep this node after the two audio ads, same place WA Web uses.
+		// Server drops a bare <video/> (no ack). Keep this node after the
+		// two audio ads, same place WA Web uses.
 		offerContent = append(offerContent, videoMediaNode(orientation))
 	}
 	offerContent = append(offerContent,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -39,11 +40,12 @@ func (ch *Channel) playVideoClip(lc *liveCall, path string) {
 		"-hide_banner", "-loglevel", "error",
 		"-stream_loop", loop, "-re", "-i", path,
 		"-an", "-vf", vf,
-		"-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8",
-		"-pix_fmt", "yuv420p", "-b:v", "400k", "-maxrate", "600k", "-bufsize", "800k",
-		"-r", "15", "-g", "15", "-keyint_min", "15",
-		"-auto-alt-ref", "0", "-lag-in-frames", "0", "-error-resilient", "1",
-		"-f", "ivf", "pipe:1",
+		"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+		"-profile:v", "baseline", "-level", "3.1", "-pix_fmt", "yuv420p",
+		"-b:v", "600k", "-maxrate", "800k", "-bufsize", "1200k",
+		"-r", "15", "-g", "15", "-keyint_min", "15", "-bf", "0",
+		"-x264-params", "repeat-headers=1:scenecut=0:annexb=1",
+		"-f", "h264", "pipe:1",
 	)
 	audioOut, err := audioCmd.StdoutPipe()
 	if err != nil {
@@ -52,7 +54,7 @@ func (ch *Channel) playVideoClip(lc *liveCall, path string) {
 	}
 	videoOut, err := videoCmd.StdoutPipe()
 	if err != nil {
-		ch.log.Warn("video vp8 pipe", "err", err)
+		ch.log.Warn("video h264 pipe", "err", err)
 		return
 	}
 	if err := audioCmd.Start(); err != nil {
@@ -60,7 +62,7 @@ func (ch *Channel) playVideoClip(lc *liveCall, path string) {
 		return
 	}
 	if err := videoCmd.Start(); err != nil {
-		ch.log.Warn("ffmpeg vp8 start", "err", err)
+		ch.log.Warn("ffmpeg h264 start", "err", err)
 		_ = audioCmd.Process.Kill()
 		return
 	}
@@ -73,7 +75,7 @@ func (ch *Channel) playVideoClip(lc *liveCall, path string) {
 	}()
 	go func() {
 		defer wg.Done()
-		ch.streamVP8(lc, videoOut)
+		ch.streamH264(lc, videoOut)
 	}()
 	wg.Wait()
 	_ = audioCmd.Wait()
@@ -116,26 +118,123 @@ func (ch *Channel) streamPCM32(lc *liveCall, r io.Reader) {
 	}
 }
 
-func (ch *Channel) streamVP8(lc *liveCall, r io.Reader) {
-	hdr, err := media.ReadIvfHeader(r)
-	if err != nil {
-		ch.log.Warn("vp8 ivf header", "err", err)
-		return
+func (ch *Channel) streamH264(lc *liveCall, r io.Reader) {
+	br := bufio.NewReaderSize(r, 256*1024)
+	scanner := annexBScanner{r: br}
+	const tsInc uint32 = 6000
+	var pending [][]byte
+	var au [][]byte
+	flush := func() {
+		if len(au) == 0 {
+			return
+		}
+		n := 0
+		for _, p := range au {
+			n += len(p)
+		}
+		buf := make([]byte, 0, n+8)
+		for _, p := range au {
+			buf = append(buf, 0, 0, 0, 1)
+			buf = append(buf, p...)
+		}
+		lc.cm.FeedCapturedH264(buf, tsInc)
+		au = au[:0]
 	}
-	tsInc := hdr.FrameTimestampInc()
 	for {
 		select {
 		case <-lc.stopPlay:
 			return
 		default:
 		}
-		frame, _, err := media.ReadIvfFrame(r)
-		if len(frame) > 0 {
-			lc.cm.FeedCapturedVP8(frame, tsInc)
+		nal, err := scanner.Next()
+		if len(nal) > 0 {
+			if media.IsH264VCL(nal) {
+				if len(au) > 0 {
+					hasVCL := false
+					for _, p := range au {
+						if media.IsH264VCL(p) {
+							hasVCL = true
+							break
+						}
+					}
+					if hasVCL {
+						flush()
+					}
+				}
+				if len(pending) > 0 {
+					au = append(au, pending...)
+					pending = pending[:0]
+				}
+				au = append(au, nal)
+			} else {
+				t := nal[0] & 0x1f
+				if t == 7 || t == 8 {
+					pending = append(pending, nal)
+				} else if t != 9 {
+					au = append(au, nal)
+				} else if len(au) > 0 {
+					flush()
+				}
+			}
 		}
 		if err != nil {
+			flush()
 			return
 		}
 	}
 }
 
+type annexBScanner struct {
+	r          *bufio.Reader
+	afterStart bool
+}
+
+func (s *annexBScanner) Next() ([]byte, error) {
+	if !s.afterStart {
+		if err := skipAnnexBStartCode(s.r); err != nil {
+			return nil, err
+		}
+		s.afterStart = true
+	}
+	var buf []byte
+	zeros := 0
+	for {
+		b, err := s.r.ReadByte()
+		if err != nil {
+			if len(buf) > 0 {
+				return buf, err
+			}
+			return nil, err
+		}
+		if b == 0 {
+			zeros++
+			continue
+		}
+		if b == 1 && zeros >= 2 {
+			return buf, nil
+		}
+		for zeros > 0 {
+			buf = append(buf, 0)
+			zeros--
+		}
+		buf = append(buf, b)
+	}
+}
+
+func skipAnnexBStartCode(r *bufio.Reader) error {
+	zeros := 0
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
+			return err
+		}
+		if b == 0 {
+			zeros++
+			continue
+		}
+		if b == 1 && zeros >= 2 {
+			return nil
+		}
+		zeros = 0
+	}
+}

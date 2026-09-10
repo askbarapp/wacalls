@@ -70,7 +70,7 @@ func (m *CallManager) FeedCapturedPCM(data []float32) {
 	m.feedPCMInternal(data)
 }
 
-func (m *CallManager) FeedCapturedVP8(frame []byte, timestampInc uint32) {
+func (m *CallManager) FeedCapturedH264(frame []byte, timestampInc uint32) {
 	if len(frame) == 0 {
 		return
 	}
@@ -78,12 +78,11 @@ func (m *CallManager) FeedCapturedVP8(frame []byte, timestampInc uint32) {
 	defer m.mu.Unlock()
 	if m.videoRtp == nil || m.srtpSession == nil || !m.relay.HasConnection() {
 		if m.totalVideoSent == 0 {
-			m.log.Debug("FeedCapturedVP8: dropping", "videoRtp", m.videoRtp != nil, "srtp", m.srtpSession != nil, "relay", m.relay.HasConnection())
+			m.log.Debug("FeedCapturedH264: dropping", "videoRtp", m.videoRtp != nil, "srtp", m.srtpSession != nil, "relay", m.relay.HasConnection())
 		}
 		return
 	}
-	m.vp8PictureID++
-	packets := media.PacketizeVp8(frame, 1200, m.vp8PictureID)
+	packets := media.PacketizeH264(frame, 1200)
 	sent := 0
 	for i, payload := range packets {
 		marker := i == len(packets)-1

@@ -110,7 +110,6 @@ func (m *CallManager) cleanupMedia() {
 	m.totalFramesSent = 0
 	m.totalVideoSent = 0
 	m.totalRelayRecv = 0
-	m.vp8PictureID = 0
 	m.selfVideoSsrc = 0
 	m.mu.Unlock()
 
