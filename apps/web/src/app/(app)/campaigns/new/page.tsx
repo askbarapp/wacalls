@@ -87,6 +87,27 @@ export default function NewCampaignPage() {
   const [uploadPercent, setUploadPercent] = useState(0);
   const [videoUploaded, setVideoUploaded] = useState("");
 
+  async function deleteVideoClip(id: string) {
+    if (!id) return;
+    const name = recordings.find((r) => r.id === id)?.name || "this video";
+    if (!confirm(`Delete “${name}”? This cannot be undone.`)) return;
+    setError("");
+    setVideoUploaded("");
+    try {
+      await api(`/api/v1/recordings/${id}`, { method: "DELETE" });
+      setRecordings((rows) => {
+        const next = rows.filter((r) => r.id !== id);
+        setForm((f) => ({
+          ...f,
+          recordingId: f.recordingId === id ? next.find((r) => r.kind === "video")?.id || "" : f.recordingId,
+        }));
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
   useEffect(() => {
     void Promise.all([
       api<{ success: true; data: Channel[] }>("/api/v1/channels"),
@@ -681,19 +702,30 @@ export default function NewCampaignPage() {
                   </p>
                 ) : null}
                 {recordings.filter((r) => r.kind === "video").length ? (
-                  <select
-                    className="min-h-11"
-                    value={form.recordingId}
-                    onChange={(e) => setForm({ ...form, recordingId: e.target.value })}
-                  >
-                    {recordings
-                      .filter((r) => r.kind === "video")
-                      .map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="flex gap-2">
+                    <select
+                      className="min-h-11 min-w-0 flex-1"
+                      value={form.recordingId}
+                      onChange={(e) => setForm({ ...form, recordingId: e.target.value })}
+                    >
+                      {recordings
+                        .filter((r) => r.kind === "video")
+                        .map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                    </select>
+                    {form.recordingId ? (
+                      <button
+                        type="button"
+                        onClick={() => void deleteVideoClip(form.recordingId)}
+                        className="shrink-0 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-200 hover:bg-rose-500/20"
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm text-slate-300">

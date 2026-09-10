@@ -344,6 +344,7 @@ export default function DialerPage() {
     const name = recordings.find((r) => r.id === id)?.name || "this file";
     if (!confirm(`Delete “${name}”? This cannot be undone.`)) return;
     setError("");
+    setUploadSuccess("");
     try {
       await api(`/api/v1/recordings/${id}`, { method: "DELETE" });
       setRecordings((rows) => {

@@ -332,19 +332,32 @@ export function DialerModePanel({
               </p>
             ) : null}
             {recordings.filter((r) => r.kind === "video").length ? (
-              <select
-                value={recordingId}
-                onChange={(e) => onRecordingId(e.target.value)}
-                disabled={inCall}
-              >
-                {recordings
-                  .filter((r) => r.kind === "video")
-                  .map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-              </select>
+              <div className="flex gap-2">
+                <select
+                  className="min-w-0 flex-1"
+                  value={recordingId}
+                  onChange={(e) => onRecordingId(e.target.value)}
+                  disabled={inCall}
+                >
+                  {recordings
+                    .filter((r) => r.kind === "video")
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                </select>
+                {onDeleteRecording && recordingId ? (
+                  <button
+                    type="button"
+                    disabled={inCall}
+                    onClick={() => onDeleteRecording(recordingId)}
+                    className="shrink-0 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-medium text-rose-200 hover:bg-rose-500/20 disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             <div>
               <label className="mb-1 block text-xs text-slate-400">Orientation</label>
