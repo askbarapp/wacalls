@@ -240,7 +240,47 @@ func TestApplyWarpSpeechHeaderIs16Bytes(t *testing.T) {
 	if buf[0] != 0x90 {
 		t.Fatalf("first byte %x want 0x90", buf[0])
 	}
-	if binary.BigEndian.Uint16(buf[12:14]) != 0xbede {
+	if binary.BigEndian.Uint16(buf[12:14]) != 0xdebe {
 		t.Fatalf("ext profile %x", buf[12:14])
+	}
+}
+
+func TestApplyWhatsAppVideoHeaderIs24Bytes(t *testing.T) {
+	s := NewWhatsAppH264Session(0x22222222)
+
+	// Test first packet of a keyframe: 16 bytes extension = 4 words → header = 12 + 4 + 16 = 32
+	pkt := s.CreatePacketWithDuration([]byte{0x67, 0x42}, 0, false)
+	ApplyWhatsAppVideoHeader(pkt, 42, true, true) // keyframe, first packet
+	if pkt.Header.Size() != 32 {
+		t.Fatalf("keyframe first header size %d want 32", pkt.Header.Size())
+	}
+	buf := make([]byte, pkt.Header.Size())
+	n, err := pkt.Header.Encode(buf)
+	if err != nil || n != 32 {
+		t.Fatal(err)
+	}
+	if buf[0] != 0x90 {
+		t.Fatalf("first byte %x want 0x90", buf[0])
+	}
+	if binary.BigEndian.Uint16(buf[12:14]) != 0xdebe {
+		t.Fatalf("ext profile %x", buf[12:14])
+	}
+	if binary.BigEndian.Uint16(buf[14:16]) != 4 {
+		t.Fatalf("ext words %d want 4", binary.BigEndian.Uint16(buf[14:16]))
+	}
+	// Check CVO extension ID 3 and frame number
+	if buf[16] != 0x32 || buf[17] != 0x09 || buf[19] != 42 {
+		t.Fatalf("ext data header mismatch %x", buf[16:32])
+	}
+	// Check extension ID 5 present
+	if buf[20] != 0x51 {
+		t.Fatalf("ext ID 5 missing, got %x", buf[20])
+	}
+
+	// Test continuation packet: 12 bytes extension = 3 words → header = 12 + 4 + 12 = 28
+	pkt2 := s.CreatePacketWithDuration([]byte{0x67, 0x42}, 0, true)
+	ApplyWhatsAppVideoHeader(pkt2, 42, true, false) // keyframe, continuation
+	if pkt2.Header.Size() != 28 {
+		t.Fatalf("continuation header size %d want 28", pkt2.Header.Size())
 	}
 }

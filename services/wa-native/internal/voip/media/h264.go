@@ -17,54 +17,130 @@ func PacketizeH264(au []byte, mtu int) [][]byte {
 	if len(nals) == 0 {
 		nals = [][]byte{au}
 	}
+	return PacketizeH264NALs(nals, mtu)
+}
+
+// PacketizeH264NALs packetizes a list of raw NAL units (without Annex-B start codes)
+// onto WhatsApp WARP RTP payloads matching the wire format observed from WhatsApp mobile clients.
+func PacketizeH264NALs(nals [][]byte, mtu int) [][]byte {
+	if mtu < 16 {
+		mtu = 1200
+	}
 	var cleaned [][]byte
+	hasSPS := false
+	hasIDR := false
 	for _, nal := range nals {
 		if len(nal) == 0 {
 			continue
 		}
 		nt := nal[0] & 0x1f
-		if nt == 0 || nt == 9 || nt == 12 {
-			continue
+		if nt == 0 || nt == 6 || nt == 9 || nt == 12 {
+			continue // Drop undefined, SEI (unregistered user data), AUD, filler
+		}
+		if nt == 7 {
+			hasSPS = true
+		} else if nt == 5 {
+			hasIDR = true
 		}
 		cleaned = append(cleaned, nal)
 	}
 	if len(cleaned) == 0 {
 		return nil
 	}
-	// WhatsApp's H.264 path is RFC 6184 single-NAL / FU-A. STAP-A is not
-	// established on the WARP wire and phones drop aggregated units.
-	var out [][]byte
-	for _, nal := range cleaned {
-		out = append(out, packetizeNAL(nal, mtu)...)
-	}
-	return out
-}
 
-func packStapA(nals [][]byte, mtu int) []byte {
-	if len(nals) < 2 {
-		return nil
-	}
-	nri := byte(0)
-	size := 1
-	for _, nal := range nals {
-		size += 2 + len(nal)
-		if nri < nal[0]&0x60 {
-			nri = nal[0] & 0x60
+	// WhatsApp WARP Keyframe AU packaging:
+	// If the Access Unit contains SPS or IDR, WhatsApp bundles SPS, PPS, and IDR
+	// into a single continuous AU with Annex-B start codes (00 00 00 01) and fragments it
+	// via FU-A starting with 0x7c 0x87, followed by 0x1c 0x07 continuation and 0x1c 0x47 end.
+	if hasSPS || hasIDR {
+		var sps, pps, idr []byte
+		var extraVCL [][]byte
+		for _, nal := range cleaned {
+			nt := nal[0] & 0x1f
+			switch nt {
+			case 7:
+				if sps == nil {
+					sps = nal
+				}
+			case 8:
+				if pps == nil {
+					pps = nal
+				}
+			case 5:
+				if idr == nil {
+					idr = nal
+				} else {
+					extraVCL = append(extraVCL, nal)
+				}
+			default:
+				extraVCL = append(extraVCL, nal)
+			}
+		}
+
+		if sps != nil && pps != nil && idr != nil {
+			return packetizeWhatsAppKeyframeAU(sps, pps, idr, extraVCL, mtu)
 		}
 	}
-	if size > mtu {
-		return nil
-	}
-	out := make([]byte, 0, size)
-	out = append(out, nri|h264NalStapA)
-	for _, nal := range nals {
-		out = append(out, byte(len(nal)>>8), byte(len(nal)))
-		out = append(out, nal...)
+
+	// For P-frames (inter-frame): single NAL under MTU, or FU-A over MTU (0x7c 0x81 ... 0x1c 0x01 ... 0x1c 0x41).
+	var out [][]byte
+	for _, nal := range cleaned {
+		out = append(out, packetizeWhatsAppNAL(nal, mtu)...)
 	}
 	return out
 }
 
-func packetizeNAL(nal []byte, mtu int) [][]byte {
+func packetizeWhatsAppKeyframeAU(sps, pps, idr []byte, extraVCL [][]byte, mtu int) [][]byte {
+	// Assemble continuous AU matching WhatsApp phone wire:
+	// SPS (without first byte) + 00 00 00 01 + PPS + 00 00 00 01 + IDR [+ 00 00 00 01 + extra...]
+	startCode := []byte{0x00, 0x00, 0x00, 0x01}
+	var payload []byte
+	if len(sps) > 1 {
+		payload = append(payload, sps[1:]...) // SPS body without 0x67 header
+	}
+	payload = append(payload, startCode...)
+	payload = append(payload, pps...)
+	payload = append(payload, startCode...)
+	payload = append(payload, idr...)
+	for _, extra := range extraVCL {
+		payload = append(payload, startCode...)
+		payload = append(payload, extra...)
+	}
+
+	maxFrag := mtu - 2
+	if maxFrag < 1 {
+		maxFrag = 1
+	}
+
+	var out [][]byte
+	offset := 0
+	first := true
+	for offset < len(payload) {
+		n := len(payload) - offset
+		if n > maxFrag {
+			n = maxFrag
+		}
+		frag := make([]byte, 2+n)
+		if first {
+			frag[0] = 0x7c // NRI=3, FU-A (28)
+			frag[1] = 0x87 // S=1, E=0, Type=7 (SPS)
+			first = false
+		} else {
+			frag[0] = 0x1c // NRI=0, FU-A (28)
+			fu := byte(7)
+			if offset+n >= len(payload) {
+				fu |= 0x40 // E=1 (End bit)
+			}
+			frag[1] = fu
+		}
+		copy(frag[2:], payload[offset:offset+n])
+		out = append(out, frag)
+		offset += n
+	}
+	return out
+}
+
+func packetizeWhatsAppNAL(nal []byte, mtu int) [][]byte {
 	if len(nal) <= mtu {
 		pkt := make([]byte, len(nal))
 		copy(pkt, nal)
@@ -85,16 +161,18 @@ func packetizeNAL(nal []byte, mtu int) [][]byte {
 			n = maxFrag
 		}
 		frag := make([]byte, 2+n)
-		frag[0] = nri | h264NalFuA
-		fu := nt
 		if first {
-			fu |= 0x80
+			frag[0] = nri | h264NalFuA
+			frag[1] = 0x80 | nt // S=1
 			first = false
+		} else {
+			frag[0] = 0x1c // NRI=0 on continuation and end fragments per WhatsApp wire
+			fu := nt
+			if offset+n >= len(nal) {
+				fu |= 0x40 // E=1
+			}
+			frag[1] = fu
 		}
-		if offset+n >= len(nal) {
-			fu |= 0x40
-		}
-		frag[1] = fu
 		copy(frag[2:], nal[offset:offset+n])
 		out = append(out, frag)
 		offset += n
@@ -120,9 +198,6 @@ func SplitAnnexB(data []byte) [][]byte {
 		end := len(data)
 		if next >= 0 {
 			end = next
-		}
-		for end > nalStart && data[end-1] == 0 {
-			end--
 		}
 		if end > nalStart {
 			nals = append(nals, data[nalStart:end])

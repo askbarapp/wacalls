@@ -82,11 +82,17 @@ func ExtractRelayEndpoints(node *waBinary.Node) []core.RelayEndpoint {
 	return relays
 }
 
-func findEncNode(inner *waBinary.Node) *waBinary.Node {
+type EncNodeCandidate struct {
+	ToJID   string
+	EncNode *waBinary.Node
+}
+
+func FindEncNodes(inner *waBinary.Node) []EncNodeCandidate {
+	var candidates []EncNodeCandidate
 	for _, c := range wanode.NodeChildren(inner) {
 		c := c
 		if c.Tag == "enc" && wanode.HasAttr(c.Attrs, "type") {
-			return &c
+			candidates = append(candidates, EncNodeCandidate{EncNode: &c})
 		}
 	}
 	for _, c := range wanode.NodeChildren(inner) {
@@ -97,13 +103,23 @@ func findEncNode(inner *waBinary.Node) *waBinary.Node {
 			if toNode.Tag != "to" {
 				continue
 			}
+			toJid := wanode.AttrString(toNode.Attrs, "jid")
 			for _, e := range wanode.NodeChildren(&toNode) {
 				e := e
 				if e.Tag == "enc" && wanode.HasAttr(e.Attrs, "type") {
-					return &e
+					candidates = append(candidates, EncNodeCandidate{ToJID: toJid, EncNode: &e})
 				}
 			}
 		}
 	}
+	return candidates
+}
+
+func findEncNode(inner *waBinary.Node) *waBinary.Node {
+	candidates := FindEncNodes(inner)
+	if len(candidates) > 0 {
+		return candidates[0].EncNode
+	}
 	return nil
 }
+

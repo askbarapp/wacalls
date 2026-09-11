@@ -976,14 +976,14 @@ const callWorker = new Worker<PlaceCallJob>(
                 redisUrl: REDIS_URL,
                 whatsappUrl: WHATSAPP_URL,
                 internalToken: INTERNAL_TOKEN,
-                deferGreeting: call.status !== "ANSWERED",
+                deferGreeting: !inbound && call.status !== "ANSWERED",
               })) ?? { stop() {}, onAnswered() {} };
           } catch (err) {
             log.warn({ err, callId }, "voice agent failed to start; keeping call alive");
             agent = { stop() {}, onAnswered() {} };
           }
         }
-        if (call?.status === "ANSWERED" && agent?.onAnswered) {
+        if ((inbound || call?.status === "ANSWERED") && agent?.onAnswered) {
           agent.onAnswered();
           agent.onAnswered = undefined;
         }

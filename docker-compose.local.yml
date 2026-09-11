@@ -101,6 +101,7 @@ services:
       - "10000-10031:10000-10031/udp"
     volumes:
       - recordings_local:/data/recordings
+      - ./recordings:/data/recordings_host
     depends_on:
       postgres:
         condition: service_healthy

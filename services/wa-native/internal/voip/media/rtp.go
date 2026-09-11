@@ -181,10 +181,7 @@ func NewWhatsAppVp8Session(ssrc uint32) *RtpSession {
 }
 
 func NewWhatsAppH264Session(ssrc uint32) *RtpSession {
-	s := NewRtpSession(ssrc, core.PayloadTypeWhatsAppH264, 90000, 6000)
-	s.sequenceNumber = 1
-	s.timestamp = 0
-	return s
+	return NewRtpSession(ssrc, core.PayloadTypeWhatsAppH264, 90000, 6000)
 }
 
 // ApplyWarpSpeechHeader writes the 16-byte WARP RTP header (X=1, 0xDEBE, 0 words).
@@ -193,8 +190,59 @@ func ApplyWarpSpeechHeader(pkt *RtpPacket) {
 		return
 	}
 	pkt.Header.Extension = true
-	pkt.Header.ExtensionProfile = 0xbede
+	pkt.Header.ExtensionProfile = 0xdebe
 	pkt.Header.ExtensionData = nil
+}
+
+// ApplyWhatsAppVideoHeader writes the WARP video RTP header (X=1, 0xDEBE)
+// matching WhatsApp mobile's exact wire format with extension element IDs 3, 5, 6, 9.
+// isKeyframe indicates whether this packet belongs to a keyframe AU.
+// isFirst indicates whether this is the first packet of the frame (carries full ext).
+// frameNum is the frame counter (mod 256).
+func ApplyWhatsAppVideoHeader(pkt *RtpPacket, frameNum uint8, isKeyframe bool, isFirst bool) {
+	if pkt == nil || pkt.Header == nil {
+		return
+	}
+	pkt.Header.Extension = true
+	pkt.Header.ExtensionProfile = 0xdebe
+
+	if isFirst {
+		// First packet of a frame: 16 bytes (4 words)
+		// ID=3 L=2 (3 bytes): [orientation] [0x00] [frameNum]
+		// ID=5 L=1 (2 bytes): timing/dependency info
+		// ID=6 L=0 (1 byte): quality byte
+		// ID=9 L=1 (2 bytes): timing metadata
+		// + 2 bytes padding
+		id3byte := byte(0x21) // P-frame: portrait orientation
+		if isKeyframe {
+			id3byte = 0x09 // Keyframe marker
+		}
+		pkt.Header.ExtensionData = []byte{
+			0x32, id3byte, 0x00, frameNum, // ID=3, L=2: orientation + frame
+			0x51, 0x39, 0x38,              // ID=5, L=1: timing/dependency
+			0x61, 0x00, 0x1e,              // ID=6, L=0: quality
+			0x91, 0x0c, frameNum,          // ID=9, L=1: metadata
+			0x00, 0x00, 0x00,              // padding to 4-byte boundary
+		}
+	} else {
+		// Continuation/end packets: 12 bytes (3 words)
+		// ID=3 L=0 (1 byte): [orientation]
+		// ID=5 L=1 (2 bytes): timing
+		// ID=6 L=0 (1 byte): quality
+		// ID=9 L=1 (2 bytes): metadata
+		// + 2 bytes padding
+		id3byte := byte(0x21)
+		if isKeyframe {
+			id3byte = 0x09
+		}
+		pkt.Header.ExtensionData = []byte{
+			0x30, id3byte,                // ID=3, L=0: orientation
+			0x51, 0x39, 0x38,             // ID=5, L=1: timing
+			0x61, 0x00, 0x1e,             // ID=6, L=0: quality
+			0x91, 0x0c, frameNum,         // ID=9, L=1: metadata
+			0x00,                         // padding to 4-byte boundary
+		}
+	}
 }
 
 func (s *RtpSession) CreatePacket(payload []byte, marker bool) *RtpPacket {

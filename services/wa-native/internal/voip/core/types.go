@@ -42,7 +42,7 @@ const (
 const (
 	PayloadTypeWhatsAppOpus = 120
 	PayloadTypeWhatsAppVp8  = 97
-	PayloadTypeWhatsAppH264 = 96
+	PayloadTypeWhatsAppH264 = 97
 )
 
 const (

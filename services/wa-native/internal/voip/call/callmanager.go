@@ -181,20 +181,36 @@ func (m *CallManager) AcceptCall(ctx context.Context, callID string) error {
 	relayData := call.RelayData
 	m.mu.Unlock()
 
-	if key != nil {
-		acceptNode, err := signaling.BuildAcceptStanza(ctx, m.sock, callID, key, peer, creator, isVideo)
-		if err != nil {
-			return fmt.Errorf("build accept: %w", err)
+	if key == nil {
+		return fmt.Errorf("cannot accept call: missing call encryption key")
+	}
+
+	acceptNode, err := signaling.BuildAcceptStanza(ctx, m.sock, callID, key, peer, creator, isVideo)
+	if err != nil {
+		return fmt.Errorf("build accept: %w", err)
+	}
+	ack, err := m.sock.Query(ctx, acceptNode)
+	if err != nil {
+		return fmt.Errorf("accept query: %w", err)
+	}
+	if ack != nil {
+		if ackErr := wanode.AttrString(ack.Attrs, "error"); ackErr != "" {
+			return fmt.Errorf("WhatsApp rejected the accept (%s)", ackErr)
 		}
-		ack, err := m.sock.Query(ctx, acceptNode)
-		if err != nil {
-			return fmt.Errorf("accept query: %w", err)
-		}
-		if ack != nil {
-			if ackErr := wanode.AttrString(ack.Attrs, "error"); ackErr != "" {
-				return fmt.Errorf("WhatsApp rejected the accept (%s)", ackErr)
+		m.log.Info("accept ack", "call_id", callID, "type", wanode.AttrString(ack.Attrs, "type"), "tag", ack.Tag)
+		if parsed := signaling.ParseRelayFromAck(ack); len(parsed.Relays) > 0 {
+			m.log.Info("accept ack relays parsed", "call_id", callID, "relays", len(parsed.Relays), "participants", len(parsed.ParticipantJids))
+			m.mu.Lock()
+			call.RelayData = &core.RelayData{
+				Endpoints:       parsed.Relays,
+				ParticipantJids: parsed.ParticipantJids,
+				UUID:            parsed.UUID,
+				SelfPid:         parsed.SelfPid,
+				PeerPid:         parsed.PeerPid,
+				HbhKey:          parsed.HbhKey,
 			}
-			m.log.Info("accept ack", "call_id", callID, "type", wanode.AttrString(ack.Attrs, "type"), "tag", ack.Tag)
+			relayData = call.RelayData
+			m.mu.Unlock()
 		}
 	}
 
@@ -215,6 +231,17 @@ func (m *CallManager) AcceptCall(ctx context.Context, callID string) error {
 	if relayData != nil {
 		m.setupIncomingMedia(call, relayData)
 		m.connectRelays(relayData.Endpoints)
+		if m.relay.HasConnection() {
+			m.mu.Lock()
+			if call.StateData.State == core.CallStateConnecting {
+				if err := call.ApplyTransition(Transition{Type: TransitionMediaConnected}); err == nil {
+					m.emitState()
+					m.startSilenceKeepaliveLocked()
+					m.log.Info("relay already connected on accept → active", "call_id", callID)
+				}
+			}
+			m.mu.Unlock()
+		}
 	} else {
 		m.log.Warn("call accepted but no relay endpoints yet; media path waits for a transport message", "call_id", callID)
 	}

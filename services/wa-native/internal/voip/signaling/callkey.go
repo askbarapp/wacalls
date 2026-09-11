@@ -59,11 +59,47 @@ func EncodeCallKeyMessage(callKey []byte) ([]byte, error) {
 }
 
 func DecryptCallKeyInNode(ctx context.Context, sock core.VoipSocket, inner *waBinary.Node, peerJid types.JID) ([]byte, error) {
-	encNode := findEncNode(inner)
-	if encNode == nil {
+	candidates := FindEncNodes(inner)
+	if len(candidates) == 0 {
 		return nil, nil
 	}
-	return sock.DecryptCallKey(ctx, peerJid, encNode)
+	ownLid := sock.OwnLID()
+	ownPn := sock.OwnPN()
+	ownLidStr := ownLid.String()
+	ownPnStr := ownPn.String()
+
+	var prioritized []EncNodeCandidate
+	var others []EncNodeCandidate
+	for _, c := range candidates {
+		isOwn := false
+		if c.ToJID != "" {
+			if c.ToJID == ownLidStr || c.ToJID == ownPnStr {
+				isOwn = true
+			} else if !ownLid.IsEmpty() && strings.HasPrefix(c.ToJID, ownLid.User) {
+				isOwn = true
+			} else if !ownPn.IsEmpty() && strings.HasPrefix(c.ToJID, ownPn.User) {
+				isOwn = true
+			}
+		}
+		if isOwn {
+			prioritized = append(prioritized, c)
+		} else {
+			others = append(others, c)
+		}
+	}
+	ordered := append(prioritized, others...)
+
+	var lastErr error
+	for _, c := range ordered {
+		key, err := sock.DecryptCallKey(ctx, peerJid, c.EncNode)
+		if err == nil && len(key) == 32 {
+			return key, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+	}
+	return nil, lastErr
 }
 
 func DecodeCallKeyPlaintext(plaintext []byte) ([]byte, error) {

@@ -513,17 +513,61 @@ func messageText(msg *waE2E.Message) string {
 	return ""
 }
 
-func inboundOfferAction(autoAnswer, busy, isVideo bool) string {
+func findVideoClipPath() string {
+	if envPath := os.Getenv("VIDEO_CLIP_PATH"); envPath != "" {
+		if fileExists(envPath) {
+			return envPath
+		}
+	}
+	candidates := []string{
+		"/data/recordings/video_clip.mp4",
+		"/data/recordings/clip.mp4",
+		"/data/recordings_host/video_clip.mp4",
+		"/data/recordings_host/clip.mp4",
+		"./recordings/video_clip.mp4",
+		"./recordings/clip.mp4",
+		"./video_clip.mp4",
+		"./clip.mp4",
+	}
+	for _, c := range candidates {
+		if fileExists(c) {
+			return c
+		}
+	}
+	if matches, err := filepath.Glob("/data/recordings/*.mp4"); err == nil && len(matches) > 0 {
+		return matches[0]
+	}
+	if matches, err := filepath.Glob("/data/recordings_host/*.mp4"); err == nil && len(matches) > 0 {
+		return matches[0]
+	}
+	if matches, err := filepath.Glob("recordings/*.mp4"); err == nil && len(matches) > 0 {
+		return matches[0]
+	}
+	if matches, err := filepath.Glob("*.mp4"); err == nil && len(matches) > 0 {
+		return matches[0]
+	}
+	return ""
+}
+
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
+}
+
+func inboundOfferAction(autoAnswer, busy, isVideo, videoClipFound bool) string {
 	if busy {
 		return "reject-busy"
 	}
-	if !autoAnswer {
-		return "ignore"
+	if autoAnswer {
+		return "answer"
 	}
 	if isVideo {
+		if videoClipFound {
+			return "answer"
+		}
 		return "ignore-video"
 	}
-	return "answer"
+	return "ignore"
 }
 
 func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
@@ -533,12 +577,16 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		return
 	}
 	isVideo := info.InnerNode != nil && hasChildTag(*info.InnerNode, "video")
+	videoClip := ""
+	if isVideo {
+		videoClip = findVideoClipPath()
+	}
 	cfg, err := ch.hub.loadIncomingConfig(ctx, ch.id)
 	if err != nil {
 		ch.log.Warn("incoming auto-answer config failed", "err", err)
 	}
 	autoAnswer := err == nil && cfg != nil && cfg.Enabled && cfg.AiConfigID != ""
-	action := inboundOfferAction(autoAnswer, ch.hasLiveCall(), isVideo)
+	action := inboundOfferAction(autoAnswer, ch.hasLiveCall(), isVideo, videoClip != "")
 	switch action {
 	case "reject-busy":
 		ch.rejectOffer(ctx, evt.From, info, "already on a call")
@@ -547,7 +595,7 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		ch.log.Info("inbound call left for the phone", "call_id", info.CallID, "reason", "auto-answer off")
 		return
 	case "ignore-video":
-		ch.log.Info("inbound video left for the phone", "call_id", info.CallID, "reason", "auto-answer is audio-only")
+		ch.log.Info("inbound video left for the phone", "call_id", info.CallID, "reason", "auto-answer is audio-only or no video clip")
 		return
 	}
 
@@ -571,13 +619,16 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 
 	cm := call.NewCallManager(wa.NewSocket(ch.client), ch.log)
 	lc := &liveCall{
-		apiCallID:    callID,
-		engineCallID: info.CallID,
-		channelID:    ch.id,
-		orgID:        ch.orgID,
-		cm:           cm,
-		started:      time.Now(),
-		stopPlay:     make(chan struct{}),
+		apiCallID:     callID,
+		engineCallID:  info.CallID,
+		channelID:     ch.id,
+		orgID:         ch.orgID,
+		cm:            cm,
+		started:       time.Now(),
+		stopPlay:      make(chan struct{}),
+		isVideo:       isVideo,
+		playAudioPath: videoClip,
+		hangupAfter:   false,
 	}
 	ch.wireCall(lc)
 	ch.mu.Lock()
@@ -587,12 +638,18 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 
 	from := evt.From
 	inner := evt.Data
-	aiID := cfg.AiConfigID
-	sendMsg := cfg.SendMessage
-	msgBody := cfg.MessageBody
-	msgWhen := cfg.MessageWhen
+	aiID := ""
+	sendMsg := false
+	msgBody := ""
+	msgWhen := ""
+	if cfg != nil {
+		aiID = cfg.AiConfigID
+		sendMsg = cfg.SendMessage
+		msgBody = cfg.MessageBody
+		msgWhen = cfg.MessageWhen
+	}
 	engineID := info.CallID
-	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone)
+	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone, "video", isVideo, "clip", videoClip)
 	go func() {
 		// Let whatsmeow ACK the offer first. Accepting in the event handler
 		// races the offer ack and WhatsApp terminates the call as uncallable.
@@ -615,20 +672,22 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 			return
 		}
 		ch.emitCall(lc, "connecting", "")
-		payload, _ := json.Marshal(map[string]any{
-			"callId":         callID,
-			"organizationId": ch.orgID,
-			"channelId":      ch.id,
-			"phone":          e164Phone(phone),
-			"contactName":    contactName,
-			"aiConfigId":     aiID,
-			"sendMessage":    sendMsg,
-			"messageBody":    msgBody,
-			"messageWhen":    msgWhen,
-			"inbound":        true,
-		})
-		_ = ch.hub.rdb.Publish(ctx, "wacalls:inbound", payload).Err()
-		ch.log.Info("auto-answered inbound call", "call_id", callID, "peer", phone)
+		if aiID != "" {
+			payload, _ := json.Marshal(map[string]any{
+				"callId":         callID,
+				"organizationId": ch.orgID,
+				"channelId":      ch.id,
+				"phone":          e164Phone(phone),
+				"contactName":    contactName,
+				"aiConfigId":     aiID,
+				"sendMessage":    sendMsg,
+				"messageBody":    msgBody,
+				"messageWhen":    msgWhen,
+				"inbound":        true,
+			})
+			_ = ch.hub.rdb.Publish(ctx, "wacalls:inbound", payload).Err()
+		}
+		ch.log.Info("auto-answered inbound call", "call_id", callID, "peer", phone, "video", isVideo, "clip", videoClip)
 	}()
 }
 

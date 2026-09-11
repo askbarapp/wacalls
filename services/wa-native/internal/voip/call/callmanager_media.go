@@ -1,6 +1,7 @@
 package call
 
 import (
+	"fmt"
 	"time"
 	"wacalls/internal/voip/core"
 	"wacalls/internal/voip/media"
@@ -71,25 +72,48 @@ func (m *CallManager) FeedCapturedPCM(data []float32) {
 }
 
 func (m *CallManager) FeedCapturedH264(frame []byte, timestampInc uint32) {
-	if len(frame) == 0 {
+	m.FeedCapturedH264NALs(media.SplitAnnexB(frame), timestampInc)
+}
+
+func (m *CallManager) FeedCapturedH264NALs(nals [][]byte, timestampInc uint32) {
+	if len(nals) == 0 {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.videoRtp == nil || m.srtpSession == nil || !m.relay.HasConnection() {
 		if m.totalVideoSent == 0 {
-			m.log.Debug("FeedCapturedH264: dropping", "videoRtp", m.videoRtp != nil, "srtp", m.srtpSession != nil, "relay", m.relay.HasConnection())
+			m.log.Debug("FeedCapturedH264NALs: dropping", "videoRtp", m.videoRtp != nil, "srtp", m.srtpSession != nil, "relay", m.relay.HasConnection())
 		}
 		return
 	}
-	packets := media.PacketizeH264(frame, 1200)
+	packets := media.PacketizeH264NALs(nals, 1200)
+
+	// Detect if this is a keyframe AU (has SPS or IDR)
+	isKeyframe := false
+	for _, nal := range nals {
+		if len(nal) > 0 {
+			nt := nal[0] & 0x1f
+			if nt == 7 || nt == 5 {
+				isKeyframe = true
+				break
+			}
+		}
+	}
+
 	sent := 0
+	frameNum := uint8(m.totalVideoSent & 0xff)
+
+	// Send on both video SSRC sessions (primary + alt) like WhatsApp mobile
 	sessions := []*media.RtpSession{m.videoRtp}
 	if m.videoRtpAlt != nil {
 		sessions = append(sessions, m.videoRtpAlt)
 	}
 	for _, session := range sessions {
 		for i, payload := range packets {
+			if i > 0 {
+				time.Sleep(300 * time.Microsecond)
+			}
 			marker := i == len(packets)-1
 			inc := 0
 			if marker {
@@ -100,12 +124,32 @@ func (m *CallManager) FeedCapturedH264(frame []byte, timestampInc uint32) {
 			}
 			pkt := session.CreatePacketWithDuration(payload, inc, marker)
 			if m.debeEnabled {
-				media.ApplyWarpSpeechHeader(pkt)
+				isFirst := i == 0
+				media.ApplyWhatsAppVideoHeader(pkt, frameNum, isKeyframe, isFirst)
 			}
 			srtp, err := m.srtpSession.Protect(pkt)
 			if err != nil {
 				m.log.Warn("video srtp protect error", "err", err)
 				return
+			}
+			// Log first packet hex for diagnostics
+			if m.totalVideoSent == 0 && i == 0 && session == m.videoRtp {
+				hexLen := len(srtp)
+				if hexLen > 48 {
+					hexLen = 48
+				}
+				m.log.Info("FIRST VIDEO PACKET HEX DUMP",
+					"total_len", len(srtp),
+					"hex48", fmt.Sprintf("%x", srtp[:hexLen]),
+					"ssrc", pkt.Header.Ssrc,
+					"seq", pkt.Header.SequenceNumber,
+					"ts", pkt.Header.Timestamp,
+					"ext_profile", fmt.Sprintf("0x%04x", pkt.Header.ExtensionProfile),
+					"ext_len", len(pkt.Header.ExtensionData),
+					"ext_hex", fmt.Sprintf("%x", pkt.Header.ExtensionData),
+					"payload_len", len(payload),
+					"isKeyframe", isKeyframe,
+				)
 			}
 			m.relay.Broadcast(srtp)
 			sent++
@@ -113,11 +157,16 @@ func (m *CallManager) FeedCapturedH264(frame []byte, timestampInc uint32) {
 	}
 	if sent > 0 {
 		m.totalVideoSent++
+		totalBytes := 0
+		for _, n := range nals {
+			totalBytes += len(n)
+		}
 		if m.totalVideoSent == 1 || m.totalVideoSent%30 == 0 {
-			m.log.Info("video frame sent", "frames", m.totalVideoSent, "packets", sent, "bytes", len(frame), "ssrc", m.selfVideoSsrc)
+			m.log.Info("video frame sent", "frames", m.totalVideoSent, "packets", sent, "bytes", totalBytes, "ssrc", m.selfVideoSsrc, "ssrc_alt", m.selfVideoSsrcAlt, "isKeyframe", isKeyframe)
 		}
 	}
 }
+
 
 func (m *CallManager) feedPCMInternal(data []float32) {
 	m.lastCaptureAt = time.Now()
@@ -215,6 +264,37 @@ func (m *CallManager) onRelayData(data []byte) {
 	}
 	pt := data[1] & 0x7f
 	if pt != core.PayloadTypeWhatsAppOpus {
+		peerSsrc := uint32(data[8])<<24 | uint32(data[9])<<16 | uint32(data[10])<<8 | uint32(data[11])
+		b0 := data[0]
+		hasExt := (b0 & 0x10) != 0
+		m.log.Info("relay received non-audio packet from peer", "pt", pt, "ssrc", peerSsrc, "len", len(data), "b0", fmt.Sprintf("0x%02x", b0), "ext", hasExt)
+		if pt == core.PayloadTypeWhatsAppH264 {
+			m.mu.Lock()
+			srtp := m.srtpSession
+			m.mu.Unlock()
+			if srtp != nil {
+				if pkt, err := srtp.Unprotect(data); err == nil && pkt != nil && pkt.Header != nil {
+					hexLen := len(pkt.Payload)
+					if hexLen > 32 {
+						hexLen = 32
+					}
+					m.log.Info("PEER VIDEO PACKET DECRYPTED",
+						"pt", pkt.Header.PayloadType,
+						"seq", pkt.Header.SequenceNumber,
+						"ts", pkt.Header.Timestamp,
+						"marker", pkt.Header.Marker,
+						"ext", pkt.Header.Extension,
+						"extProf", fmt.Sprintf("0x%04x", pkt.Header.ExtensionProfile),
+						"extLen", len(pkt.Header.ExtensionData),
+						"extHex", fmt.Sprintf("%x", pkt.Header.ExtensionData),
+						"payloadLen", len(pkt.Payload),
+						"payloadHex", fmt.Sprintf("%x", pkt.Payload[:hexLen]),
+					)
+				} else if err != nil {
+					m.log.Warn("peer video unprotect error", "err", err)
+				}
+			}
+		}
 		return
 	}
 

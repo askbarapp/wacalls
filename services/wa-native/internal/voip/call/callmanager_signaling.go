@@ -116,6 +116,10 @@ func (m *CallManager) HandleCallAccept(ctx context.Context, node *waBinary.Node,
 	if info == nil {
 		return
 	}
+	m.log.Info("CALL ACCEPT NODE", "call_id", info.CallID, "tag", info.InnerNode.Tag, "attrs", info.InnerNode.Attrs)
+	for _, c := range wanode.NodeChildren(info.InnerNode) {
+		m.log.Info("accept child", "tag", c.Tag, "attrs", c.Attrs)
+	}
 
 	if signaling.NeedsDecryption(info.Tag) {
 		if peerKey, err := signaling.DecryptCallKeyInNode(ctx, m.sock, info.InnerNode, peerJid); err == nil && peerKey != nil {
@@ -195,9 +199,14 @@ func (m *CallManager) HandleCallTransport(ctx context.Context, node *waBinary.No
 		return
 	}
 	relays := signaling.ExtractRelayEndpoints(info.InnerNode)
+	if len(relays) == 0 {
+		if parsed := signaling.ParseRelayFromAck(info.InnerNode); len(parsed.Relays) > 0 {
+			relays = parsed.Relays
+		}
+	}
 	m.log.Info("call transport received", "call_id", call.CallID,
 		"relays", len(relays), "already_connected", m.relay.HasConnection())
-	if len(relays) > 0 && !m.relay.HasConnection() {
+	if len(relays) > 0 {
 		m.mu.Lock()
 		if call.RelayData == nil {
 			call.RelayData = &core.RelayData{}
@@ -206,7 +215,20 @@ func (m *CallManager) HandleCallTransport(ctx context.Context, node *waBinary.No
 		rd := call.RelayData
 		m.mu.Unlock()
 		m.setupIncomingMedia(call, rd)
-		m.connectRelays(relays)
+		if !m.relay.HasConnection() {
+			m.connectRelays(relays)
+		}
+	}
+	if m.relay.HasConnection() {
+		m.mu.Lock()
+		if call.StateData.State == core.CallStateConnecting {
+			if err := call.ApplyTransition(Transition{Type: TransitionMediaConnected}); err == nil {
+				m.emitState()
+				m.startSilenceKeepaliveLocked()
+				m.log.Info("transport relay active", "call_id", call.CallID)
+			}
+		}
+		m.mu.Unlock()
 	}
 }
 
