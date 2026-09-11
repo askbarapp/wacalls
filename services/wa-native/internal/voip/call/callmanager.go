@@ -189,30 +189,10 @@ func (m *CallManager) AcceptCall(ctx context.Context, callID string) error {
 	if err != nil {
 		return fmt.Errorf("build accept: %w", err)
 	}
-	ack, err := m.sock.Query(ctx, acceptNode)
-	if err != nil {
-		return fmt.Errorf("accept query: %w", err)
+	if err := m.sock.SendNode(ctx, acceptNode); err != nil {
+		return fmt.Errorf("send accept: %w", err)
 	}
-	if ack != nil {
-		if ackErr := wanode.AttrString(ack.Attrs, "error"); ackErr != "" {
-			return fmt.Errorf("WhatsApp rejected the accept (%s)", ackErr)
-		}
-		m.log.Info("accept ack", "call_id", callID, "type", wanode.AttrString(ack.Attrs, "type"), "tag", ack.Tag)
-		if parsed := signaling.ParseRelayFromAck(ack); len(parsed.Relays) > 0 {
-			m.log.Info("accept ack relays parsed", "call_id", callID, "relays", len(parsed.Relays), "participants", len(parsed.ParticipantJids))
-			m.mu.Lock()
-			call.RelayData = &core.RelayData{
-				Endpoints:       parsed.Relays,
-				ParticipantJids: parsed.ParticipantJids,
-				UUID:            parsed.UUID,
-				SelfPid:         parsed.SelfPid,
-				PeerPid:         parsed.PeerPid,
-				HbhKey:          parsed.HbhKey,
-			}
-			relayData = call.RelayData
-			m.mu.Unlock()
-		}
-	}
+	m.log.Info("accept sent", "call_id", callID)
 
 	transport := waBinary.Node{
 		Tag:   "call",
