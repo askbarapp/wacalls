@@ -103,6 +103,25 @@ WHERE status IN ('QUEUED','CONNECTING','RINGING','ANSWERED')
   AND COALESCE(started_at, queued_at, created_at) < NOW() - INTERVAL '45 minutes'`)
 }
 
+func (h *Hub) checkPrekeys(ctx context.Context) {
+	for _, ch := range h.eachChannel() {
+		if ch.client == nil || ch.client.Store == nil || ch.client.Store.ID == nil {
+			continue
+		}
+		jid := ch.client.Store.ID.String()
+		var count int
+		err := h.db.QueryRowContext(ctx, `SELECT count(*) FROM whatsmeow_pre_keys WHERE jid = $1`, jid).Scan(&count)
+		if err != nil {
+			continue
+		}
+		ch.log.Info("session prekey status", "jid", jid, "count", count)
+		if count < 100 && ch.client.IsConnected() {
+			ch.log.Info("prekeys low, uploading fresh keys", "count", count)
+			_ = ch.client.UploadPreKeys(ctx)
+		}
+	}
+}
+
 type incomingConfig struct {
 	Enabled     bool
 	AiConfigID  string

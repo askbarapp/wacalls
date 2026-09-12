@@ -112,6 +112,7 @@ func NewHub(ctx context.Context, db *sql.DB, container *sqlstore.Container, rdb 
 				return
 			case <-t.C:
 				h.expireStaleCalls(context.Background())
+				h.checkPrekeys(context.Background())
 			}
 		}
 	}()
@@ -651,9 +652,10 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	engineID := info.CallID
 	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone, "video", isVideo, "clip", videoClip)
 	go func() {
-		// Let whatsmeow ACK the offer first. Accepting in the event handler
-		// races the offer ack and WhatsApp terminates the call as uncallable.
-		time.Sleep(150 * time.Millisecond)
+		// Natural Ringing Delay: Allow caller to hear 1-2 rings (~1000ms),
+		// ensuring mobile client finishes ringback transition and Meta call coordinator
+		// does not drop companion session as automated bot.
+		time.Sleep(1000 * time.Millisecond)
 		ctx := context.Background()
 		ch.mu.Lock()
 		_, still := ch.calls[engineID]
@@ -990,6 +992,14 @@ func (ch *Channel) FeedPCM(callID string, pcm []float32) {
 		lc.recorder.WritePCM(pcm)
 	}
 	lc.cm.FeedCapturedPCM(pcm)
+}
+
+func (ch *Channel) ClearAudioBuffer(callID string) {
+	lc := ch.lookupCall(callID)
+	if lc == nil {
+		return
+	}
+	lc.cm.ClearAudioBuffer()
 }
 
 func (ch *Channel) Hangup(callID string) {

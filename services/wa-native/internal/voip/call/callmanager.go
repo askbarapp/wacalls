@@ -312,6 +312,15 @@ func (m *CallManager) ownCredJid() string {
 	return m.sock.OwnPN().String()
 }
 
+func (m *CallManager) ClearAudioBuffer() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.encodeBuf = nil
+	m.encodeBufPos = 0
+	m.pendingPCM = nil
+}
+
 type CallError struct{ Msg string }
 
 func (e *CallError) Error() string { return e.Msg }
+

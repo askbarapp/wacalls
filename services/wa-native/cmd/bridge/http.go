@@ -25,6 +25,7 @@ func (h *Hub) Routes() http.Handler {
 	mux.HandleFunc("POST /internal/calls/{id}/hangup", h.auth(h.handleHangup))
 	mux.HandleFunc("POST /internal/calls/{id}/mute", h.auth(h.handleMute))
 	mux.HandleFunc("POST /internal/calls/{id}/pcm", h.auth(h.handlePCM))
+	mux.HandleFunc("POST /internal/calls/{id}/clear-audio", h.auth(h.handleClearAudio))
 	return mux
 }
 
@@ -334,6 +335,17 @@ func (h *Hub) handlePCM(w http.ResponseWriter, r *http.Request) {
 	for _, ch := range h.eachChannel() {
 		if ch.lookupCall(id) != nil {
 			ch.FeedPCM(id, pcm)
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Hub) handleClearAudio(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	for _, ch := range h.eachChannel() {
+		if ch.lookupCall(id) != nil {
+			ch.ClearAudioBuffer(id)
 			break
 		}
 	}

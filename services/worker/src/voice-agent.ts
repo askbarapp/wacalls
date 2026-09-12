@@ -262,13 +262,14 @@ class NativeVoiceAgent {
       const energy = rms(pcm);
       if (energy > 0.028) this.bargeSamples += pcm.length;
       else this.bargeSamples = 0;
-      if (this.bargeSamples >= this.sampleRate * 0.32) {
+      if (this.bargeSamples >= this.sampleRate * 0.28) {
         this.interrupt = true;
         this.speaking = false;
         this.bargeSamples = 0;
         this.pending = new Float32Array(pcm);
         this.speakingSamples = pcm.length;
         this.silenceSamples = 0;
+        void this.clearAudioBuffer();
       }
       return;
     }
@@ -362,6 +363,21 @@ class NativeVoiceAgent {
       });
     } catch (err) {
       log.warn({ err, callId: this.cfg.callId }, "hangup request failed");
+    }
+  }
+
+  private async clearAudioBuffer() {
+    try {
+      await fetch(`${this.cfg.whatsappUrl}/internal/calls/${this.cfg.callId}/clear-audio`, {
+        method: "POST",
+        headers: {
+          "x-internal-token": this.cfg.internalToken,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      });
+    } catch {
+      /* ignore */
     }
   }
 

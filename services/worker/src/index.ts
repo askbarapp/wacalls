@@ -560,6 +560,9 @@ async function finalizeCampaignCall(call: CampaignCallRow) {
     log.warn({ err, callId: call.id }, "auto-reply enqueue failed"),
   );
   await closeCampaignContactFromCall(call);
+  await processPostCallAnalysisAndWebhook(call).catch((err) =>
+    log.warn({ err, callId: call.id }, "post-call analysis failed"),
+  );
   if (call.campaignId) {
     const campaign = await prisma.campaign.findUnique({
       where: { id: call.campaignId },
@@ -569,6 +572,89 @@ async function finalizeCampaignCall(call: CampaignCallRow) {
       const delay = await campaignPaceDelay(call.campaignId, true);
       await enqueueCampaignContinue(call.campaignId, call.organizationId, delay);
     }
+  }
+}
+
+async function processPostCallAnalysisAndWebhook(call: CampaignCallRow) {
+  const fullCall = await prisma.call.findUnique({
+    where: { id: call.id },
+  });
+  if (!fullCall || !fullCall.transcript) return;
+
+  const transcriptData = fullCall.transcript as { turns?: Array<{ role: string; text: string }> };
+  const turns = transcriptData?.turns || [];
+  if (turns.length < 2) return;
+
+  const transcriptText = turns
+    .map((t) => `${t.role === "user" ? "Caller" : "Agent"}: ${t.text}`)
+    .join("\n")
+    .slice(0, 3000);
+
+  let leadIntent = "ENQUIRY";
+  let summary = "";
+  let sentiment = "NEUTRAL";
+
+  try {
+    const sarvamKey = await resolveSarvamApiKey(fullCall.organizationId).catch(() => "");
+    if (sarvamKey) {
+      const sarvam = new SarvamClient(sarvamKey);
+      const prompt = `Analyze this WhatsApp voice call transcript.
+Output in EXACT JSON format with no markdown:
+{"summary": "One short sentence summary in English or Hindi", "leadStatus": "INTERESTED" | "CALLBACK_REQUESTED" | "NOT_INTERESTED" | "ENQUIRY", "sentiment": "POSITIVE" | "NEUTRAL" | "NEGATIVE"}
+
+Transcript:
+${transcriptText}`;
+
+      const res = await sarvam.chat([{ role: "user", content: prompt }], { temperature: 0.1, maxTokens: 140 });
+      const cleaned = res.replace(/```json/g, "").replace(/```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      if (parsed.leadStatus) leadIntent = parsed.leadStatus;
+      if (parsed.summary) summary = parsed.summary;
+      if (parsed.sentiment) sentiment = parsed.sentiment;
+    }
+  } catch (err) {
+    log.debug({ err, callId: fullCall.id }, "post-call LLM parse fallback");
+  }
+
+  // Update Call record with AI lead analysis
+  await prisma.call
+    .update({
+      where: { id: fullCall.id },
+      data: {
+        notes: summary ? `[AI Lead: ${leadIntent} | ${sentiment}] ${summary}` : fullCall.notes,
+      },
+    })
+    .catch(() => undefined);
+
+  // Dispatch to external CRM Webhook if configured in settings
+  try {
+    const webhookSetting = await prisma.setting.findFirst({
+      where: { organizationId: fullCall.organizationId, key: "crm_webhook_url" },
+    });
+    const rawVal = webhookSetting?.value;
+    const webhookUrl = typeof rawVal === "string" ? rawVal.trim().replace(/"/g, "") : "";
+    if (webhookUrl && webhookUrl.startsWith("http")) {
+      await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          event: "call.completed",
+          callId: fullCall.id,
+          phone: fullCall.phone,
+          contactName: fullCall.contactName,
+          durationMs: fullCall.durationMs,
+          status: fullCall.status,
+          leadStatus: leadIntent,
+          sentiment,
+          summary,
+          transcript: turns,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      log.info({ callId: fullCall.id, webhookUrl, leadIntent }, "dispatched lead to CRM webhook");
+    }
+  } catch (err) {
+    log.warn({ err, callId: fullCall.id }, "CRM webhook dispatch error");
   }
 }
 

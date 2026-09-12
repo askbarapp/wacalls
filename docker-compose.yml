@@ -1,5 +1,13 @@
+x-logging: &default-logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "3"
+
 services:
   postgres:
+    <<: *default-logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -16,6 +24,7 @@ services:
     networks: [internal]
 
   redis:
+    <<: *default-logging
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
@@ -29,6 +38,7 @@ services:
     networks: [internal]
 
   api:
+    <<: *default-logging
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -49,6 +59,7 @@ services:
     networks: [internal]
 
   worker:
+    <<: *default-logging
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -70,6 +81,7 @@ services:
     networks: [internal]
 
   whatsapp:
+    <<: *default-logging
     build:
       context: ./services/wa-native
       dockerfile: Dockerfile.bridge
@@ -100,6 +112,7 @@ services:
     networks: [internal]
 
   web:
+    <<: *default-logging
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -109,6 +122,7 @@ services:
     networks: [internal]
 
   nginx:
+    <<: *default-logging
     build:
       context: .
       dockerfile: docker/nginx.Dockerfile
