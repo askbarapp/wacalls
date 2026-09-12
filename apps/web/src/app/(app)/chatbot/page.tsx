@@ -251,32 +251,91 @@ function ChatbotInner() {
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
             <h2 className="mb-4 text-base font-semibold text-white">Bot Controls & Status</h2>
-            <div className="mb-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
-              <label className="flex cursor-pointer items-center justify-between">
+            <div className="mb-5 space-y-4 rounded-xl border border-white/10 bg-black/30 p-4">
+              {/* Master Switch */}
+              <div className="flex items-center justify-between gap-4">
                 <div>
-                  <div className="text-sm font-medium text-white">Chatbot Master Switch</div>
-                  <div className="text-xs text-slate-400">Enable or disable auto-replies for this WhatsApp line</div>
-                </div>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 rounded border-white/20 text-brand-500 focus:ring-brand-500"
-                  checked={bot.enabled}
-                  onChange={(e) => setBot({ ...bot, enabled: e.target.checked })}
-                />
-              </label>
-              <div className="border-t border-white/5 pt-3">
-                <label className="flex cursor-pointer items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium text-white">AI Knowledge Chat</div>
-                    <div className="text-xs text-slate-400">Use Sarvam / Gemini when no keyword matches</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-white">Chatbot Master Switch</span>
+                    {bot.enabled ? (
+                      <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400">
+                        ON
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-slate-500/20 px-2.5 py-0.5 text-[11px] font-bold text-slate-400">
+                        OFF
+                      </span>
+                    )}
                   </div>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 rounded border-white/20 text-brand-500 focus:ring-brand-500"
-                    checked={bot.aiEnabled}
-                    onChange={(e) => setBot({ ...bot, aiEnabled: e.target.checked })}
+                  <div className="mt-0.5 text-xs text-slate-400">
+                    Enable or disable auto-replies for this WhatsApp line
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={bot.enabled}
+                  onClick={() => setBot({ ...bot, enabled: !bot.enabled })}
+                  className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer items-center rounded-full p-1 transition-colors duration-200 ease-in-out focus:outline-none ${
+                    bot.enabled ? "bg-emerald-500 shadow-lg shadow-emerald-500/20" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      bot.enabled ? "translate-x-8" : "translate-x-0"
+                    }`}
                   />
-                </label>
+                  <span
+                    className={`absolute text-[10px] font-extrabold tracking-wider ${
+                      bot.enabled ? "left-2 text-white" : "right-2 text-slate-400"
+                    }`}
+                  >
+                    {bot.enabled ? "ON" : "OFF"}
+                  </span>
+                </button>
+              </div>
+
+              {/* AI Knowledge Chat Switch */}
+              <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-white">AI Knowledge Chat</span>
+                    {bot.aiEnabled ? (
+                      <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400">
+                        ON
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-slate-500/20 px-2.5 py-0.5 text-[11px] font-bold text-slate-400">
+                        OFF
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-xs text-slate-400">
+                    Use Sarvam / Gemini when no keyword matches
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={bot.aiEnabled}
+                  onClick={() => setBot({ ...bot, aiEnabled: !bot.aiEnabled })}
+                  className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer items-center rounded-full p-1 transition-colors duration-200 ease-in-out focus:outline-none ${
+                    bot.aiEnabled ? "bg-emerald-500 shadow-lg shadow-emerald-500/20" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      bot.aiEnabled ? "translate-x-8" : "translate-x-0"
+                    }`}
+                  />
+                  <span
+                    className={`absolute text-[10px] font-extrabold tracking-wider ${
+                      bot.aiEnabled ? "left-2 text-white" : "right-2 text-slate-400"
+                    }`}
+                  >
+                    {bot.aiEnabled ? "ON" : "OFF"}
+                  </span>
+                </button>
               </div>
             </div>
             <label className="mb-2 block text-xs text-slate-400">
@@ -337,14 +396,34 @@ function ChatbotInner() {
                 onChange={(e) => setBot({ ...bot, handoffMessage: e.target.value })}
               />
             </label>
-            <label className="mb-3 flex items-center gap-2 text-sm text-slate-300">
-              <input
-                type="checkbox"
-                checked={bot.unknownHandoff}
-                onChange={(e) => setBot({ ...bot, unknownHandoff: e.target.checked })}
-              />
-              After fallback, hand off to inbox
-            </label>
+            <div className="mb-4 flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-3">
+              <div>
+                <div className="text-sm font-medium text-white">After fallback, hand off to inbox</div>
+                <div className="text-xs text-slate-400">Pause bot and transfer to human agent when unknown</div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={bot.unknownHandoff}
+                onClick={() => setBot({ ...bot, unknownHandoff: !bot.unknownHandoff })}
+                className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer items-center rounded-full p-1 transition-colors duration-200 ease-in-out focus:outline-none ${
+                  bot.unknownHandoff ? "bg-brand-500" : "bg-slate-700"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                    bot.unknownHandoff ? "translate-x-7" : "translate-x-0"
+                  }`}
+                />
+                <span
+                  className={`absolute text-[9px] font-bold ${
+                    bot.unknownHandoff ? "left-1.5 text-ink-950" : "right-1.5 text-slate-400"
+                  }`}
+                >
+                  {bot.unknownHandoff ? "ON" : "OFF"}
+                </span>
+              </button>
+            </div>
             <button
               type="button"
               disabled={busy}
