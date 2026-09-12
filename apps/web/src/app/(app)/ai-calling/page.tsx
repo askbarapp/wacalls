@@ -1606,89 +1606,172 @@ function IncomingCard({
 
   return (
     <form
-      className="rounded-2xl border border-white/10 bg-ink-900/80 p-4"
+      className="rounded-2xl border border-white/10 bg-ink-900/80 p-5 shadow-xl backdrop-blur-sm"
       onSubmit={async (e) => {
         e.preventDefault();
         await save();
       }}
     >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-4">
         <div>
-          <p className="font-medium text-white">{channel.displayName}</p>
-          <p className="text-xs text-slate-500">
-            {channel.phoneNumber || "No number yet"} · {channel.status}
-            {cloud ? " · Cloud API" : ""}
+          <div className="flex items-center gap-2">
+            <p className="text-base font-semibold text-white">{channel.displayName}</p>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                connected
+                  ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border border-amber-500/30 bg-amber-500/10 text-amber-400"
+              }`}
+            >
+              {channel.status}
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs text-slate-400">
+            {channel.phoneNumber || "No phone number yet"}
+            {cloud ? " · WhatsApp Cloud API" : " · WhatsApp Native Web"}
           </p>
         </div>
-        <label className="flex items-center gap-2 text-sm text-slate-200">
-          <input
-            type="checkbox"
-            checked={enabled}
+
+        {/* Prominent ON/OFF Toggle Switch */}
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="flex items-center justify-end gap-1.5">
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold tracking-wider uppercase transition-colors ${
+                  enabled
+                    ? "border border-emerald-500/40 bg-emerald-500/20 text-emerald-300 shadow-sm shadow-emerald-500/30"
+                    : "border border-slate-700 bg-slate-800/80 text-slate-400"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    enabled ? "animate-pulse bg-emerald-400" : "bg-slate-500"
+                  }`}
+                />
+                {enabled ? "ON" : "OFF"}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              {enabled ? "AI Auto-Answer Active" : "Calls Ring on Phone"}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
             disabled={cloud || saving}
-            onChange={(e) => {
-              const on = e.target.checked;
+            onClick={() => {
+              const on = !enabled;
               const agent = aiConfigId || agents[0]?.id || "";
               if (on && !agent) {
-                onError("Create and select an AI agent first, then turn auto-answer on.");
+                onError("Please create and select an AI agent first, then turn auto-answer on.");
                 return;
               }
               setEnabled(on);
               if (on && !aiConfigId && agent) setAiConfigId(agent);
               void save({ enabled: on, aiConfigId: agent, sendMessage, messageWhen, messageBody });
             }}
-          />
-          Auto-answer with AI
-        </label>
+            className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 disabled:cursor-not-allowed disabled:opacity-50 ${
+              enabled
+                ? "bg-gradient-to-r from-emerald-500 to-teal-500 shadow-md shadow-emerald-500/25"
+                : "bg-slate-700/90 hover:bg-slate-600"
+            }`}
+          >
+            <span className="sr-only">Toggle AI Auto-Answer</span>
+            <span
+              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                enabled ? "translate-x-7" : "translate-x-1"
+              }`}
+            />
+          </button>
+        </div>
       </div>
+
       {cloud ? (
-        <p className="mb-3 text-xs text-amber-200">Cloud API lines cannot receive WhatsApp voice. Use a CONNECTED WhatsApp Web channel.</p>
+        <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+          Cloud API lines cannot receive WhatsApp voice calls. Use a CONNECTED WhatsApp Web channel.
+        </div>
       ) : null}
       {!cloud && !connected ? (
-        <p className="mb-3 text-xs text-amber-200">
-          This line is not CONNECTED. Open WhatsApp, Reconnect / scan QR, then incoming calls can be answered.
+        <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+          ⚠️ This line is not CONNECTED. Open WhatsApp, Reconnect / scan QR, then incoming calls will be answered 24/7 by the server AI.
+        </div>
+      ) : null}
+
+      <div className="mb-4">
+        <label className="mb-1.5 block text-xs font-medium text-slate-300">
+          Select AI Agent for Incoming Calls
+        </label>
+        <select
+          className="w-full rounded-xl border border-white/10 bg-ink-950/80 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
+          value={aiConfigId}
+          disabled={cloud}
+          onChange={(e) => setAiConfigId(e.target.value)}
+        >
+          <option value="">{agents.length ? "Select AI agent" : "Create an AI agent first"}</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name} ({a.language})
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-[11px] text-slate-500">
+          This AI agent will speak and interact with callers when they call this WhatsApp number.
         </p>
-      ) : null}
-      <label className="mb-1 block text-xs text-slate-500">AI agent for incoming calls</label>
-      <select
-        className="mb-3"
-        value={aiConfigId}
-        disabled={cloud}
-        onChange={(e) => setAiConfigId(e.target.value)}
-      >
-        <option value="">{agents.length ? "Select AI agent" : "Create an AI agent first"}</option>
-        {agents.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name}
-          </option>
-        ))}
-      </select>
-      <label className="mb-3 flex items-center gap-2 text-sm text-slate-200">
-        <input type="checkbox" checked={sendMessage} onChange={(e) => setSendMessage(e.target.checked)} />
-        Send a WhatsApp message on this incoming call
-      </label>
-      {sendMessage ? (
-        <>
-          <label className="mb-1 block text-xs text-slate-500">When to send</label>
-          <select
-            className="mb-2"
-            value={messageWhen}
-            onChange={(e) => setMessageWhen(e.target.value as "answered" | "ringing")}
-          >
-            <option value="answered">When AI answers</option>
-            <option value="ringing">As soon as the call comes in</option>
-          </select>
-          <textarea
-            className="mb-3 min-h-20 w-full text-sm"
-            placeholder="Namaste {{name}}, aapki call connect ho gayi hai."
-            value={messageBody}
-            onChange={(e) => setMessageBody(e.target.value)}
+      </div>
+
+      <div className="mb-4 rounded-xl border border-white/5 bg-ink-950/40 p-3.5">
+        <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-slate-200">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-white/20 bg-ink-900 text-brand-500 focus:ring-brand-500"
+            checked={sendMessage}
+            onChange={(e) => setSendMessage(e.target.checked)}
           />
-          <p className="mb-3 text-xs text-slate-500">Use {"{{name}}"} and {"{{phone}}"}.</p>
-        </>
-      ) : null}
-      <button type="submit" className="rounded-lg bg-brand-500 px-4 py-2 text-ink-950" disabled={saving || cloud}>
-        {saving ? "Saving…" : "Save incoming settings"}
-      </button>
+          Send a WhatsApp follow-up message on this incoming call
+        </label>
+
+        {sendMessage ? (
+          <div className="mt-3 space-y-3 border-t border-white/5 pt-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-400">When to send the message</label>
+              <select
+                className="w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-1.5 text-xs text-white focus:border-brand-500 focus:outline-none"
+                value={messageWhen}
+                onChange={(e) => setMessageWhen(e.target.value as "answered" | "ringing")}
+              >
+                <option value="answered">After AI answers the call</option>
+                <option value="ringing">As soon as the call arrives (even if missed)</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-400">Message content</label>
+              <textarea
+                className="w-full rounded-lg border border-white/10 bg-ink-900 p-2.5 text-xs text-white placeholder-slate-500 focus:border-brand-500 focus:outline-none"
+                rows={3}
+                placeholder="Namaste {{name}}, thank you for calling us. How can we help you?"
+                value={messageBody}
+                onChange={(e) => setMessageBody(e.target.value)}
+              />
+              <p className="mt-1 text-[11px] text-slate-500">Supported variables: {"{{name}}"} and {"{{phone}}"}.</p>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500">
+          {enabled ? "🟢 Server is actively listening for incoming calls 24/7." : "⚪ Auto-answer is turned off."}
+        </p>
+        <button
+          type="submit"
+          className="rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-5 py-2 text-xs font-semibold text-ink-950 shadow-md shadow-brand-500/20 transition-all hover:brightness-110 disabled:opacity-50"
+          disabled={saving || cloud}
+        >
+          {saving ? "Saving…" : "Save Incoming Settings"}
+        </button>
+      </div>
     </form>
   );
 }

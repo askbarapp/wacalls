@@ -28,9 +28,10 @@ type CallInfo struct {
 	CreatedAt       time.Time
 	GroupJid        string
 	IsOffline       bool
-	CallerPn        string
-	EncryptionKey   []byte
-	RelayData       *core.RelayData
+	CallerPn          string
+	EncryptionKey     []byte
+	PeerEncryptionKey []byte
+	RelayData         *core.RelayData
 	ElectedRelayIdx *int
 }
 

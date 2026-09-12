@@ -52,8 +52,9 @@ func (m *CallManager) HandleCallOffer(ctx context.Context, node *waBinary.Node, 
 	m.mu.Lock()
 	call := NewIncomingCall(callID, peerJid.String(), creator, "", mediaType)
 	if callKey != nil {
-		call.EncryptionKey = callKey
+		call.PeerEncryptionKey = callKey
 	}
+	call.EncryptionKey = media.GenerateCallKey()
 	if len(relays) > 0 {
 		rd := &core.RelayData{Endpoints: relays}
 		if structured != nil {
@@ -124,6 +125,7 @@ func (m *CallManager) HandleCallAccept(ctx context.Context, node *waBinary.Node,
 	if signaling.NeedsDecryption(info.Tag) {
 		if peerKey, err := signaling.DecryptCallKeyInNode(ctx, m.sock, info.InnerNode, peerJid); err == nil && peerKey != nil {
 			m.mu.Lock()
+			call.PeerEncryptionKey = peerKey
 			if call.EncryptionKey != nil && !equalBytes(call.EncryptionKey, peerKey) {
 				m.reinitSrtpLocked(peerKey, peerJid)
 			}

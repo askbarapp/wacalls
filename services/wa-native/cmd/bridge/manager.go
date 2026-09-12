@@ -651,8 +651,8 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	engineID := info.CallID
 	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone, "video", isVideo, "clip", videoClip)
 	go func() {
-		// Let whatsmeow ACK the offer first. Accepting in the event handler
-		// races the offer ack and WhatsApp terminates the call as uncallable.
+		// Let whatsmeow process the offer node and send preaccept first so
+		// the caller's phone enters the ringing state cleanly.
 		time.Sleep(150 * time.Millisecond)
 		ctx := context.Background()
 		ch.mu.Lock()
@@ -663,6 +663,17 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		}
 		node := wrapCall(from, inner)
 		cm.HandleCallOffer(ctx, node, from)
+
+		// Wait 1.2s while ringing so the mobile WhatsApp client completes its
+		// offer/ringback state transition before receiving the accept stanza.
+		time.Sleep(1200 * time.Millisecond)
+		ch.mu.Lock()
+		_, still = ch.calls[engineID]
+		ch.mu.Unlock()
+		if !still {
+			return
+		}
+
 		if err := cm.AcceptCall(ctx, engineID); err != nil {
 			ch.log.Warn("auto-answer accept failed", "err", err, "call_id", engineID)
 			ch.hub.failCall(ctx, callID, err.Error())
@@ -672,7 +683,7 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 			return
 		}
 		ch.emitCall(lc, "connecting", "")
-		if aiID != "" {
+		if aiID != "" || sendMsg {
 			payload, _ := json.Marshal(map[string]any{
 				"callId":         callID,
 				"organizationId": ch.orgID,

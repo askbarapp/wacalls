@@ -45,7 +45,7 @@ inboundSub.on("message", (_channel, raw) => {
   void (async () => {
     try {
       const data = JSON.parse(raw) as PlaceCallJob;
-      if (!data.callId || !data.aiConfigId) return;
+      if (!data.callId || (!data.aiConfigId && !data.sendMessage)) return;
       await callQ.add(
         "inbound",
         { ...data, inbound: true, hangupAfterPlayback: false },
@@ -868,6 +868,19 @@ const callWorker = new Worker<PlaceCallJob>(
       await waitQueue.remove(channelId, callId);
       if (acquired) await lock.release(channelId, owner).catch(() => undefined);
       if (row) await finalizeCampaignCall(row);
+      if (inbound && sendMessage && messageBody?.trim()) {
+        const when = messageWhen === "ringing" ? "ringing" : "answered";
+        if (when === "ringing" || row?.status === "ANSWERED") {
+          await sendChannelText({
+            organizationId,
+            channelId,
+            phone,
+            contactId: row?.contactId,
+            contactName: contactName ?? row?.contactName,
+            body: messageBody,
+          }).catch((err) => log.warn({ err, callId }, "inbound WhatsApp notice failed on exit"));
+        }
+      }
       return { skipped: true };
     }
 
@@ -879,7 +892,7 @@ const callWorker = new Worker<PlaceCallJob>(
       const when = messageWhen === "ringing" ? "ringing" : "answered";
       const ready =
         when === "ringing"
-          ? ["CONNECTING", "RINGING", "ANSWERED"].includes(status)
+          ? ["CONNECTING", "RINGING", "ANSWERED", "ENDED"].includes(status) || inbound
           : status === "ANSWERED";
       if (!ready) return;
       noticeSent = true;
@@ -932,6 +945,9 @@ const callWorker = new Worker<PlaceCallJob>(
         if (call && isTerminalCallStatus(call.status)) {
           clearInterval(heartbeat);
           agent?.stop();
+          if (inbound && sendMessage && messageBody?.trim()) {
+            await sendNotice(call.status);
+          }
           await finalizeCampaignCall(call);
           return { status: call.status };
         }
