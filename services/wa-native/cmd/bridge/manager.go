@@ -484,14 +484,23 @@ func (ch *Channel) handleEvent(raw any) {
 }
 
 func (ch *Channel) onChatMessage(ctx context.Context, evt *events.Message) {
-	if evt == nil || evt.Info.IsFromMe || evt.Info.IsGroup {
+	if evt == nil || evt.Info.IsGroup {
 		return
 	}
 	text := messageText(evt.Message)
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	phone := ch.peerPhone(ctx, evt.Info.Sender)
+	phone := ch.peerPhone(ctx, evt.Info.Chat)
+	if evt.Info.IsFromMe {
+		ch.publish("outbound_chat", map[string]any{
+			"phone":     phone,
+			"text":      text,
+			"messageId": evt.Info.ID,
+			"fromMe":    true,
+		})
+		return
+	}
 	ch.publish("inbound_chat", map[string]any{
 		"phone":     phone,
 		"text":      text,

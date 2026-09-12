@@ -250,23 +250,35 @@ function ChatbotInner() {
       {tab === "setup" && bot ? (
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
-            <h2 className="mb-3 font-medium text-white">Bot settings</h2>
-            <label className="mb-3 flex items-center gap-2 text-sm text-slate-300">
-              <input
-                type="checkbox"
-                checked={bot.enabled}
-                onChange={(e) => setBot({ ...bot, enabled: e.target.checked })}
-              />
-              Enabled (auto-replies inbound WhatsApp text)
-            </label>
-            <label className="mb-3 flex items-center gap-2 text-sm text-slate-300">
-              <input
-                type="checkbox"
-                checked={bot.aiEnabled}
-                onChange={(e) => setBot({ ...bot, aiEnabled: e.target.checked })}
-              />
-              Gemini / Sarvam chat when no keyword matches
-            </label>
+            <h2 className="mb-4 text-base font-semibold text-white">Bot Controls & Status</h2>
+            <div className="mb-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
+              <label className="flex cursor-pointer items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-white">Chatbot Master Switch</div>
+                  <div className="text-xs text-slate-400">Enable or disable auto-replies for this WhatsApp line</div>
+                </div>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 rounded border-white/20 text-brand-500 focus:ring-brand-500"
+                  checked={bot.enabled}
+                  onChange={(e) => setBot({ ...bot, enabled: e.target.checked })}
+                />
+              </label>
+              <div className="border-t border-white/5 pt-3">
+                <label className="flex cursor-pointer items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-white">AI Knowledge Chat</div>
+                    <div className="text-xs text-slate-400">Use Sarvam / Gemini when no keyword matches</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-white/20 text-brand-500 focus:ring-brand-500"
+                    checked={bot.aiEnabled}
+                    onChange={(e) => setBot({ ...bot, aiEnabled: e.target.checked })}
+                  />
+                </label>
+              </div>
+            </div>
             <label className="mb-2 block text-xs text-slate-400">
               AI agent
               <select
@@ -502,41 +514,55 @@ function ChatbotInner() {
                     >
                       ← Conversations
                     </button>
-                    <div className="truncate font-medium text-white">{thread.contact?.name || thread.phone}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium text-white">{thread.contact?.name || thread.phone}</span>
+                      {thread.status === "HANDOFF" ? (
+                        <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                          👤 Human Active (AI Paused)
+                        </span>
+                      ) : (
+                        <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                          🤖 AI Bot Active
+                        </span>
+                      )}
+                    </div>
                     <div className="truncate text-xs text-slate-500">
-                      {thread.phone} · {thread.status}
+                      {thread.phone}
                       {thread.optOut ? " · opted out" : ""}
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <button
-                      type="button"
-                      className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white"
-                      onClick={async () => {
-                        await api(`/api/v1/chat/conversations/${thread.id}/handoff`, { method: "POST" });
-                        const r = await api<{ success: true; data: Thread }>(
-                          `/api/v1/chat/conversations/${thread.id}`,
-                        );
-                        setThread(r.data);
-                        await loadInbox();
-                      }}
-                    >
-                      Handoff
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white"
-                      onClick={async () => {
-                        await api(`/api/v1/chat/conversations/${thread.id}/resume`, { method: "POST" });
-                        const r = await api<{ success: true; data: Thread }>(
-                          `/api/v1/chat/conversations/${thread.id}`,
-                        );
-                        setThread(r.data);
-                        await loadInbox();
-                      }}
-                    >
-                      Resume bot
-                    </button>
+                    {thread.status === "HANDOFF" ? (
+                      <button
+                        type="button"
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                        onClick={async () => {
+                          await api(`/api/v1/chat/conversations/${thread.id}/resume`, { method: "POST" });
+                          const r = await api<{ success: true; data: Thread }>(
+                            `/api/v1/chat/conversations/${thread.id}`,
+                          );
+                          setThread(r.data);
+                          await loadInbox();
+                        }}
+                      >
+                        ▶️ Resume AI Bot
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
+                        onClick={async () => {
+                          await api(`/api/v1/chat/conversations/${thread.id}/handoff`, { method: "POST" });
+                          const r = await api<{ success: true; data: Thread }>(
+                            `/api/v1/chat/conversations/${thread.id}`,
+                          );
+                          setThread(r.data);
+                          await loadInbox();
+                        }}
+                      >
+                        👤 Take Over (Pause AI)
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div
@@ -559,7 +585,7 @@ function ChatbotInner() {
                             }`}
                           >
                             <p className="text-[10px] font-medium uppercase tracking-wide text-white/50">
-                              {fromUser ? "User" : m.source === "agent" ? "Agent" : "Bot"}
+                              {fromUser ? "User" : m.source === "agent" ? "Agent (Web)" : m.source === "human_device" ? "You (Phone)" : "AI Bot"}
                             </p>
                             <p className="whitespace-pre-wrap break-words">{m.body}</p>
                             <p className="mt-1 text-[10px] text-white/40">

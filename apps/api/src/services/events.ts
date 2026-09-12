@@ -27,12 +27,33 @@ export async function startEventBridge() {
       if (event.type === "inbound_chat" && event.channelId) {
         const chat = event as { channelId: string; phone?: string; text?: string; messageId?: string };
         if (chat.phone && chat.text) {
+          void import("./chatbot-engine.js").then((mod) =>
+            mod.handleInboundChat({
+              channelId: chat.channelId,
+              phone: chat.phone!,
+              text: chat.text!,
+              messageId: chat.messageId,
+            }),
+          );
           void import("./visits-support.js").then((mod) =>
             mod.ingestInboundWhatsApp({
               channelId: chat.channelId,
               phone: chat.phone!,
               text: chat.text!,
               whatsappId: chat.messageId,
+            }),
+          );
+        }
+      }
+      if (event.type === "outbound_chat" && event.channelId) {
+        const chat = event as { channelId: string; phone?: string; text?: string; messageId?: string };
+        if (chat.phone && chat.text) {
+          void import("./chatbot-engine.js").then((mod) =>
+            mod.handleOutboundChat({
+              channelId: chat.channelId,
+              phone: chat.phone!,
+              text: chat.text!,
+              messageId: chat.messageId,
             }),
           );
         }

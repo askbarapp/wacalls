@@ -252,6 +252,10 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
       contactId: convo.contactId ?? undefined,
       chatSource: "agent",
     });
+    await prisma.chatConversation.update({
+      where: { id },
+      data: { status: "HANDOFF" },
+    });
     return ok(sent);
   });
 
