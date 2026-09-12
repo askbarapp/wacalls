@@ -204,8 +204,9 @@ export async function handleInboundChat(input: {
   if (upperText === "START" || upperText === "UNSTOP") {
     await prisma.chatConversation.update({
       where: { id: conversation.id },
-      data: { optOut: false, status: "OPEN" },
+      data: { optOut: false, status: "OPEN", activeAiConfigId: null },
     });
+    conversation.activeAiConfigId = null;
     await sendWhatsAppText({
       organizationId: channel.organizationId,
       channelId: channel.id,
@@ -214,6 +215,15 @@ export async function handleInboundChat(input: {
       chatSource: "bot",
     }).catch(() => undefined);
     return;
+  }
+
+  // Topic reset: if user asks for MENU or MAIN, clear active specialized AI agent
+  if (upperText === "MENU" || upperText === "MAIN") {
+    await prisma.chatConversation.update({
+      where: { id: conversation.id },
+      data: { activeAiConfigId: null },
+    });
+    conversation.activeAiConfigId = null;
   }
 
   if (conversation.optOut) {
@@ -378,6 +388,31 @@ export async function handleInboundChat(input: {
         return;
       }
 
+      if (kw.action === "attend_to_ai") {
+        const targetAgentId = kw.targetAiConfigId || bot.aiConfigId;
+        await prisma.chatConversation.update({
+          where: { id: conversation.id },
+          data: { activeAiConfigId: targetAgentId },
+        });
+        conversation.activeAiConfigId = targetAgentId;
+
+        if (kw.reply && kw.reply.trim()) {
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: conversation.phone,
+            body: kw.reply,
+            chatSource: "bot",
+          }).catch(() => undefined);
+        }
+
+        log.info(
+          { trigger: kw.trigger, targetAgentId, phone },
+          "Keyword matched 'attend_to_ai'; switched conversation active AI agent",
+        );
+        return;
+      }
+
       // Action: reply
       await sendWhatsAppText({
         organizationId: channel.organizationId,
@@ -390,66 +425,90 @@ export async function handleInboundChat(input: {
     }
   }
 
-  // 6. AI LLM Knowledge Base Fallback
-  if (bot.aiEnabled && bot.aiConfigId && bot.aiConfig) {
+  // 7. AI LLM Knowledge Base Response (Default or Specialized Agent)
+  const effectiveAiConfigId = conversation.activeAiConfigId || bot.aiConfigId;
+  const isAiActive = (bot.aiEnabled || Boolean(conversation.activeAiConfigId)) && Boolean(effectiveAiConfigId);
+
+  if (isAiActive) {
     try {
-      const historyRows = await prisma.chatMessage.findMany({
-        where: { conversationId: conversation.id },
-        orderBy: { createdAt: "desc" },
-        take: 12,
-      });
+      // Resolve specialized agent if activeAiConfigId is set and differs from bot.aiConfigId
+      let activeAgent = bot.aiConfig;
+      let activeKbDocs = (bot.knowledgeBase?.documents ?? bot.aiConfig?.knowledgeBase?.documents ?? []);
 
-      const history = historyRows
-        .reverse()
-        .map((m) => ({
-          role: m.direction === "IN" ? ("user" as const) : ("assistant" as const),
-          content: m.body,
-        }));
+      if (effectiveAiConfigId && effectiveAiConfigId !== bot.aiConfigId) {
+        const specialized = await prisma.aiConfig.findUnique({
+          where: { id: effectiveAiConfigId },
+          include: {
+            knowledgeBase: {
+              include: { documents: { take: 40 } },
+            },
+          },
+        });
+        if (specialized) {
+          activeAgent = specialized;
+          activeKbDocs = specialized.knowledgeBase?.documents ?? [];
+        }
+      }
 
-      const kb = (bot.knowledgeBase?.documents ?? bot.aiConfig.knowledgeBase?.documents ?? [])
-        .map((d) => `### ${d.title}\n${d.content}`)
-        .join("\n\n")
-        .slice(0, 4500);
+      if (activeAgent) {
+        const historyRows = await prisma.chatMessage.findMany({
+          where: { conversationId: conversation.id },
+          orderBy: { createdAt: "desc" },
+          take: 12,
+        });
 
-      const systemPrompt = [
-        bot.aiConfig.systemPrompt || "You are a professional customer support representative on WhatsApp.",
-        `=== WHATSAPP CHATBOT GUIDELINES ===`,
-        `1. You are having a real-time text chat with a customer on WhatsApp. Be warm, helpful, and natural.`,
-        `2. Match the customer's language (Hindi, Hinglish, or English). If they text in Hindi/Hinglish, reply in natural conversational Hindi/Hinglish.`,
-        `3. Keep replies concise and easy to read on a mobile phone screen (2-3 short sentences).`,
-        `4. Do not output markdown tables, HTML tags, or asterisks bullet dumps. Simple text with line breaks is best.`,
-        kb ? `Knowledge Base documents:\n${kb}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+        const history = historyRows
+          .reverse()
+          .map((m) => ({
+            role: m.direction === "IN" ? ("user" as const) : ("assistant" as const),
+            content: m.body,
+          }));
 
-      const provider = normalizeVoiceProvider(bot.aiConfig.provider);
-      const { apiKey } = await resolveVoiceApiKey(channel.organizationId, provider);
-      const client = createVoiceAiClient(provider, apiKey);
+        const kb = activeKbDocs
+          .map((d) => `### ${d.title}\n${d.content}`)
+          .join("\n\n")
+          .slice(0, 4500);
 
-      const reply = await client.chat(
-        [
-          { role: "system", content: systemPrompt },
-          ...history.slice(-10),
-          { role: "user", content: text },
-        ],
-        {
-          model: bot.aiConfig.model || defaultModelForProvider(provider),
-          temperature: 0.3,
-          maxTokens: 250,
-        },
-      );
+        const systemPrompt = [
+          activeAgent.systemPrompt || "You are a professional customer support representative on WhatsApp.",
+          `=== WHATSAPP CHATBOT GUIDELINES ===`,
+          `1. You are having a real-time text chat with a customer on WhatsApp. Be warm, helpful, and natural.`,
+          `2. Match the customer's language (Hindi, Hinglish, or English). If they text in Hindi/Hinglish, reply in natural conversational Hindi/Hinglish.`,
+          `3. Keep replies concise and easy to read on a mobile phone screen (2-3 short sentences).`,
+          `4. Do not output markdown tables, HTML tags, or asterisks bullet dumps. Simple text with line breaks is best.`,
+          kb ? `Knowledge Base documents:\n${kb}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
 
-      if (reply && reply.trim()) {
-        log.info({ phone, reply: reply.slice(0, 60) }, "ChatBot AI reply generated");
-        await sendWhatsAppText({
-          organizationId: channel.organizationId,
-          channelId: channel.id,
-          phone: conversation.phone,
-          body: reply.trim(),
-          chatSource: "ai",
-        }).catch(() => undefined);
-        return;
+        const provider = normalizeVoiceProvider(activeAgent.provider);
+        const { apiKey } = await resolveVoiceApiKey(channel.organizationId, provider);
+        const client = createVoiceAiClient(provider, apiKey);
+
+        const reply = await client.chat(
+          [
+            { role: "system", content: systemPrompt },
+            ...history.slice(-10),
+            { role: "user", content: text },
+          ],
+          {
+            model: activeAgent.model || defaultModelForProvider(provider),
+            temperature: 0.3,
+            maxTokens: 250,
+          },
+        );
+
+        if (reply && reply.trim()) {
+          log.info({ phone, agentName: activeAgent.name, reply: reply.slice(0, 60) }, "ChatBot AI reply generated");
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: conversation.phone,
+            body: reply.trim(),
+            chatSource: "ai",
+          }).catch(() => undefined);
+          return;
+        }
       }
     } catch (err) {
       log.warn({ err, phone }, "ChatBot AI generation failed; attempting fallback");

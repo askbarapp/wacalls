@@ -17,6 +17,10 @@ type Keyword = {
   matchType: string;
   reply: string;
   action: string;
+  targetAiConfigId?: string | null;
+  targetKnowledgeBaseId?: string | null;
+  targetAiConfig?: { id: string; name: string };
+  targetKnowledgeBase?: { id: string; name: string };
   enabled: boolean;
   sortOrder: number;
 };
@@ -78,7 +82,21 @@ function ChatbotInner() {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  const [kw, setKw] = useState({ trigger: "", reply: "", matchType: "exact", action: "reply" });
+  const [kw, setKw] = useState<{
+    trigger: string;
+    reply: string;
+    matchType: string;
+    action: string;
+    targetAiConfigId?: string | null;
+    targetKnowledgeBaseId?: string | null;
+  }>({
+    trigger: "",
+    reply: "",
+    matchType: "exact",
+    action: "reply",
+    targetAiConfigId: null,
+    targetKnowledgeBaseId: null,
+  });
   const [editingKw, setEditingKw] = useState<string | null>(null);
   const [rows, setRows] = useState<Conversation[]>([]);
   const [meta, setMeta] = useState<ListMeta>(emptyMeta(25));
@@ -193,7 +211,7 @@ function ChatbotInner() {
           body: JSON.stringify(kw),
         });
       }
-      setKw({ trigger: "", reply: "", matchType: "exact", action: "reply" });
+      setKw({ trigger: "", reply: "", matchType: "exact", action: "reply", targetAiConfigId: null, targetKnowledgeBaseId: null });
       setEditingKw(null);
       await loadBot(bot.channelId);
     } catch (err) {
@@ -556,7 +574,11 @@ function ChatbotInner() {
               />
               <textarea
                 className="min-h-16"
-                placeholder="Reply"
+                placeholder={
+                  kw.action === "attend_to_ai"
+                    ? "Optional transition reply (e.g. Connecting you with our product expert...)"
+                    : "Reply"
+                }
                 value={kw.reply}
                 onChange={(e) => setKw({ ...kw, reply: e.target.value })}
               />
@@ -567,10 +589,53 @@ function ChatbotInner() {
                 </select>
                 <select value={kw.action} onChange={(e) => setKw({ ...kw, action: e.target.value })}>
                   <option value="reply">Reply</option>
+                  <option value="attend_to_ai">Attend to AI (Route to AI Agent)</option>
                   <option value="handoff">Handoff</option>
                   <option value="opt_out">STOP / opt out</option>
                 </select>
               </div>
+
+              {kw.action === "attend_to_ai" && (
+                <div className="grid gap-2 rounded-xl border border-brand-500/30 bg-brand-500/5 p-3">
+                  <label className="block text-xs font-semibold text-brand-300">
+                    Assign Specialized AI Agent
+                    <select
+                      className="mt-1 w-full rounded border border-white/10 bg-black/60 p-2 text-xs text-white"
+                      value={kw.targetAiConfigId ?? ""}
+                      onChange={(e) => setKw({ ...kw, targetAiConfigId: e.target.value || null })}
+                    >
+                      <option value="">
+                        Default Bot Agent ({agents.find((a) => a.id === bot.aiConfigId)?.name || "Default"})
+                      </option>
+                      {agents.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block text-xs font-semibold text-brand-300">
+                    Knowledge Base (Optional override)
+                    <select
+                      className="mt-1 w-full rounded border border-white/10 bg-black/60 p-2 text-xs text-white"
+                      value={kw.targetKnowledgeBaseId ?? ""}
+                      onChange={(e) => setKw({ ...kw, targetKnowledgeBaseId: e.target.value || null })}
+                    >
+                      <option value="">Use Agent’s assigned knowledge base</option>
+                      {bases.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="text-[11px] text-slate-400">
+                    💡 जब ग्राहक यह keyword चुनेगा, तो यह AI Agent उस विषय पर अपनी Knowledge Base के आधार पर बातचीत आगे संभालेगा।
+                  </p>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <button type="button" className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white" onClick={() => void saveKeyword()}>
                   {editingKw ? "Update keyword" : "Add keyword"}
@@ -581,7 +646,7 @@ function ChatbotInner() {
                     className="text-xs text-slate-400"
                     onClick={() => {
                       setEditingKw(null);
-                      setKw({ trigger: "", reply: "", matchType: "exact", action: "reply" });
+                      setKw({ trigger: "", reply: "", matchType: "exact", action: "reply", targetAiConfigId: null, targetKnowledgeBaseId: null });
                     }}
                   >
                     Cancel
@@ -595,8 +660,15 @@ function ChatbotInner() {
                   <div className="flex justify-between gap-2">
                     <span className="font-medium text-white">
                       {k.trigger}{" "}
-                      <span className="text-xs font-normal text-slate-500">
-                        {k.matchType} · {k.action}
+                      <span className="text-xs font-normal text-slate-400">
+                        {k.matchType} ·{" "}
+                        {k.action === "attend_to_ai" ? (
+                          <span className="rounded bg-brand-500/20 px-1.5 py-0.5 font-semibold text-brand-300">
+                            🤖 Attend to AI ({k.targetAiConfig?.name || agents.find((a) => a.id === k.targetAiConfigId)?.name || "Specialized Agent"})
+                          </span>
+                        ) : (
+                          k.action
+                        )}
                       </span>
                     </span>
                     <span className="flex gap-2">
@@ -610,6 +682,8 @@ function ChatbotInner() {
                             reply: k.reply,
                             matchType: k.matchType,
                             action: k.action,
+                            targetAiConfigId: k.targetAiConfigId || null,
+                            targetKnowledgeBaseId: k.targetKnowledgeBaseId || null,
                           });
                         }}
                       >
@@ -627,7 +701,7 @@ function ChatbotInner() {
                       </button>
                     </span>
                   </div>
-                  <p className="mt-1 text-slate-400">{k.reply}</p>
+                  {k.reply ? <p className="mt-1 text-slate-400">{k.reply}</p> : null}
                 </li>
               ))}
             </ul>

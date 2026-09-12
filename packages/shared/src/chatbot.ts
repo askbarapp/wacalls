@@ -1,4 +1,4 @@
-export const CHAT_KEYWORD_ACTIONS = ["reply", "handoff", "opt_out"] as const;
+export const CHAT_KEYWORD_ACTIONS = ["reply", "handoff", "opt_out", "attend_to_ai"] as const;
 export type ChatKeywordAction = (typeof CHAT_KEYWORD_ACTIONS)[number];
 
 export const CHAT_MATCH_TYPES = ["exact", "contains"] as const;
@@ -9,6 +9,8 @@ export type ChatKeywordLike = {
   trigger: string;
   matchType?: string | null;
   action?: string | null;
+  targetAiConfigId?: string | null;
+  targetKnowledgeBaseId?: string | null;
   enabled?: boolean | null;
   sortOrder?: number | null;
   reply?: string | null;

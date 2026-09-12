@@ -624,6 +624,7 @@ model KnowledgeBase {
   documents    KnowledgeBaseDocument[]
   aiConfigs    AiConfig[]
   chatBots     ChatBot[]
+  chatKeywords ChatKeyword[]
 
   @@index([organizationId])
   @@map("knowledge_bases")
@@ -679,6 +680,8 @@ model AiConfig {
   incomingAnswers  IncomingAnswerConfig[]
   visits           Visit[]
   chatBots         ChatBot[]
+  chatKeywords     ChatKeyword[]
+  chatConversations ChatConversation[]
 
   @@index([organizationId])
   @@index([knowledgeBaseId])
@@ -870,14 +873,18 @@ model ChatKeyword {
   trigger        String
   matchType      String   @default("exact") @map("match_type")
   reply          String
-  action         String   @default("reply")
-  enabled        Boolean  @default(true)
-  sortOrder      Int      @default(0) @map("sort_order")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  action                 String   @default("reply")
+  targetAiConfigId       String?  @map("target_ai_config_id")
+  targetKnowledgeBaseId  String?  @map("target_knowledge_base_id")
+  enabled                Boolean  @default(true)
+  sortOrder              Int      @default(0) @map("sort_order")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  chatBot      ChatBot      @relation(fields: [chatBotId], references: [id], onDelete: Cascade)
+  organization        Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chatBot             ChatBot        @relation(fields: [chatBotId], references: [id], onDelete: Cascade)
+  targetAiConfig      AiConfig?      @relation(fields: [targetAiConfigId], references: [id], onDelete: SetNull)
+  targetKnowledgeBase KnowledgeBase? @relation(fields: [targetKnowledgeBaseId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([chatBotId, sortOrder])
@@ -896,15 +903,17 @@ model ChatConversation {
   assignedUserId String?                @map("assigned_user_id")
   lastMessageAt  DateTime               @default(now()) @map("last_message_at")
   lastInboundAt  DateTime?              @map("last_inbound_at")
-  lastGreetingAt DateTime?              @map("last_greeting_at")
-  createdAt      DateTime               @default(now()) @map("created_at")
-  updatedAt      DateTime               @updatedAt @map("updated_at")
+  lastGreetingAt   DateTime?              @map("last_greeting_at")
+  activeAiConfigId String?                @map("active_ai_config_id")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channel      WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  contact      Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  assignee     User?           @relation("ChatAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  messages     ChatMessage[]
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel        WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  contact        Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  assignee       User?           @relation("ChatAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  activeAiConfig AiConfig?       @relation(fields: [activeAiConfigId], references: [id], onDelete: SetNull)
+  messages       ChatMessage[]
 
   @@unique([organizationId, channelId, phone])
   @@index([organizationId, lastMessageAt])

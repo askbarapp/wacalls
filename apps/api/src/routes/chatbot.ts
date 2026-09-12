@@ -30,14 +30,22 @@ const botBody = z.object({
 const keywordBody = z.object({
   trigger: z.string().trim().min(1).max(80),
   matchType: z.enum(CHAT_MATCH_TYPES).optional(),
-  reply: z.string().trim().min(1).max(4096),
+  reply: z.string().trim().max(4096).optional(),
   action: z.enum(CHAT_KEYWORD_ACTIONS).optional(),
+  targetAiConfigId: z.string().uuid().nullable().optional(),
+  targetKnowledgeBaseId: z.string().uuid().nullable().optional(),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(10_000).optional(),
 });
 
 const botInclude = {
-  keywords: { orderBy: { sortOrder: "asc" as const } },
+  keywords: {
+    orderBy: { sortOrder: "asc" as const },
+    include: {
+      targetAiConfig: { select: { id: true, name: true } },
+      targetKnowledgeBase: { select: { id: true, name: true } },
+    },
+  },
   channel: { select: { id: true, displayName: true, status: true, provider: true } },
   aiConfig: { select: { id: true, name: true, provider: true } },
   knowledgeBase: { select: { id: true, name: true } },
@@ -153,8 +161,10 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
           chatBotId: id,
           trigger,
           matchType,
-          reply: body.reply,
+          reply: body.reply ?? "",
           action: body.action ?? "reply",
+          targetAiConfigId: body.targetAiConfigId || null,
+          targetKnowledgeBaseId: body.targetKnowledgeBaseId || null,
           enabled: body.enabled ?? true,
           sortOrder: body.sortOrder ?? (max._max.sortOrder ?? 0) + 10,
         },
