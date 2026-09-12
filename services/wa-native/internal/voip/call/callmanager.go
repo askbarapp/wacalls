@@ -189,7 +189,7 @@ func (m *CallManager) AcceptCall(ctx context.Context, callID string) error {
 	if err != nil {
 		return fmt.Errorf("build accept: %w", err)
 	}
-	m.log.Info("DEBUG RAW ACCEPT SENT", "call_id", callID, "xml", acceptNode.XMLString())
+	m.log.Info("DEBUG RAW ACCEPT SENT", "call_id", callID, "node", fmt.Sprintf("%+v", acceptNode))
 	if err := m.sock.SendNode(ctx, acceptNode); err != nil {
 		return fmt.Errorf("send accept: %w", err)
 	}
@@ -207,7 +207,7 @@ func (m *CallManager) AcceptCall(ctx context.Context, callID string) error {
 			Content: []waBinary.Node{{Tag: "net", Attrs: waBinary.Attrs{"medium": "2", "protocol": "0"}}},
 		}},
 	}
-	m.log.Info("DEBUG RAW TRANSPORT SENT", "call_id", callID, "xml", transport.XMLString())
+	m.log.Info("DEBUG RAW TRANSPORT SENT", "call_id", callID, "node", fmt.Sprintf("%+v", transport))
 	_ = m.sock.SendNode(ctx, transport)
 
 	if relayData != nil {
