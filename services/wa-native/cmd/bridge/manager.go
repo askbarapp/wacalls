@@ -660,9 +660,8 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	engineID := info.CallID
 	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone, "video", isVideo, "clip", videoClip)
 	go func() {
-		// Let whatsmeow finish processing and ACKing the offer stanza (100ms).
-		// Answering must happen before WhatsApp companion cutoff (~165ms) or peer terminates with uncallable.
-		time.Sleep(100 * time.Millisecond)
+		// Let whatsmeow finish processing and ACKing the offer stanza (150ms).
+		time.Sleep(150 * time.Millisecond)
 		ctx := context.Background()
 		ch.mu.Lock()
 		_, still := ch.calls[engineID]

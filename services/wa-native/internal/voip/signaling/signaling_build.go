@@ -116,10 +116,9 @@ func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string,
 
 	acceptContent := []waBinary.Node{
 		{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
-		{Tag: "net", Attrs: waBinary.Attrs{"medium": "2"}},
+		{Tag: "net", Attrs: waBinary.Attrs{"medium": "3"}},
 		*encNode,
 		{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
-		{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityAccept},
 	}
 	if includeDeviceIdentity {
 		if di, ok := sock.AccountDeviceIdentityNode(); ok {
@@ -132,7 +131,7 @@ func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string,
 
 	return waBinary.Node{
 		Tag:   "call",
-		Attrs: waBinary.Attrs{"to": targetJid, "id": GenerateCallStanzaID()},
+		Attrs: waBinary.Attrs{"to": wanode.MustJID(wanode.CleanJID(targetJid.String())), "id": GenerateCallStanzaID()},
 		Content: []waBinary.Node{{
 			Tag:     "accept",
 			Attrs:   waBinary.Attrs{"call-id": callID, "call-creator": callCreator},
