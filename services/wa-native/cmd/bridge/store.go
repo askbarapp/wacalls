@@ -116,8 +116,7 @@ func (h *Hub) checkPrekeys(ctx context.Context) {
 		}
 		ch.log.Info("session prekey status", "jid", jid, "count", count)
 		if count < 100 && ch.client.IsConnected() {
-			ch.log.Info("prekeys low, uploading fresh keys", "count", count)
-			_ = ch.client.UploadPreKeys(ctx)
+			ch.log.Warn("prekey pool low", "count", count)
 		}
 	}
 }
