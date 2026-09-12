@@ -651,9 +651,6 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	engineID := info.CallID
 	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone, "video", isVideo, "clip", videoClip)
 	go func() {
-		// Let whatsmeow process the offer node and send preaccept first so
-		// the caller's phone enters the ringing state cleanly.
-		time.Sleep(150 * time.Millisecond)
 		ctx := context.Background()
 		ch.mu.Lock()
 		_, still := ch.calls[engineID]
@@ -664,9 +661,9 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		node := wrapCall(from, inner)
 		cm.HandleCallOffer(ctx, node, from)
 
-		// Wait 1.2s while ringing so the mobile WhatsApp client completes its
+		// Wait 800ms while ringing so the mobile WhatsApp client completes its
 		// offer/ringback state transition before receiving the accept stanza.
-		time.Sleep(1200 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 		ch.mu.Lock()
 		_, still = ch.calls[engineID]
 		ch.mu.Unlock()
