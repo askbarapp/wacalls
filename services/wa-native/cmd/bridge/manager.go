@@ -457,6 +457,9 @@ func (ch *Channel) handleEvent(raw any) {
 	case *events.LoggedOut:
 		ch.setStatus("DISCONNECTED", "logged out")
 	case *events.CallOffer:
+		if evt.Data != nil {
+			ch.log.Info("DEBUG RAW OFFER", "from", evt.From.String(), "xml", evt.Data.XMLString())
+		}
 		ch.onIncomingOffer(ctx, evt)
 	case *events.CallAccept:
 		if lc := ch.callFromNode(evt.From, evt.Data); lc != nil {
@@ -469,10 +472,16 @@ func (ch *Channel) handleEvent(raw any) {
 	case *events.CallTerminate, *events.CallReject:
 		switch e := evt.(type) {
 		case *events.CallTerminate:
+			if e.Data != nil {
+				ch.log.Info("DEBUG RAW TERMINATE", "from", e.From.String(), "reason", e.Reason, "xml", e.Data.XMLString())
+			}
 			if lc := ch.callFromNode(e.From, e.Data); lc != nil {
 				lc.cm.HandleCallTerminate(wrapCall(e.From, e.Data))
 			}
 		case *events.CallReject:
+			if e.Data != nil {
+				ch.log.Info("DEBUG RAW REJECT", "from", e.From.String(), "xml", e.Data.XMLString())
+			}
 			if lc := ch.callFromNode(e.From, e.Data); lc != nil {
 				lc.cm.HandleCallTerminate(wrapCall(e.From, e.Data))
 			}
