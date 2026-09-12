@@ -217,6 +217,66 @@ export class SarvamClient {
     return json.choices?.[0]?.message?.content?.trim() ?? "";
   }
 
+  async chatStream(
+    messages: ChatTurn[],
+    onChunk: (chunk: string) => void,
+    opts?: { model?: string; temperature?: number; maxTokens?: number; signal?: AbortSignal },
+  ): Promise<string> {
+    const res = await fetch(`${BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: this.headers(),
+      signal: opts?.signal,
+      body: JSON.stringify({
+        model: opts?.model || SARVAM_CHAT_MODEL,
+        temperature: opts?.temperature ?? 0.4,
+        max_tokens: opts?.maxTokens ?? 200,
+        stream: true,
+        messages,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(`Sarvam chat stream failed (${res.status}): ${err.slice(0, 240)}`);
+    }
+    if (!res.body) {
+      const full = await this.chat(messages, opts);
+      onChunk(full);
+      return full;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullContent = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data:")) continue;
+          const payload = trimmed.slice(5).trim();
+          if (payload === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(payload);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (typeof delta === "string" && delta.length > 0) {
+              fullContent += delta;
+              onChunk(delta);
+            }
+          } catch {
+            /* ignore malformed SSE line */
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return fullContent.trim();
+  }
+
   /** Cheap authenticated ping so the UI can confirm a key is live. */
   async testConnection(): Promise<{ ok: boolean; status: number; message: string }> {
     const res = await fetch(`${BASE}/v1/chat/completions`, {

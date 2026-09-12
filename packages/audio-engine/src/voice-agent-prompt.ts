@@ -16,19 +16,22 @@ export type VoiceAgentPromptInput = {
 export function buildVoiceAgentGreeting(
   greeting: string | null | undefined,
   contact: { name?: string | null; phone?: string | null },
+  language?: string,
 ): string {
-  const name = contact.name?.trim() || "there";
-  const text =
-    greeting?.trim() || `Hello ${name}, thanks for taking our call. How can I help you today?`;
+  const name = contact.name?.trim() || "जी";
+  const lang = (language || "").toLowerCase();
+  const defaultHindi = `हेलो ${name}, WaCalls से बात कर रहा हूँ। बताइए, कैसे मदद करूँ आपकी?`;
+  const defaultEng = `Hello ${name}, calling from WaCalls. How can I help you today?`;
+  const text = greeting?.trim() || (lang.startsWith("en") ? defaultEng : defaultHindi);
   return renderVoiceScript(text, { name, phone: contact.phone ?? "" });
 }
 
 export function buildVoiceAgentSystemPrompt(
   ai: VoiceAgentPromptInput,
   contact: { name?: string | null; phone?: string | null },
-  extra?: { slots?: string; memory?: string; wrappingUp?: boolean },
+  extra?: { slots?: string; memory?: string; wrappingUp?: boolean; wasInterrupted?: boolean },
 ): string {
-  const name = contact.name?.trim() || "there";
+  const name = contact.name?.trim() || "caller";
   const kb = (ai.knowledgeBase?.documents ?? [])
     .map((d) => `### ${d.title}\n${d.content}`)
     .join("\n\n")
@@ -37,25 +40,33 @@ export function buildVoiceAgentSystemPrompt(
   const duration = ai.maxCallDurationSec ?? 120;
   return [
     ai.systemPrompt,
-    `You are a live phone agent in a real two-way call. Sound human: warm, brief, natural — not a chatbot or FAQ page.`,
-    `Reply in the SAME language the caller just used. Hindi → Hindi. English → English. Hinglish → Hinglish. Never force ${defaultLanguage} if they switched.`,
-    `Keep each reply under 25 words, ideally one short sentence. Ask at most one follow-up question.`,
-    `Never ignore what they just said. Do not repeat the greeting after they have spoken. No markdown, bullets, or lists.`,
-    `Caller name: ${name}. Phone: ${contact.phone ?? ""}. Default greeting language: ${defaultLanguage}.`,
-    `Call length limit is about ${duration} seconds. When wrapping up, thank them and close.`,
-    extra?.wrappingUp
-      ? "TIME TO WRAP UP NOW: give a brief polite closing, ask no new questions, and end with <<HANGUP>>."
+    `=== HUMAN-LIKE PHONE CALL GUIDELINES ===`,
+    `1. IDENTITY: You are a friendly, warm, real human representative having a live phone conversation. NEVER mention being an AI, machine, bot, or virtual assistant.`,
+    `2. NATURAL SPOKEN LANGUAGE: Speak in everyday colloquial spoken language. For Indian Hindi/Hinglish calls, use natural conversational markers: "हाँजी", "जी बिल्कुल", "हाँ सर/मैम", "अच्छा, समझ गया", "जी बताइए".`,
+    `3. NO ROBOTIC JARGON: NEVER use bookish, Sanskritized, or bureaucratic Hindi (Avoid: "कृपया", "अवगत कराएं", "सहायता हेतु उपस्थित हूँ", "धन्यवाद सहित", "असुविधा के लिए खेद है"). Talk like a helpful professional friend.`,
+    `4. EXTREME BREVITY (CRUCIAL): Real people on phones speak in short, natural bursts. Keep each reply strictly under 15-20 words (1 or 2 short sentences). Never give monologues.`,
+    `5. ONE QUESTION AT A TIME: Ask at most ONE simple question or invitation to speak. Never bombard the caller with multiple questions.`,
+    `6. LANGUAGE MATCHING: Reply in the EXACT same language and style the caller speaks. If they speak Hindi, reply in Hindi. If they use Hinglish (Hindi with English words like "login", "payment", "time"), reply in natural Hinglish. If English, reply in English.`,
+    `7. SPOKEN NUMBERS & TIMES: Write out numbers and times as natural spoken words (e.g. "दोपहर तीन बजे", "दस प्रतिशत") so they sound completely natural when spoken aloud.`,
+    `8. NO MARKDOWN: Never use asterisks (*), bullets, numbered lists, colons, emojis, or markdown tags. Only clean spoken text.`,
+    `9. NO REPEATED GREETINGS: Never say hello/namaste again after the initial greeting turn. Acknowledge what they just said and move directly forward.`,
+    extra?.wasInterrupted
+      ? `NOTE: The caller interrupted your previous turn. Do not restart what you were saying. Smoothly acknowledge what they just said with "हाँजी, बताइए..." or answer their new point directly.`
       : "",
-    ai.objective ? `Objective: ${ai.objective}` : "",
-    ai.questions ? `Questions to cover if relevant: ${ai.questions}` : "",
-    ai.disallowed ? `Never do: ${ai.disallowed}` : "",
+    `Caller name: ${name}. Phone: ${contact.phone ?? ""}. Default language: ${defaultLanguage}.`,
+    `Call duration limit is ~${duration} seconds.`,
+    extra?.wrappingUp
+      ? "TIME TO WRAP UP NOW: Give a very brief, warm goodbye in 1 short sentence and append <<HANGUP>>."
+      : "",
+    ai.objective ? `Call Objective: ${ai.objective}` : "",
+    ai.questions ? `Key points to cover if relevant: ${ai.questions}` : "",
+    ai.disallowed ? `Things to never do/say: ${ai.disallowed}` : "",
     ai.intentPlaybook?.length ? formatPlaybookForPrompt(ai.intentPlaybook) : "",
     extra?.memory ?? "",
     kb
       ? `Knowledge base (${ai.knowledgeBase?.name}):\n${kb}`
-      : "No knowledge documents. Be honest, ask what they need, and offer an appointment if slots exist.",
+      : "No knowledge base documents. Be honest, conversational, and offer an appointment or callback if you cannot answer.",
     extra?.slots ?? "",
-    "If you truly cannot help, offer an appointment or a callback — do not loop the same sentence.",
   ]
     .filter(Boolean)
     .join("\n");

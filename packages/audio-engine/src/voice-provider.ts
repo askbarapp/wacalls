@@ -14,6 +14,11 @@ export type VoiceAiClient = {
   provider: VoiceAiProviderId;
   transcribe(wav: Buffer, language?: string): Promise<TranscribeResult>;
   chat(messages: ChatTurn[], opts?: { model?: string; temperature?: number; maxTokens?: number }): Promise<string>;
+  chatStream(
+    messages: ChatTurn[],
+    onChunk: (chunk: string) => void,
+    opts?: { model?: string; temperature?: number; maxTokens?: number; signal?: AbortSignal },
+  ): Promise<string>;
   synthesizePcm(text: string, opts: SarvamTtsOptions): Promise<Float32Array>;
   synthesize(text: string, opts: SarvamTtsOptions): Promise<Buffer>;
   testConnection(): Promise<{ ok: boolean; status: number; message: string }>;
@@ -29,7 +34,7 @@ export function defaultModelForProvider(provider: VoiceAiProviderId): string {
 }
 
 export function defaultVoiceForProvider(provider: VoiceAiProviderId): string {
-  return provider === "gemini" ? "Kore" : "shubh";
+  return provider === "gemini" ? "Kore" : "aditya";
 }
 
 export function voicesForProvider(provider: VoiceAiProviderId): string[] {
@@ -44,6 +49,11 @@ export function createVoiceAiClient(provider: string | null | undefined, apiKey:
       provider: id,
       transcribe: (wav, language) => client.transcribe(wav, language),
       chat: (messages, opts) => client.chat(messages, opts),
+      chatStream: async (messages, onChunk, opts) => {
+        const full = await client.chat(messages, opts);
+        onChunk(full);
+        return full;
+      },
       synthesizePcm: (text, opts) => client.synthesizePcm(text, opts),
       synthesize: (text, opts) => client.synthesize(text, opts),
       testConnection: () => client.testConnection(),
@@ -54,6 +64,7 @@ export function createVoiceAiClient(provider: string | null | undefined, apiKey:
     provider: id,
     transcribe: (wav, language) => client.transcribe(wav, language),
     chat: (messages, opts) => client.chat(messages, opts),
+    chatStream: (messages, onChunk, opts) => client.chatStream(messages, onChunk, opts),
     synthesizePcm: (text, opts) => client.synthesizePcm(text, opts),
     synthesize: (text, opts) => client.synthesize(text, opts),
     testConnection: () => client.testConnection(),

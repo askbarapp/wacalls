@@ -61,6 +61,15 @@ function pcmToBuffer(pcm: Float32Array): Buffer {
   return buf;
 }
 
+function cleanSpokenChunk(text: string): string {
+  return text
+    .replace(/<<[^>]*>>/g, "")
+    .replace(/<<.*$/g, "")
+    .replace(/^[>\s#*-]+/, "")
+    .replace(/[*_`~#]/g, "")
+    .trim();
+}
+
 async function resolveProviderKey(organizationId: string, provider: string) {
   const id = normalizeVoiceProvider(provider);
   if (id === "gemini") {
@@ -168,6 +177,8 @@ class NativeVoiceAgent {
   private greeted = false;
   private speaking = false;
   private interrupt = false;
+  private wasInterrupted = false;
+  private currentAbortController: AbortController | null = null;
   private history: ChatTurn[] = [];
   private pending = new Float32Array(0);
   private speakingSamples = 0;
@@ -237,10 +248,14 @@ class NativeVoiceAgent {
     this.greeted = true;
     this.callStartedAt = Date.now();
     this.startDurationWatch();
-    const greeting = buildVoiceAgentGreeting(this.ai.greeting, {
-      name: this.contactName,
-      phone: this.cfg.phone,
-    });
+    const greeting = buildVoiceAgentGreeting(
+      this.ai.greeting,
+      {
+        name: this.contactName,
+        phone: this.cfg.phone,
+      },
+      this.ai.language,
+    );
     this.history.push({ role: "assistant", content: greeting });
     void this.saveTurns([{ role: "assistant", text: greeting }]);
     await this.say(greeting);
@@ -249,6 +264,10 @@ class NativeVoiceAgent {
   stop() {
     this.stopped = true;
     this.interrupt = true;
+    if (this.currentAbortController) {
+      this.currentAbortController.abort();
+      this.currentAbortController = null;
+    }
     if (this.durationTimer) {
       clearInterval(this.durationTimer);
       this.durationTimer = null;
@@ -262,8 +281,13 @@ class NativeVoiceAgent {
       const energy = rms(pcm);
       if (energy > 0.028) this.bargeSamples += pcm.length;
       else this.bargeSamples = 0;
-      if (this.bargeSamples >= this.sampleRate * 0.28) {
+      if (this.bargeSamples >= this.sampleRate * 0.26) {
         this.interrupt = true;
+        this.wasInterrupted = true;
+        if (this.currentAbortController) {
+          this.currentAbortController.abort();
+          this.currentAbortController = null;
+        }
         this.speaking = false;
         this.bargeSamples = 0;
         this.pending = new Float32Array(pcm);
@@ -288,7 +312,7 @@ class NativeVoiceAgent {
     const speechMs = (this.speakingSamples / this.sampleRate) * 1000;
     const silenceMs = (this.silenceSamples / this.sampleRate) * 1000;
     const maxMs = (this.pending.length / this.sampleRate) * 1000;
-    if ((speechMs >= 280 && silenceMs >= 380) || (speechMs >= 300 && maxMs >= 8_000)) {
+    if ((speechMs >= 250 && silenceMs >= 320) || (speechMs >= 300 && maxMs >= 8_000)) {
       const clip = this.pending;
       this.pending = new Float32Array(0);
       this.speakingSamples = 0;
@@ -421,31 +445,19 @@ class NativeVoiceAgent {
       if (matched?.action === "continue" && matched.reply.trim()) {
         reply = matched.reply.trim();
         log.info({ callId: this.cfg.callId, intent: matched.intent }, "playbook reply");
+        await this.say(reply);
       } else {
         const chatStarted = Date.now();
-        reply = await this.sarvam.chat(
-          [
-            { role: "system", content: this.systemPrompt() },
-            ...this.history.slice(-10),
-            {
-              role: "user",
-              content: `[Speak in ${this.activeLanguage}]\n${text}`,
-            },
-          ],
-          {
-            model: this.ai.model || undefined,
-            temperature: Math.min(this.ai.temperature ?? 0.4, 0.45),
-            maxTokens: Math.min(this.ai.maxTokens || 120, 96),
-          },
-        );
+        reply = await this.streamChatAndSay(text);
         if (!reply || this.stopped) return;
-        log.info({ callId: this.cfg.callId, chatMs: Date.now() - chatStarted }, "agent reply ready");
+        log.info({ callId: this.cfg.callId, chatMs: Date.now() - chatStarted }, "agent reply streamed & played");
       }
 
       const hangupParsed = parseHangupTag(reply);
-      reply = hangupParsed.spoken;
-      const parsed = parseBookTag(reply);
-      reply = parsed.spoken;
+      const spokenClean = hangupParsed.spoken;
+      const parsed = parseBookTag(spokenClean);
+      const cleanReply = cleanSpokenChunk(parsed.spoken);
+
       if (parsed.iso && !this.booked && this.cfg.channelId) {
         const appt = await bookAppointment(prisma, {
           organizationId: this.cfg.organizationId,
@@ -465,13 +477,12 @@ class NativeVoiceAgent {
         }
       }
 
-      this.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
+      this.history.push({ role: "user", content: text }, { role: "assistant", content: cleanReply || reply });
       if (this.history.length > 14) this.history = this.history.slice(-14);
       void this.saveTurns([
         { role: "user", text },
-        { role: "assistant", text: reply },
+        { role: "assistant", text: cleanReply || reply },
       ]);
-      await this.say(reply);
 
       if (hangupParsed.hangup || this.wrappingUp) {
         await this.requestHangup();
@@ -485,6 +496,155 @@ class NativeVoiceAgent {
     }
   }
 
+  private async streamChatAndSay(userInput: string): Promise<string> {
+    const abortCtrl = new AbortController();
+    this.currentAbortController = abortCtrl;
+    this.interrupt = false;
+
+    const messages: ChatTurn[] = [
+      { role: "system", content: this.systemPrompt() },
+      ...this.history.slice(-10),
+      {
+        role: "user",
+        content: `[Speak in ${this.activeLanguage}]\n${userInput}`,
+      },
+    ];
+
+    // Reset interruption context after injecting into prompt
+    this.wasInterrupted = false;
+
+    const sentencesQueue: string[] = [];
+    let streamDone = false;
+    let streamError: Error | null = null;
+    let wakeConsumer: (() => void) | null = null;
+    let streamBuffer = "";
+    let fullGenerated = "";
+
+    const notifyConsumer = () => {
+      if (wakeConsumer) {
+        const wake = wakeConsumer;
+        wakeConsumer = null;
+        wake();
+      }
+    };
+
+    const streamPromise = (async () => {
+      try {
+        await this.sarvam.chatStream(
+          messages,
+          (delta) => {
+            if (abortCtrl.signal.aborted || this.interrupt || this.stopped) return;
+            streamBuffer += delta;
+            fullGenerated += delta;
+
+            // Boundary matches: Devanagari danda (।), ?, !, ., newline, or comma after 5 words
+            const match = streamBuffer.match(/([.!?।\n]+|\s*,\s*)(?=\s|$)/);
+            if (match && match.index !== undefined) {
+              const boundaryEnd = match.index + match[0].length;
+              const sentence = streamBuffer.slice(0, boundaryEnd).trim();
+              const remaining = streamBuffer.slice(boundaryEnd).trimStart();
+              const cleaned = cleanSpokenChunk(sentence);
+              if (cleaned.length >= 2) {
+                sentencesQueue.push(cleaned);
+                notifyConsumer();
+              }
+              streamBuffer = remaining;
+            }
+          },
+          {
+            model: this.ai.model || undefined,
+            temperature: Math.min(this.ai.temperature ?? 0.4, 0.45),
+            maxTokens: Math.min(this.ai.maxTokens || 120, 96),
+            signal: abortCtrl.signal,
+          },
+        );
+      } catch (err: any) {
+        if (!abortCtrl.signal.aborted) {
+          streamError = err;
+        }
+      } finally {
+        streamDone = true;
+        if (streamBuffer.trim()) {
+          const cleaned = cleanSpokenChunk(streamBuffer.trim());
+          if (cleaned.length >= 2) {
+            sentencesQueue.push(cleaned);
+          }
+        }
+        notifyConsumer();
+      }
+    })();
+
+    const playerPromise = (async () => {
+      const opts = {
+        language: this.activeLanguage,
+        speaker: this.ai.voice || defaultVoiceForProvider(this.sarvam.provider),
+        sampleRate: this.sampleRate,
+        pace: 1.05,
+      };
+
+      this.speaking = true;
+      let nextPcmPromise: Promise<Float32Array> | null = null;
+
+      try {
+        while (!this.stopped && !this.interrupt) {
+          if (sentencesQueue.length === 0) {
+            if (streamDone) break;
+            await new Promise<void>((resolve) => {
+              wakeConsumer = resolve;
+            });
+            continue;
+          }
+
+          const currentSentence = sentencesQueue.shift()!;
+          if (!currentSentence || this.stopped || this.interrupt) continue;
+
+          let pcm: Float32Array;
+          try {
+            pcm = await (nextPcmPromise ?? this.sarvam.synthesizePcm(currentSentence, opts));
+          } catch (err) {
+            log.warn({ err, sentence: currentSentence, callId: this.cfg.callId }, "stream sentence TTS failed");
+            continue;
+          }
+
+          if (this.stopped || this.interrupt) break;
+
+          const upcoming = sentencesQueue[0];
+          nextPcmPromise = upcoming ? this.sarvam.synthesizePcm(upcoming, opts) : null;
+
+          const frame = 1600;
+          for (let j = 0; j < pcm.length; j += frame) {
+            if (this.stopped || this.interrupt) break;
+            await this.sendPcm(pcm.slice(j, j + frame));
+            await sleep(Math.round((Math.min(frame, pcm.length - j) / this.sampleRate) * 1000));
+          }
+        }
+      } catch (err) {
+        log.warn({ err, callId: this.cfg.callId }, "stream player loop error");
+      } finally {
+        this.speaking = false;
+        await sleep(80);
+      }
+    })();
+
+    await Promise.all([streamPromise, playerPromise]);
+    this.currentAbortController = null;
+
+    if (streamError && !fullGenerated.trim()) {
+      log.warn({ err: streamError, callId: this.cfg.callId }, "chatStream fallback to non-streaming chat");
+      const fallbackReply = await this.sarvam.chat(messages, {
+        model: this.ai.model || undefined,
+        temperature: Math.min(this.ai.temperature ?? 0.4, 0.45),
+        maxTokens: Math.min(this.ai.maxTokens || 120, 96),
+      });
+      if (fallbackReply && !this.stopped && !this.interrupt) {
+        await this.say(cleanSpokenChunk(fallbackReply));
+      }
+      return fallbackReply;
+    }
+
+    return fullGenerated.trim();
+  }
+
   private systemPrompt(): string {
     return buildVoiceAgentSystemPrompt(
       this.ai,
@@ -493,6 +653,7 @@ class NativeVoiceAgent {
         slots: this.booked ? "An appointment is already booked. Do not book another." : slotsPrompt(this.slots),
         memory: this.memoryPrompt,
         wrappingUp: this.wrappingUp,
+        wasInterrupted: this.wasInterrupted,
       },
     );
   }
@@ -561,7 +722,7 @@ class NativeVoiceAgent {
       language: this.activeLanguage,
       speaker: this.ai.voice || defaultVoiceForProvider(this.sarvam.provider),
       sampleRate: this.sampleRate,
-      pace: 1.08,
+      pace: 1.05,
     };
     try {
       const sentences = splitSpokenSentences(text);
