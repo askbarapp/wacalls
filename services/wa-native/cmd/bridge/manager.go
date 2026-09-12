@@ -651,6 +651,9 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	engineID := info.CallID
 	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone, "video", isVideo, "clip", videoClip)
 	go func() {
+		// Let whatsmeow finish processing and ACKing the offer stanza (100ms).
+		// Answering must happen before WhatsApp companion cutoff (~165ms) or peer terminates with uncallable.
+		time.Sleep(100 * time.Millisecond)
 		ctx := context.Background()
 		ch.mu.Lock()
 		_, still := ch.calls[engineID]
@@ -660,16 +663,6 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		}
 		node := wrapCall(from, inner)
 		cm.HandleCallOffer(ctx, node, from)
-
-		// Wait 800ms while ringing so the mobile WhatsApp client completes its
-		// offer/ringback state transition before receiving the accept stanza.
-		time.Sleep(800 * time.Millisecond)
-		ch.mu.Lock()
-		_, still = ch.calls[engineID]
-		ch.mu.Unlock()
-		if !still {
-			return
-		}
 
 		if err := cm.AcceptCall(ctx, engineID); err != nil {
 			ch.log.Warn("auto-answer accept failed", "err", err, "call_id", engineID)

@@ -12,6 +12,7 @@ import (
 	"wacalls/internal/voip/transport"
 	"wacalls/internal/voip/wanode"
 
+	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -192,6 +193,20 @@ func (m *CallManager) AcceptCall(ctx context.Context, callID string) error {
 		return fmt.Errorf("send accept: %w", err)
 	}
 	m.log.Info("accept sent", "call_id", callID)
+
+	transport := waBinary.Node{
+		Tag:   "call",
+		Attrs: waBinary.Attrs{"to": peer, "id": signaling.GenerateCallStanzaID()},
+		Content: []waBinary.Node{{
+			Tag: "transport",
+			Attrs: waBinary.Attrs{
+				"call-id": callID, "call-creator": creator,
+				"transport-message-type": "1", "p2p-cand-round": "1",
+			},
+			Content: []waBinary.Node{{Tag: "net", Attrs: waBinary.Attrs{"medium": "2", "protocol": "0"}}},
+		}},
+	}
+	_ = m.sock.SendNode(ctx, transport)
 
 	if relayData != nil {
 		m.setupIncomingMedia(call, relayData)
