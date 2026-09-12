@@ -92,14 +92,6 @@ func BuildOfferStanza(ctx context.Context, sock core.VoipSocket, callID string, 
 }
 
 func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string, callKey []byte, peerJid, callCreator types.JID, isVideo bool) (waBinary.Node, error) {
-	if callCreator.IsEmpty() {
-		callCreator = peerJid
-	}
-	targetJid := wanode.MustJID(wanode.CleanJID(peerJid.String()))
-	if targetJid.IsEmpty() {
-		targetJid = peerJid
-	}
-
 	if err := sock.AssertSessions(ctx, []types.JID{callCreator}, true); err != nil {
 		return waBinary.Node{}, fmt.Errorf("assert creator session: %w", err)
 	}
@@ -116,9 +108,10 @@ func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string,
 
 	acceptContent := []waBinary.Node{
 		{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
-		{Tag: "net", Attrs: waBinary.Attrs{"medium": "3"}},
+		{Tag: "net", Attrs: waBinary.Attrs{"medium": "2"}},
 		*encNode,
 		{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
+		{Tag: "capability", Attrs: waBinary.Attrs{"ver": "1"}, Content: capabilityAccept},
 	}
 	if includeDeviceIdentity {
 		if di, ok := sock.AccountDeviceIdentityNode(); ok {
@@ -131,7 +124,7 @@ func BuildAcceptStanza(ctx context.Context, sock core.VoipSocket, callID string,
 
 	return waBinary.Node{
 		Tag:   "call",
-		Attrs: waBinary.Attrs{"to": wanode.MustJID(wanode.CleanJID(targetJid.String())), "id": GenerateCallStanzaID()},
+		Attrs: waBinary.Attrs{"to": wanode.MustJID(wanode.CleanJID(peerJid.String())), "id": GenerateCallStanzaID()},
 		Content: []waBinary.Node{{
 			Tag:     "accept",
 			Attrs:   waBinary.Attrs{"call-id": callID, "call-creator": callCreator},

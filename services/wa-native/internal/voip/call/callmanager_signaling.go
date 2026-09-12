@@ -53,7 +53,6 @@ func (m *CallManager) HandleCallOffer(ctx context.Context, node *waBinary.Node, 
 	call := NewIncomingCall(callID, peerJid.String(), creator, "", mediaType)
 	if callKey != nil {
 		call.EncryptionKey = callKey
-		call.PeerEncryptionKey = callKey
 	}
 	if len(relays) > 0 {
 		rd := &core.RelayData{Endpoints: relays}
@@ -92,6 +91,11 @@ func (m *CallManager) HandleCallOffer(ctx context.Context, node *waBinary.Node, 
 	m.initCodec()
 	m.mu.Unlock()
 
+	preaccept := signaling.BuildPreacceptStanza(peerJid, callID, wanode.MustJID(creator), isVideo)
+	if err := m.sock.SendNode(ctx, preaccept); err != nil {
+		m.log.Error("send preaccept", "err", err)
+	}
+
 	if m.OnIncoming != nil {
 		m.OnIncoming(call)
 	}
@@ -120,7 +124,6 @@ func (m *CallManager) HandleCallAccept(ctx context.Context, node *waBinary.Node,
 	if signaling.NeedsDecryption(info.Tag) {
 		if peerKey, err := signaling.DecryptCallKeyInNode(ctx, m.sock, info.InnerNode, peerJid); err == nil && peerKey != nil {
 			m.mu.Lock()
-			call.PeerEncryptionKey = peerKey
 			if call.EncryptionKey != nil && !equalBytes(call.EncryptionKey, peerKey) {
 				m.reinitSrtpLocked(peerKey, peerJid)
 			}

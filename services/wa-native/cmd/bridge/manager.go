@@ -457,9 +457,6 @@ func (ch *Channel) handleEvent(raw any) {
 	case *events.LoggedOut:
 		ch.setStatus("DISCONNECTED", "logged out")
 	case *events.CallOffer:
-		if evt.Data != nil {
-			ch.log.Info("DEBUG RAW OFFER", "from", evt.From.String(), "node", fmt.Sprintf("%+v", evt.Data))
-		}
 		ch.onIncomingOffer(ctx, evt)
 	case *events.CallAccept:
 		if lc := ch.callFromNode(evt.From, evt.Data); lc != nil {
@@ -472,16 +469,10 @@ func (ch *Channel) handleEvent(raw any) {
 	case *events.CallTerminate, *events.CallReject:
 		switch e := evt.(type) {
 		case *events.CallTerminate:
-			if e.Data != nil {
-				ch.log.Info("DEBUG RAW TERMINATE", "from", e.From.String(), "reason", e.Reason, "node", fmt.Sprintf("%+v", e.Data))
-			}
 			if lc := ch.callFromNode(e.From, e.Data); lc != nil {
 				lc.cm.HandleCallTerminate(wrapCall(e.From, e.Data))
 			}
 		case *events.CallReject:
-			if e.Data != nil {
-				ch.log.Info("DEBUG RAW REJECT", "from", e.From.String(), "node", fmt.Sprintf("%+v", e.Data))
-			}
 			if lc := ch.callFromNode(e.From, e.Data); lc != nil {
 				lc.cm.HandleCallTerminate(wrapCall(e.From, e.Data))
 			}
@@ -660,7 +651,8 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 	engineID := info.CallID
 	ch.log.Info("inbound auto-answer scheduled", "call_id", callID, "peer", phone, "video", isVideo, "clip", videoClip)
 	go func() {
-		// Let whatsmeow finish processing and ACKing the offer stanza (150ms).
+		// Let whatsmeow ACK the offer first. Accepting in the event handler
+		// races the offer ack and WhatsApp terminates the call as uncallable.
 		time.Sleep(150 * time.Millisecond)
 		ctx := context.Background()
 		ch.mu.Lock()
@@ -671,7 +663,6 @@ func (ch *Channel) onIncomingOffer(ctx context.Context, evt *events.CallOffer) {
 		}
 		node := wrapCall(from, inner)
 		cm.HandleCallOffer(ctx, node, from)
-
 		if err := cm.AcceptCall(ctx, engineID); err != nil {
 			ch.log.Warn("auto-answer accept failed", "err", err, "call_id", engineID)
 			ch.hub.failCall(ctx, callID, err.Error())
