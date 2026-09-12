@@ -25,6 +25,9 @@ type Bot = {
   channelId: string;
   enabled: boolean;
   aiEnabled: boolean;
+  greetingEnabled: boolean;
+  greetingMessage: string;
+  greetingCooldownDays: number;
   aiConfigId: string | null;
   knowledgeBaseId: string | null;
   fallbackMessage: string;
@@ -155,6 +158,9 @@ function ChatbotInner() {
           channelId: bot.channelId,
           enabled: bot.enabled,
           aiEnabled: bot.aiEnabled,
+          greetingEnabled: bot.greetingEnabled ?? true,
+          greetingMessage: bot.greetingMessage ?? "नमस्ते! WaCalls में आपका स्वागत है। हम आपकी क्या सहायता कर सकते हैं?",
+          greetingCooldownDays: bot.greetingCooldownDays ?? 14,
           aiConfigId: bot.aiConfigId,
           knowledgeBaseId: bot.knowledgeBaseId,
           fallbackMessage: bot.fallbackMessage,
@@ -337,6 +343,109 @@ function ChatbotInner() {
                   </span>
                 </button>
               </div>
+
+              {/* Greeting Message Switch */}
+              <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-white">Greeting Welcome Message</span>
+                    {bot.greetingEnabled ? (
+                      <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400">
+                        ON
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-slate-500/20 px-2.5 py-0.5 text-[11px] font-bold text-slate-400">
+                        OFF
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-xs text-slate-400">
+                    Send welcome greeting on first message or after cooldown period
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={bot.greetingEnabled}
+                  onClick={() => setBot({ ...bot, greetingEnabled: !bot.greetingEnabled })}
+                  className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer items-center rounded-full p-1 transition-colors duration-200 ease-in-out focus:outline-none ${
+                    bot.greetingEnabled ? "bg-emerald-500 shadow-lg shadow-emerald-500/20" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      bot.greetingEnabled ? "translate-x-8" : "translate-x-0"
+                    }`}
+                  />
+                  <span
+                    className={`absolute text-[10px] font-extrabold tracking-wider ${
+                      bot.greetingEnabled ? "left-2 text-white" : "right-2 text-slate-400"
+                    }`}
+                  >
+                    {bot.greetingEnabled ? "ON" : "OFF"}
+                  </span>
+                </button>
+              </div>
+
+              {/* Greeting Message Details & Cooldown Config */}
+              {bot.greetingEnabled && (
+                <div className="space-y-3 rounded-lg border border-white/10 bg-black/40 p-3 text-xs text-slate-300">
+                  <label className="block">
+                    <span className="font-semibold text-white">Welcome Greeting Text</span>
+                    <textarea
+                      className="mt-1 min-h-20 w-full rounded-md border border-white/10 bg-black/60 p-2 text-xs text-white placeholder-slate-500 focus:border-brand-500 focus:outline-none"
+                      placeholder="नमस्ते! WaCalls में आपका स्वागत है। हम आपकी क्या सहायता कर सकते हैं?"
+                      value={bot.greetingMessage ?? ""}
+                      onChange={(e) => setBot({ ...bot, greetingMessage: e.target.value })}
+                    />
+                  </label>
+
+                  <div>
+                    <span className="font-semibold text-white block mb-1">Inactivity Cooldown (Repeat only after)</span>
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {[
+                        { label: "24 Hours", days: 1 },
+                        { label: "7 Days", days: 7 },
+                        { label: "14 Days", days: 14 },
+                        { label: "30 Days", days: 30 },
+                      ].map((preset) => (
+                        <button
+                          key={preset.days}
+                          type="button"
+                          onClick={() => setBot({ ...bot, greetingCooldownDays: preset.days })}
+                          className={`rounded-md px-2 py-1.5 text-center text-[11px] font-semibold transition-all ${
+                            (bot.greetingCooldownDays ?? 14) === preset.days
+                              ? "bg-brand-500 text-ink-950 font-bold shadow"
+                              : "bg-white/5 text-slate-300 hover:bg-white/10"
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-slate-400">Custom Duration:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={bot.greetingCooldownDays ?? 14}
+                        onChange={(e) =>
+                          setBot({
+                            ...bot,
+                            greetingCooldownDays: Math.max(1, parseInt(e.target.value) || 1),
+                          })
+                        }
+                        className="w-20 rounded border border-white/10 bg-black/60 px-2 py-1 text-center text-xs text-white"
+                      />
+                      <span className="text-slate-400">days</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      💡 इस अवधि के अंदर ग्राहक के दोबारा "Hi" या मैसेज करने पर Greeting दोबारा नहीं जाएगी।
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
             <label className="mb-2 block text-xs text-slate-400">
               AI agent

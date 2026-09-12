@@ -124,6 +124,24 @@ export function isStartCommand(text: string): boolean {
   return n === "HI" || n === "HELLO" || n === "HEY" || n === "START" || n === "MENU";
 }
 
+export function isGreetingText(text: string): boolean {
+  const n = normalizeChatText(text);
+  return (
+    n === "HI" ||
+    n === "HELLO" ||
+    n === "HEY" ||
+    n === "HEYY" ||
+    n === "HEYYY" ||
+    n === "NAMASTE" ||
+    n === "NAMASKAR" ||
+    n === "PRANAM" ||
+    n === "HII" ||
+    n === "HIII" ||
+    n === "HOLA" ||
+    n === "GREETINGS"
+  );
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

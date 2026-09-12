@@ -1,6 +1,6 @@
 import pino from "pino";
 import { prisma } from "@wacalls/database";
-import { normalizePhone } from "@wacalls/shared";
+import { isGreetingText, normalizePhone } from "@wacalls/shared";
 import {
   createVoiceAiClient,
   defaultModelForProvider,
@@ -274,9 +274,70 @@ export async function handleInboundChat(input: {
     return;
   }
 
-  // 5. Keyword Matching (Exact & Contains)
+  // 5. Greeting Message & Inactivity Cooldown
+  const isGreeting = isGreetingText(text);
+  const cooldownDays = bot.greetingCooldownDays ?? 14;
+  const cooldownMs = cooldownDays * 24 * 60 * 60 * 1000;
+  const lastGreetingTime = conversation.lastGreetingAt ? new Date(conversation.lastGreetingAt).getTime() : 0;
+  const isGreetingDue =
+    bot.greetingEnabled &&
+    (!conversation.lastGreetingAt || Date.now() - lastGreetingTime >= cooldownMs);
+
+  if (isGreetingDue) {
+    const greetingMsg =
+      bot.greetingMessage ||
+      "नमस्ते! WaCalls में आपका स्वागत है। हम आपकी क्या सहायता कर सकते हैं?";
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: conversation.phone,
+      body: greetingMsg,
+      chatSource: "bot",
+    }).catch(() => undefined);
+
+    await prisma.chatConversation.update({
+      where: { id: conversation.id },
+      data: { lastGreetingAt: new Date() },
+    });
+
+    log.info(
+      { phone, conversationId: conversation.id, cooldownDays },
+      "Sent welcome greeting; started cooldown timer",
+    );
+
+    // If customer only sent a greeting (e.g. "Hi", "Hello"), stop here
+    if (isGreeting) {
+      return;
+    }
+  } else if (isGreeting) {
+    // Cooldown is still active and customer sent "Hi" again -> suppress duplicate greeting
+    log.info(
+      { phone, lastGreetingAt: conversation.lastGreetingAt, cooldownDays },
+      "Greeting cooldown active; suppressing repeat welcome message",
+    );
+
+    // If AI is enabled, allow AI to reply contextually, otherwise give a brief friendly prompt
+    if (!bot.aiEnabled || !bot.aiConfigId) {
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: conversation.phone,
+        body: "हाँजी, बताइए मैं आपकी और क्या सहायता कर सकता हूँ?",
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return;
+    }
+  }
+
+  // 6. Keyword Matching (Exact & Contains)
   for (const kw of bot.keywords) {
     const trigger = kw.trigger.trim().toUpperCase();
+
+    // If user's message is a greeting but greeting was already handled above, skip greeting keywords
+    if (isGreeting && (trigger === "HI" || trigger === "HELLO" || trigger === "HEY" || trigger === "START")) {
+      continue;
+    }
+
     let matched = false;
     if (kw.matchType === "exact") {
       matched = upperText === trigger;
