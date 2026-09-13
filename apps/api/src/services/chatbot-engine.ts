@@ -15,6 +15,11 @@ import {
   classifyAndEscalateCustomerMessage,
 } from "./business-assistant.js";
 import { cancelActiveCadenceOnReply } from "./followup-cadence.js";
+import {
+  handleVoiceNoteFromCommander,
+  handleImageFromCommander,
+  transcribeAudioBuffer,
+} from "./multimodal-assistant.js";
 
 const log = pino({ name: "chatbot-engine" });
 
@@ -28,9 +33,12 @@ export async function handleOutboundChat(input: {
   phone: string;
   text: string;
   messageId?: string;
+  mediaType?: "audio" | "image" | "document";
+  mimeType?: string;
+  mediaBase64?: string;
 }): Promise<void> {
   const text = input.text.trim();
-  if (!text) return;
+  if (!text && !input.mediaBase64) return;
 
   const phoneParsed = normalizePhone(input.phone);
   const phone = phoneParsed.ok ? phoneParsed.e164 : `+${input.phone.replace(/\D/g, "")}`;
@@ -43,14 +51,43 @@ export async function handleOutboundChat(input: {
 
   // If owner sent message to self-chat or own line, handle as Owner Command
   const isOwner = await isOwnerPhone(channel.id, phone);
-  if (isOwner && channel.phoneNumber && phone.includes(channel.phoneNumber.replace(/\D/g, ""))) {
-    const handled = await handleOwnerCommand({
-      channelId: channel.id,
-      phone,
-      text,
-      messageId: input.messageId,
-    });
-    if (handled) return;
+  const isSelfOrOwnerPhone =
+    (channel.phoneNumber && phone.includes(channel.phoneNumber.replace(/\D/g, ""))) ||
+    (channel.ownerPhone && phone.includes(channel.ownerPhone.replace(/\D/g, "")));
+
+  if (isOwner && isSelfOrOwnerPhone) {
+    if (input.mediaType === "audio" && input.mediaBase64) {
+      const handled = await handleVoiceNoteFromCommander({
+        channelId: channel.id,
+        phone,
+        audioBuffer: Buffer.from(input.mediaBase64, "base64"),
+        mimeType: input.mimeType || "audio/ogg",
+        messageId: input.messageId,
+      });
+      if (handled) return;
+    }
+
+    if (input.mediaType === "image" && input.mediaBase64) {
+      const handled = await handleImageFromCommander({
+        channelId: channel.id,
+        phone,
+        imageBuffer: Buffer.from(input.mediaBase64, "base64"),
+        mimeType: input.mimeType || "image/jpeg",
+        caption: text,
+        messageId: input.messageId,
+      });
+      if (handled) return;
+    }
+
+    if (text) {
+      const handled = await handleOwnerCommand({
+        channelId: channel.id,
+        phone,
+        text,
+        messageId: input.messageId,
+      });
+      if (handled) return;
+    }
   }
 
   // Ensure contact exists
@@ -131,9 +168,11 @@ export async function handleInboundChat(input: {
   phone: string;
   text: string;
   messageId?: string;
+  mediaType?: "audio" | "image" | "document";
+  mimeType?: string;
+  mediaBase64?: string;
 }): Promise<void> {
-  const text = input.text.trim();
-  if (!text) return;
+  let text = input.text.trim();
 
   const phoneParsed = normalizePhone(input.phone);
   const phone = phoneParsed.ok ? phoneParsed.e164 : `+${input.phone.replace(/\D/g, "")}`;
@@ -143,6 +182,54 @@ export async function handleInboundChat(input: {
     where: { id: input.channelId },
   });
   if (!channel) return;
+
+  // Check if message is from the Business Owner
+  const isOwner = await isOwnerPhone(channel.id, phone);
+  if (isOwner) {
+    if (input.mediaType === "audio" && input.mediaBase64) {
+      const handled = await handleVoiceNoteFromCommander({
+        channelId: channel.id,
+        phone,
+        audioBuffer: Buffer.from(input.mediaBase64, "base64"),
+        mimeType: input.mimeType || "audio/ogg",
+        messageId: input.messageId,
+      });
+      if (handled) return;
+    }
+
+    if (input.mediaType === "image" && input.mediaBase64) {
+      const handled = await handleImageFromCommander({
+        channelId: channel.id,
+        phone,
+        imageBuffer: Buffer.from(input.mediaBase64, "base64"),
+        mimeType: input.mimeType || "image/jpeg",
+        caption: text,
+        messageId: input.messageId,
+      });
+      if (handled) return;
+    }
+
+    if (text) {
+      const handled = await handleOwnerCommand({
+        channelId: channel.id,
+        phone,
+        text,
+        messageId: input.messageId,
+      });
+      if (handled) return;
+    }
+  }
+
+  // If customer sent a voice note, transcribe it into text!
+  if (!text && input.mediaType === "audio" && input.mediaBase64) {
+    text = await transcribeAudioBuffer(
+      Buffer.from(input.mediaBase64, "base64"),
+      input.mimeType || "audio/ogg",
+      channel.organizationId,
+    );
+  }
+
+  if (!text) return;
 
   // Ensure contact exists
   const contact = await prisma.contact.upsert({
@@ -215,18 +302,6 @@ export async function handleInboundChat(input: {
     status: conversation.status,
     message: msg,
   });
-
-  // Check if message is from the Business Owner
-  const isOwner = await isOwnerPhone(channel.id, phone);
-  if (isOwner) {
-    const handled = await handleOwnerCommand({
-      channelId: channel.id,
-      phone,
-      text,
-      messageId: input.messageId,
-    });
-    if (handled) return;
-  }
 
   // If from a customer, run background autonomous work classification, escalation check & cancel active follow-up cadences
   void classifyAndEscalateCustomerMessage({

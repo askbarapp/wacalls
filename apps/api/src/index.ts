@@ -5,12 +5,14 @@ import { redis } from "./redis.js";
 import { startEventBridge } from "./services/events.js";
 import { processCadenceTick } from "./services/followup-cadence.js";
 import { processDuePaymentReminders } from "./services/invoice-service.js";
+import { processDailyBriefingTick } from "./services/daily-briefing.js";
 
 const app = await buildApp();
 
 const shutdown = async () => {
   clearInterval(cadenceInterval);
   clearInterval(reminderInterval);
+  clearInterval(briefingInterval);
   await app.close();
   await prisma.$disconnect();
   redis.disconnect();
@@ -30,5 +32,9 @@ const cadenceInterval = setInterval(() => {
 const reminderInterval = setInterval(() => {
   void processDuePaymentReminders().catch(() => undefined);
 }, 10 * 60 * 1000);
+
+const briefingInterval = setInterval(() => {
+  void processDailyBriefingTick().catch(() => undefined);
+}, 60 * 1000);
 
 await app.listen({ port: env.API_PORT, host: "0.0.0.0" });

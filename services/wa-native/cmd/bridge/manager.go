@@ -488,24 +488,65 @@ func (ch *Channel) onChatMessage(ctx context.Context, evt *events.Message) {
 		return
 	}
 	text := messageText(evt.Message)
-	if strings.TrimSpace(text) == "" {
+	var mediaType, mimeType, mediaBase64 string
+
+	if audio := evt.Message.GetAudioMessage(); audio != nil {
+		mediaType = "audio"
+		mimeType = audio.GetMimetype()
+		if mimeType == "" {
+			mimeType = "audio/ogg; codecs=opus"
+		}
+		data, err := ch.client.Download(audio)
+		if err == nil && len(data) > 0 {
+			mediaBase64 = base64.StdEncoding.EncodeToString(data)
+		}
+	} else if img := evt.Message.GetImageMessage(); img != nil {
+		mediaType = "image"
+		mimeType = img.GetMimetype()
+		if mimeType == "" {
+			mimeType = "image/jpeg"
+		}
+		if t := img.GetCaption(); t != "" {
+			text = t
+		}
+		data, err := ch.client.Download(img)
+		if err == nil && len(data) > 0 {
+			mediaBase64 = base64.StdEncoding.EncodeToString(data)
+		}
+	} else if doc := evt.Message.GetDocumentMessage(); doc != nil {
+		mediaType = "document"
+		mimeType = doc.GetMimetype()
+		if t := doc.GetCaption(); t != "" {
+			text = t
+		}
+		data, err := ch.client.Download(doc)
+		if err == nil && len(data) > 0 {
+			mediaBase64 = base64.StdEncoding.EncodeToString(data)
+		}
+	}
+
+	if strings.TrimSpace(text) == "" && mediaBase64 == "" {
 		return
 	}
+
 	phone := ch.peerPhone(ctx, evt.Info.Chat)
-	if evt.Info.IsFromMe {
-		ch.publish("outbound_chat", map[string]any{
-			"phone":     phone,
-			"text":      text,
-			"messageId": evt.Info.ID,
-			"fromMe":    true,
-		})
-		return
-	}
-	ch.publish("inbound_chat", map[string]any{
+	payload := map[string]any{
 		"phone":     phone,
 		"text":      text,
 		"messageId": evt.Info.ID,
-	})
+	}
+	if mediaType != "" {
+		payload["mediaType"] = mediaType
+		payload["mimeType"] = mimeType
+		payload["mediaBase64"] = mediaBase64
+	}
+
+	if evt.Info.IsFromMe {
+		payload["fromMe"] = true
+		ch.publish("outbound_chat", payload)
+		return
+	}
+	ch.publish("inbound_chat", payload)
 }
 
 func messageText(msg *waE2E.Message) string {

@@ -314,12 +314,79 @@ export async function handleOwnerCommand(input: {
     return true;
   }
 
+  // G. "Teach WaCall" Custom Rule Command
+  if (
+    upperText.startsWith("TEACH") ||
+    upperText.startsWith("RULE") ||
+    upperText.startsWith("SIKHO") ||
+    upperText.includes("JAB BHI KOI") ||
+    upperText.includes("जब भी कोई") ||
+    upperText.includes("AGAR KOI") ||
+    upperText.includes("अगर कोई") ||
+    upperText.includes("KOI POOCHE") ||
+    upperText.includes("कोई पूछे") ||
+    upperText.includes("AUTO REPLY")
+  ) {
+    const rule = await parseTeachRule(channel.organizationId, text);
+    if (rule) {
+      const bot = await prisma.chatBot.upsert({
+        where: { channelId: channel.id },
+        create: {
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          enabled: true,
+        },
+        update: {},
+      });
+
+      await prisma.chatKeyword.upsert({
+        where: {
+          chatBotId_trigger_matchType: {
+            chatBotId: bot.id,
+            trigger: rule.trigger,
+            matchType: rule.matchType,
+          },
+        },
+        create: {
+          organizationId: channel.organizationId,
+          chatBotId: bot.id,
+          trigger: rule.trigger,
+          matchType: rule.matchType,
+          reply: rule.reply,
+          action: "reply",
+          enabled: true,
+        },
+        update: {
+          reply: rule.reply,
+          enabled: true,
+        },
+      });
+
+      const card = `🎓 *WaCall Assistant — Rule Learned & Active!*
+━━━━━━━━━━━━━━━━━━━━
+🔍 *Trigger:* "${rule.trigger}" (${rule.matchType})
+💬 *Auto-Reply:* "${rule.reply}"
+⚡ *Status:* Active ✅
+━━━━━━━━━━━━━━━━━━━━
+अब जब भी कोई ग्राहक WhatsApp पर यह पूछेगा, WaCall अपने आप यह जवाब दे देगा!`;
+
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: card,
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return true;
+    }
+  }
+
   // Default Assistant Response to Owner
   await sendWhatsAppText({
     organizationId: channel.organizationId,
     channelId: channel.id,
     phone: input.phone,
-    body: `👋 *WaCall Assistant Active*\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Send quotation to [Name] for ₹[Amount]"*\n• *"Pending payments बताओ"*\n• *"Call [Name/Number]"*\n• या किसी भी ग्राहक का मैसेज मुझे *Forward* कर दीजिए!`,
+    body: `👋 *WaCall Assistant Active*\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Send quotation to [Name] for ₹[Amount]"*\n• *"Pending payments बताओ"*\n• *"Call [Name/Number]"*\n• *"जब भी कोई पूछे [प्रश्न], तो बोलो [उत्तर]"* (Rule सिखाएं)\n• या किसी भी ग्राहक का मैसेज/विजिटिंग कार्ड मुझे *Forward* कर दीजिए!`,
     chatSource: "bot",
   }).catch(() => undefined);
 
@@ -467,6 +534,106 @@ async function executePendingAction(channel: any, action: any): Promise<void> {
       }).catch(() => undefined);
       return;
     }
+  }
+
+  if (action.actionType === "SAVE_CONTACT") {
+    const phone = payload.phone ? normalizePhone(payload.phone) : null;
+    const cleanPhone = phone && phone.ok ? phone.e164 : payload.phone;
+
+    let contact: any = null;
+    if (cleanPhone) {
+      contact = await prisma.contact.upsert({
+        where: {
+          organizationId_phone: {
+            organizationId: channel.organizationId,
+            phone: cleanPhone,
+          },
+        },
+        create: {
+          organizationId: channel.organizationId,
+          phone: cleanPhone,
+          name: payload.name || "Contact",
+          email: payload.email || undefined,
+        },
+        update: {
+          name: payload.name || undefined,
+          email: payload.email || undefined,
+        },
+      });
+
+      await prisma.chatConversation.upsert({
+        where: {
+          organizationId_channelId_phone: {
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: cleanPhone,
+          },
+        },
+        create: {
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          contactId: contact.id,
+          phone: cleanPhone,
+          leadStage: "WARM",
+          workCategory: "LEAD",
+          summary: `Visiting Card: ${payload.name} (${payload.company || ""} - ${payload.designation || ""})`,
+        },
+        update: {
+          contactId: contact.id,
+          leadStage: "WARM",
+          summary: `Visiting Card: ${payload.name} (${payload.company || ""} - ${payload.designation || ""})`,
+        },
+      });
+    }
+
+    await prisma.businessTask.create({
+      data: {
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        title: `Follow up with ${payload.name || "Lead"} (${payload.company || "New Contact"})`,
+        description: `Role: ${payload.designation || "N/A"}\nEmail: ${payload.email || "N/A"}\nAddress: ${payload.address || "N/A"}`,
+        contactName: payload.name,
+        contactPhone: cleanPhone,
+        dueAt: new Date(Date.now() + 24 * 3600 * 1000),
+        priority: "HIGH",
+        status: "PENDING",
+        source: "visiting_card_ocr",
+      },
+    });
+
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: channel.ownerPhone || channel.phoneNumber,
+      body: `✅ *Contact & Lead Saved Successfully!*\n\n👤 *Name:* ${payload.name}\n📞 *Phone:* ${cleanPhone || "N/A"}\n🏢 *Company:* ${payload.company || "N/A"}\n💼 *Role:* ${payload.designation || "N/A"}\n\n📋 *Follow-up task created in Work Inbox for tomorrow!*`,
+      chatSource: "bot",
+    }).catch(() => undefined);
+    return;
+  }
+
+  if (action.actionType === "RECORD_EXPENSE") {
+    await prisma.businessTask.create({
+      data: {
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        title: `Payment/Bill: ₹${payload.amount} to ${payload.vendorName || "Vendor"}`,
+        description: `Items: ${payload.items || "Expense"}\nDue Date: ${payload.dueDate || "N/A"}`,
+        amount: payload.amount ? parseFloat(String(payload.amount)) : undefined,
+        dueAt: payload.dueDate ? new Date(payload.dueDate) : new Date(Date.now() + 48 * 3600 * 1000),
+        priority: "MEDIUM",
+        status: "PENDING",
+        source: "bill_ocr",
+      },
+    });
+
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: channel.ownerPhone || channel.phoneNumber,
+      body: `✅ *Bill / Expense Recorded!*\n\n🏢 *Vendor:* ${payload.vendorName || "Vendor"}\n💰 *Amount:* ₹${Number(payload.amount || 0).toLocaleString("en-IN")}\n📋 *Details:* ${payload.items || "Purchase"}\n\nTask added to your Work Inbox.`,
+      chatSource: "bot",
+    }).catch(() => undefined);
+    return;
   }
 
   // Default acknowledgement
@@ -894,4 +1061,72 @@ async function handleMarkPaidCommand(organizationId: string, target: string): Pr
 
   return `✅ *भुगतान दर्ज कर लिया गया!*\n━━━━━━━━━━━━━━━━━━━━\n• *Invoice*: #${invoice.invoiceNumber}\n• *ग्राहक*: ${invoice.clientName}\n• *जमा राशि*: ₹${payAmount.toLocaleString("en-IN")}\n• *वर्तमान स्थिति*: ${updated.status === "PAID" ? "✅ चुकता (PAID)" : `⏳ शेष राशि: ₹${(updated.total - updated.amountPaid).toLocaleString("en-IN")}`}\n━━━━━━━━━━━━━━━━━━━━`;
 }
+
+/**
+ * Parses a "Teach WaCall" natural language rule using regex or LLM.
+ */
+async function parseTeachRule(
+  organizationId: string,
+  rawText: string,
+): Promise<{ trigger: string; matchType: string; reply: string } | null> {
+  const text = rawText.trim();
+
+  // Pattern 1: Rule: trigger -> reply or Rule: trigger = reply
+  const arrowMatch = /^(?:rule|teach|sikho|auto\s*reply)[:\s]+(.+?)\s*(?:->|=|:)\s*(.+)$/i.exec(text);
+  if (arrowMatch && arrowMatch[1] && arrowMatch[2]) {
+    return {
+      trigger: arrowMatch[1].trim(),
+      matchType: "contains",
+      reply: arrowMatch[2].trim(),
+    };
+  }
+
+  // Pattern 2: "जब भी कोई पूछे [trigger], तो बोलो [reply]" or "अगर कोई [trigger] पूछे तो [reply]"
+  const hindiMatch = /(?:जब भी कोई|अगर कोई|jab bhi koi|agar koi)\s*(?:पूछे|pooche)?\s*['"“]?(.+?)['"”]?\s*(?:पूछे|pooche)?\s*(?:तो बोलो|तो जवाब दो|तो बोलना|to bolo|to bolna|to bol dena|reply kar do)[:\s]*['"“]?(.+?)['"”]?$/i.exec(text);
+  if (hindiMatch && hindiMatch[1] && hindiMatch[2]) {
+    return {
+      trigger: hindiMatch[1].trim(),
+      matchType: "contains",
+      reply: hindiMatch[2].trim(),
+    };
+  }
+
+  // LLM fallback for nuanced spoken phrasings
+  try {
+    const key = await resolveSarvamApiKey(organizationId).catch(() => "");
+    if (!key) return null;
+    const client = new SarvamClient(key);
+    const prompt = `Extract the chatbot trigger keyword and reply from this business owner instruction:
+Instruction: "${text.slice(0, 300)}"
+
+Return ONLY valid JSON:
+{
+  "trigger": "Exact question or keyword phrase",
+  "matchType": "contains",
+  "reply": "The response message to be sent to the customer"
+}`;
+
+    const res = await client.chat(
+      [
+        { role: "system", content: "You are a precise JSON extractor. Output ONLY JSON." },
+        { role: "user", content: prompt },
+      ],
+      { temperature: 0.1, maxTokens: 250 },
+    );
+    const cleaned = res.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const data = JSON.parse(cleaned);
+    if (data.trigger && data.reply) {
+      return {
+        trigger: data.trigger.trim(),
+        matchType: data.matchType || "contains",
+        reply: data.reply.trim(),
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return null;
+}
+
 

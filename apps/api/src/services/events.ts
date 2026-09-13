@@ -25,35 +25,59 @@ export async function startEventBridge() {
         void lock.release(event.channelId, event.callId);
       }
       if (event.type === "inbound_chat" && event.channelId) {
-        const chat = event as { channelId: string; phone?: string; text?: string; messageId?: string };
-        if (chat.phone && chat.text) {
+        const chat = event as {
+          channelId: string;
+          phone?: string;
+          text?: string;
+          messageId?: string;
+          mediaType?: "audio" | "image" | "document";
+          mimeType?: string;
+          mediaBase64?: string;
+        };
+        if (chat.phone && (chat.text || chat.mediaBase64)) {
           void import("./chatbot-engine.js").then((mod) =>
             mod.handleInboundChat({
               channelId: chat.channelId,
               phone: chat.phone!,
-              text: chat.text!,
+              text: chat.text || "",
               messageId: chat.messageId,
+              mediaType: chat.mediaType,
+              mimeType: chat.mimeType,
+              mediaBase64: chat.mediaBase64,
             }),
           );
-          void import("./visits-support.js").then((mod) =>
-            mod.ingestInboundWhatsApp({
-              channelId: chat.channelId,
-              phone: chat.phone!,
-              text: chat.text!,
-              whatsappId: chat.messageId,
-            }),
-          );
+          if (chat.text) {
+            void import("./visits-support.js").then((mod) =>
+              mod.ingestInboundWhatsApp({
+                channelId: chat.channelId,
+                phone: chat.phone!,
+                text: chat.text!,
+                whatsappId: chat.messageId,
+              }),
+            );
+          }
         }
       }
       if (event.type === "outbound_chat" && event.channelId) {
-        const chat = event as { channelId: string; phone?: string; text?: string; messageId?: string };
-        if (chat.phone && chat.text) {
+        const chat = event as {
+          channelId: string;
+          phone?: string;
+          text?: string;
+          messageId?: string;
+          mediaType?: "audio" | "image" | "document";
+          mimeType?: string;
+          mediaBase64?: string;
+        };
+        if (chat.phone && (chat.text || chat.mediaBase64)) {
           void import("./chatbot-engine.js").then((mod) =>
             mod.handleOutboundChat({
               channelId: chat.channelId,
               phone: chat.phone!,
-              text: chat.text!,
+              text: chat.text || "",
               messageId: chat.messageId,
+              mediaType: chat.mediaType,
+              mimeType: chat.mimeType,
+              mediaBase64: chat.mediaBase64,
             }),
           );
         }
