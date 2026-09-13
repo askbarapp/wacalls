@@ -29,7 +29,14 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       },
     });
 
-    return ok(profile || null);
+    if (!profile) return ok(null);
+
+    return ok({
+      ...profile,
+      products: profile.products ? profile.products.split(",").map((s) => s.trim()).filter(Boolean) : [],
+      services: profile.services ? profile.services.split(",").map((s) => s.trim()).filter(Boolean) : [],
+      tagline: profile.usp || null,
+    });
   });
 
   app.put("/creative/profile", async (req) => {
@@ -48,10 +55,11 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       address: z.string().optional().nullable(),
       website: z.string().optional().nullable(),
       language: z.string().optional().default("Hindi + English"),
-      creativeTheme: z.string().optional().default("vibrant, premium"),
     });
 
     const body = schema.parse(req.body);
+    const productsStr = Array.isArray(body.products) ? body.products.join(", ") : (body.products || null);
+    const servicesStr = Array.isArray(body.services) ? body.services.join(", ") : (body.services || null);
 
     const existing = await prisma.businessProfile.findFirst({
       where: {
@@ -68,15 +76,14 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
             businessCategory: body.businessCategory,
             brandColors: body.brandColors,
             brandStyle: body.brandStyle,
-            tagline: body.tagline,
-            products: body.products,
-            services: body.services,
+            usp: body.tagline || null,
+            products: productsStr,
+            services: servicesStr,
             defaultOffer: body.defaultOffer,
             phone: body.phone,
             address: body.address,
             website: body.website,
             language: body.language,
-            creativeTheme: body.creativeTheme,
           },
         })
       : await prisma.businessProfile.create({
@@ -87,15 +94,14 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
             businessCategory: body.businessCategory,
             brandColors: body.brandColors,
             brandStyle: body.brandStyle,
-            tagline: body.tagline,
-            products: body.products,
-            services: body.services,
+            usp: body.tagline || null,
+            products: productsStr,
+            services: servicesStr,
             defaultOffer: body.defaultOffer,
             phone: body.phone,
             address: body.address,
             website: body.website,
             language: body.language,
-            creativeTheme: body.creativeTheme,
           },
         });
 
@@ -302,7 +308,8 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       prisma.creativeAsset.findMany({
         where,
         orderBy: { createdAt: "desc" },
-        ...pageSkip({ page, limit }),
+        skip: pageSkip(page, limit),
+        take: limit,
         include: {
           versions: { orderBy: { version: "desc" } },
         },
@@ -310,7 +317,7 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       prisma.creativeAsset.count({ where }),
     ]);
 
-    return okPage(items, pageMeta(total, page, limit));
+    return okPage(items, pageMeta(page, limit, total));
   });
 
   app.get("/creative/:id", async (req) => {
@@ -321,7 +328,7 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       where: { id, organizationId: auth.orgId },
       include: {
         versions: { orderBy: { version: "desc" } },
-        channel: { select: { id: true, name: true, phoneNumber: true } },
+        channel: { select: { id: true, displayName: true, phoneNumber: true } },
       },
     });
 
