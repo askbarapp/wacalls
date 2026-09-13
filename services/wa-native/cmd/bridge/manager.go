@@ -496,7 +496,7 @@ func (ch *Channel) onChatMessage(ctx context.Context, evt *events.Message) {
 		if mimeType == "" {
 			mimeType = "audio/ogg; codecs=opus"
 		}
-		data, err := ch.client.Download(audio)
+		data, err := ch.client.Download(ctx, audio)
 		if err == nil && len(data) > 0 {
 			mediaBase64 = base64.StdEncoding.EncodeToString(data)
 		}
@@ -509,7 +509,7 @@ func (ch *Channel) onChatMessage(ctx context.Context, evt *events.Message) {
 		if t := img.GetCaption(); t != "" {
 			text = t
 		}
-		data, err := ch.client.Download(img)
+		data, err := ch.client.Download(ctx, img)
 		if err == nil && len(data) > 0 {
 			mediaBase64 = base64.StdEncoding.EncodeToString(data)
 		}
@@ -519,7 +519,7 @@ func (ch *Channel) onChatMessage(ctx context.Context, evt *events.Message) {
 		if t := doc.GetCaption(); t != "" {
 			text = t
 		}
-		data, err := ch.client.Download(doc)
+		data, err := ch.client.Download(ctx, doc)
 		if err == nil && len(data) > 0 {
 			mediaBase64 = base64.StdEncoding.EncodeToString(data)
 		}
