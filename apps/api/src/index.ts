@@ -6,6 +6,7 @@ import { startEventBridge } from "./services/events.js";
 import { processCadenceTick } from "./services/followup-cadence.js";
 import { processDuePaymentReminders } from "./services/invoice-service.js";
 import { processDailyBriefingTick } from "./services/daily-briefing.js";
+import { startFestivalAutopilotScheduler } from "./services/creative/festival-scheduler.js";
 
 const app = await buildApp();
 
@@ -36,5 +37,7 @@ const reminderInterval = setInterval(() => {
 const briefingInterval = setInterval(() => {
   void processDailyBriefingTick().catch(() => undefined);
 }, 60 * 1000);
+
+startFestivalAutopilotScheduler();
 
 await app.listen({ port: env.API_PORT, host: "0.0.0.0" });

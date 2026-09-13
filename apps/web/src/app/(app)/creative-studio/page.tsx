@@ -11,9 +11,11 @@ import {
   RefreshCw,
   Clock,
   CheckCircle2,
-  AlertCircle,
   Sliders,
   History,
+  PartyPopper,
+  Calendar,
+  Zap,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
@@ -58,8 +60,30 @@ interface CreditBalance {
   monthlyLimit: number;
 }
 
+interface Festival {
+  id: string;
+  name: string;
+  festivalDate: string;
+  triggerDaysBefore: number;
+  creativeType: string;
+  defaultPrompt?: string | null;
+  active: boolean;
+}
+
+interface FestivalCampaignItem {
+  id: string;
+  festival: { name: string; festivalDate: string };
+  status: string;
+  sentAt?: string | null;
+  creativeAsset?: {
+    id: string;
+    title: string;
+    versions: Array<{ imageUrl?: string | null }>;
+  } | null;
+}
+
 export default function CreativeStudioPage() {
-  const [activeTab, setActiveTab] = useState<"gallery" | "profile">("gallery");
+  const [activeTab, setActiveTab] = useState<"gallery" | "profile" | "autopilot">("gallery");
 
   // Data states
   const [creatives, setCreatives] = useState<CreativeAsset[]>([]);
@@ -75,6 +99,10 @@ export default function CreativeStudioPage() {
     defaultOffer: "",
     language: "Hindi + English",
   });
+
+  const [festivals, setFestivals] = useState<Festival[]>([]);
+  const [autopilotEnabled, setAutopilotEnabled] = useState(true);
+  const [campaigns, setCampaigns] = useState<FestivalCampaignItem[]>([]);
 
   // Modal / Form states
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
@@ -95,11 +123,15 @@ export default function CreativeStudioPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [creativesRes, profileRes, creditsRes] = await Promise.all([
-        api<{ success: true; data: CreativeAsset[] }>("/api/v1/creative"),
-        api<{ success: true; data: BusinessProfile | null }>("/api/v1/creative/profile"),
-        api<{ success: true; data: CreditBalance }>("/api/v1/creative/credits"),
-      ]);
+      const [creativesRes, profileRes, creditsRes, festivalsRes, autopilotRes, campaignsRes] =
+        await Promise.all([
+          api<{ success: true; data: CreativeAsset[] }>("/api/v1/creative"),
+          api<{ success: true; data: BusinessProfile | null }>("/api/v1/creative/profile"),
+          api<{ success: true; data: CreditBalance }>("/api/v1/creative/credits"),
+          api<{ success: true; data: Festival[] }>("/api/v1/creative/festivals?upcoming=true"),
+          api<{ success: true; data: { enabled: boolean } }>("/api/v1/creative/autopilot"),
+          api<{ success: true; data: FestivalCampaignItem[] }>("/api/v1/creative/campaigns"),
+        ]);
 
       setCreatives(creativesRes.data || []);
       if (profileRes.data) {
@@ -110,6 +142,9 @@ export default function CreativeStudioPage() {
         });
       }
       setCredits(creditsRes.data);
+      setFestivals(festivalsRes.data || []);
+      setAutopilotEnabled(autopilotRes.data?.enabled ?? true);
+      setCampaigns(campaignsRes.data || []);
     } catch (err: any) {
       setError(err?.message || "Failed to load creative studio data");
     } finally {
@@ -165,6 +200,62 @@ export default function CreativeStudioPage() {
     }
   }
 
+  async function handleQuickFestivalGenerate(fest: Festival) {
+    setActionBusy(true);
+    setError("");
+    setMsg("");
+    try {
+      await api("/api/v1/creative/generate", {
+        method: "POST",
+        body: JSON.stringify({
+          festivalName: fest.name,
+          userInstruction: fest.defaultPrompt || `${fest.name} festive marketing poster celebrating auspicious blessings`,
+          creativeType: "poster",
+          aspect: "1:1",
+        }),
+      });
+      setMsg(`${fest.name} poster generation started! Ready in ~1 minute.`);
+      setActiveTab("gallery");
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || "Generation failed");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function handleToggleAutopilot(enabled: boolean) {
+    setActionBusy(true);
+    try {
+      await api("/api/v1/creative/autopilot", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      });
+      setAutopilotEnabled(enabled);
+      setMsg(enabled ? "Festival Autopilot is now ACTIVE!" : "Festival Autopilot has been paused.");
+    } catch (err: any) {
+      setError(err?.message || "Failed to update autopilot setting");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function handleRunAutopilotNow() {
+    setActionBusy(true);
+    try {
+      const res = await api<{ success: true; data: { triggered: number; skipped: number } }>(
+        "/api/v1/creative/autopilot/run-now",
+        { method: "POST" }
+      );
+      setMsg(`Autopilot tick executed: ${res.data.triggered} creatives triggered, ${res.data.skipped} skipped.`);
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || "Failed to trigger autopilot tick");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   async function handleSmartEdit(assetId: string) {
     if (!editInstruction.trim()) return;
     setActionBusy(true);
@@ -177,7 +268,6 @@ export default function CreativeStudioPage() {
       setEditInstruction("");
       setMsg("Revision request submitted! Generating updated version...");
       await loadData();
-      // Update selected asset view
       const updated = creatives.find((c) => c.id === assetId);
       if (updated) setSelectedAsset(updated);
     } catch (err: any) {
@@ -268,6 +358,19 @@ export default function CreativeStudioPage() {
         >
           <Palette className="h-4 w-4" />
           Business Brand Profile
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("autopilot")}
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 font-medium transition-colors ${
+            activeTab === "autopilot"
+              ? "border-violet-500 text-violet-300"
+              : "border-transparent text-white/60 hover:text-white"
+          }`}
+        >
+          <PartyPopper className="h-4 w-4" />
+          Festival Autopilot
         </button>
       </div>
 
@@ -450,6 +553,186 @@ export default function CreativeStudioPage() {
             </button>
           </div>
         </section>
+      )}
+
+      {/* Tab 3: Festival Autopilot */}
+      {activeTab === "autopilot" && (
+        <div className="space-y-6">
+          {/* Autopilot Overview Card */}
+          <section className="surface rounded-2xl border border-white/10 p-6 shadow-xl">
+            <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-500/20 text-violet-400">
+                  <PartyPopper className="h-6 w-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-semibold text-white">Festival Creative Autopilot</h3>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        autopilotEnabled
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-amber-500/20 text-amber-400"
+                      }`}
+                    >
+                      {autopilotEnabled ? "Active & Monitoring" : "Paused"}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-white/60">
+                    Automatically auto-generates branded festival creatives 2-3 days before each festival and sends them directly to your WhatsApp!
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={handleRunAutopilotNow}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-white/10"
+                >
+                  <Zap className="h-3.5 w-3.5 text-amber-400" />
+                  Run Autopilot Check Now
+                </button>
+
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input
+                    type="checkbox"
+                    checked={autopilotEnabled}
+                    onChange={(e) => handleToggleAutopilot(e.target.checked)}
+                    className="peer sr-only"
+                  />
+                  <div className="peer h-6 w-11 rounded-full bg-white/20 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-violet-600 peer-checked:after:translate-x-full peer-focus:outline-none" />
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="rounded-xl border border-white/5 bg-black/20 p-3.5">
+                <div className="text-[11px] text-white/50">Next Major Festival</div>
+                <div className="mt-1 text-sm font-semibold text-white">
+                  {festivals[0]?.name || "Diwali"}
+                </div>
+                <div className="text-[11px] text-violet-400">
+                  {festivals[0] ? new Date(festivals[0].festivalDate).toLocaleDateString("en-IN") : "Upcoming"}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/5 bg-black/20 p-3.5">
+                <div className="text-[11px] text-white/50">Trigger Timing</div>
+                <div className="mt-1 text-sm font-semibold text-white">2–3 Days Before</div>
+                <div className="text-[11px] text-white/40">Early morning WhatsApp dispatch</div>
+              </div>
+
+              <div className="rounded-xl border border-white/5 bg-black/20 p-3.5">
+                <div className="text-[11px] text-white/50">Branding Policy</div>
+                <div className="mt-1 text-sm font-semibold text-white">Verified Brand Profile</div>
+                <div className="text-[11px] text-emerald-400">Zero invented fake discounts</div>
+              </div>
+            </div>
+          </section>
+
+          {/* Upcoming Festivals Grid */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-violet-400" />
+                <h4 className="text-sm font-semibold text-white">Upcoming Festivals & National Days</h4>
+              </div>
+              <span className="text-xs text-white/40">{festivals.length} occasions scheduled</span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {festivals.map((fest) => {
+                const festDate = new Date(fest.festivalDate);
+                const diffDays = Math.ceil((festDate.getTime() - Date.now()) / (24 * 3600 * 1000));
+                return (
+                  <div
+                    key={fest.id}
+                    className="flex flex-col justify-between rounded-2xl border border-white/10 bg-white/5 p-4 shadow transition hover:border-violet-500/40"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-medium text-violet-300">
+                          {fest.creativeType.toUpperCase()}
+                        </span>
+                        <span className="text-[11px] font-medium text-amber-400">
+                          {diffDays > 0 ? `In ${diffDays} days` : "Today / Due"}
+                        </span>
+                      </div>
+
+                      <h5 className="mt-2 text-sm font-semibold text-white">{fest.name}</h5>
+                      <p className="mt-0.5 text-xs text-white/50">
+                        {festDate.toLocaleDateString("en-IN", {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </p>
+
+                      {fest.defaultPrompt && (
+                        <p className="mt-2 line-clamp-2 text-[11px] text-white/40">
+                          {fest.defaultPrompt}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-white/5">
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => handleQuickFestivalGenerate(fest)}
+                        className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-violet-600/90 py-1.5 text-xs font-semibold text-white hover:bg-violet-600"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        Generate Poster Now
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Autopilot History / Campaigns */}
+          {campaigns.length > 0 && (
+            <section className="space-y-3 pt-4">
+              <h4 className="text-sm font-semibold text-white">Autopilot History</h4>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="space-y-2">
+                  {campaigns.map((camp) => (
+                    <div
+                      key={camp.id}
+                      className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 p-3 text-xs"
+                    >
+                      <div className="flex items-center gap-3">
+                        <PartyPopper className="h-4 w-4 text-violet-400" />
+                        <div>
+                          <div className="font-semibold text-white">{camp.festival?.name}</div>
+                          <div className="text-[11px] text-white/50">
+                            Scheduled: {new Date(camp.festival?.festivalDate).toLocaleDateString("en-IN")}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                          {camp.status}
+                        </span>
+                        {camp.sentAt && (
+                          <span className="text-[11px] text-white/40">
+                            Sent {new Date(camp.sentAt).toLocaleDateString("en-IN")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+        </div>
       )}
 
       {/* Generate Modal */}

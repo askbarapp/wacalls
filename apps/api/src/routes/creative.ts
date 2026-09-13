@@ -13,6 +13,10 @@ import {
   smartEditCreativeRequest,
   finalizeCreativeAsset,
 } from "../services/creative/creative-service.js";
+import {
+  seedStandardFestivals,
+  runFestivalAutopilotTick,
+} from "../services/creative/festival-scheduler.js";
 
 export const creativeRoutes: FastifyPluginAsync = async (app) => {
   // -------------------------------------------------------------
@@ -335,5 +339,205 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
     if (!asset) throw new NotFoundError("Creative not found");
 
     return ok(asset);
+  });
+
+  // -------------------------------------------------------------
+  // 6. Festival Calendar Endpoints
+  // -------------------------------------------------------------
+  app.get("/creative/festivals", async (req) => {
+    await app.authenticate(req);
+    const { upcoming } = req.query as { upcoming?: string };
+
+    const where: any = { active: true };
+    if (upcoming === "true") {
+      const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
+      where.festivalDate = { gte: yesterday };
+    }
+
+    const festivals = await prisma.festival.findMany({
+      where,
+      orderBy: { festivalDate: "asc" },
+    });
+
+    return ok(festivals);
+  });
+
+  app.post("/creative/festivals", async (req) => {
+    const auth = await app.authenticate(req);
+    if (!auth.superAdmin) {
+      await app.requirePermission("settings.manage")(req);
+    }
+
+    const schema = z.object({
+      name: z.string().min(1),
+      festivalDate: z.string(),
+      triggerDaysBefore: z.number().int().min(0).max(30).default(2),
+      creativeType: z.enum(["poster", "banner", "status"]).default("poster"),
+      defaultPrompt: z.string().optional(),
+      language: z.string().default("Hindi + English"),
+      active: z.boolean().default(true),
+    });
+
+    const body = schema.parse(req.body);
+
+    const festival = await prisma.festival.create({
+      data: {
+        name: body.name,
+        festivalDate: new Date(body.festivalDate),
+        triggerDaysBefore: body.triggerDaysBefore,
+        creativeType: body.creativeType,
+        defaultPrompt: body.defaultPrompt,
+        language: body.language,
+        active: body.active,
+      },
+    });
+
+    return ok(festival);
+  });
+
+  app.put("/creative/festivals/:id", async (req) => {
+    const auth = await app.authenticate(req);
+    if (!auth.superAdmin) {
+      await app.requirePermission("settings.manage")(req);
+    }
+    const { id } = req.params as { id: string };
+
+    const schema = z.object({
+      name: z.string().optional(),
+      festivalDate: z.string().optional(),
+      triggerDaysBefore: z.number().int().min(0).max(30).optional(),
+      creativeType: z.enum(["poster", "banner", "status"]).optional(),
+      defaultPrompt: z.string().optional(),
+      active: z.boolean().optional(),
+    });
+
+    const body = schema.parse(req.body);
+
+    const updated = await prisma.festival.update({
+      where: { id },
+      data: {
+        ...(body.name ? { name: body.name } : {}),
+        ...(body.festivalDate ? { festivalDate: new Date(body.festivalDate) } : {}),
+        ...(body.triggerDaysBefore !== undefined ? { triggerDaysBefore: body.triggerDaysBefore } : {}),
+        ...(body.creativeType ? { creativeType: body.creativeType } : {}),
+        ...(body.defaultPrompt !== undefined ? { defaultPrompt: body.defaultPrompt } : {}),
+        ...(body.active !== undefined ? { active: body.active } : {}),
+      },
+    });
+
+    return ok(updated);
+  });
+
+  app.delete("/creative/festivals/:id", async (req) => {
+    const auth = await app.authenticate(req);
+    if (!auth.superAdmin) {
+      await app.requirePermission("settings.manage")(req);
+    }
+    const { id } = req.params as { id: string };
+
+    await prisma.festival.delete({ where: { id } });
+    return ok({ deleted: true });
+  });
+
+  app.post("/creative/festivals/seed", async (req) => {
+    const auth = await app.authenticate(req);
+    if (!auth.superAdmin) {
+      await app.requirePermission("settings.manage")(req);
+    }
+
+    const result = await seedStandardFestivals();
+    return ok(result);
+  });
+
+  // -------------------------------------------------------------
+  // 7. Festival Autopilot Settings & Triggers
+  // -------------------------------------------------------------
+  app.get("/creative/autopilot", async (req) => {
+    const auth = await app.authenticate(req);
+    const { channelId } = req.query as { channelId?: string };
+
+    const entitlement = await prisma.featureEntitlement.findFirst({
+      where: {
+        organizationId: auth.orgId,
+        ...(channelId ? { channelId } : {}),
+        feature: "festival_autopilot",
+      },
+    });
+
+    return ok({
+      feature: "festival_autopilot",
+      enabled: entitlement ? entitlement.enabled : true,
+      channelId: channelId || null,
+    });
+  });
+
+  app.put("/creative/autopilot", async (req) => {
+    const auth = await app.authenticate(req);
+    const schema = z.object({
+      channelId: z.string().optional().nullable(),
+      enabled: z.boolean(),
+    });
+
+    const body = schema.parse(req.body);
+
+    const existing = await prisma.featureEntitlement.findFirst({
+      where: {
+        organizationId: auth.orgId,
+        channelId: body.channelId || null,
+        feature: "festival_autopilot",
+      },
+    });
+
+    const entitlement = existing
+      ? await prisma.featureEntitlement.update({
+          where: { id: existing.id },
+          data: { enabled: body.enabled },
+        })
+      : await prisma.featureEntitlement.create({
+          data: {
+            organizationId: auth.orgId,
+            channelId: body.channelId || null,
+            feature: "festival_autopilot",
+            enabled: body.enabled,
+          },
+        });
+
+    return ok(entitlement);
+  });
+
+  app.post("/creative/autopilot/run-now", async (req) => {
+    const auth = await app.authenticate(req);
+    if (!auth.superAdmin) {
+      await app.requirePermission("settings.manage")(req);
+    }
+
+    const result = await runFestivalAutopilotTick();
+    return ok(result);
+  });
+
+  // -------------------------------------------------------------
+  // 8. Festival Campaigns History
+  // -------------------------------------------------------------
+  app.get("/creative/campaigns", async (req) => {
+    const auth = await app.authenticate(req);
+    const campaigns = await prisma.festivalCampaign.findMany({
+      where: { organizationId: auth.orgId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: {
+        festival: { select: { name: true, festivalDate: true } },
+        creativeAsset: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            versions: { orderBy: { version: "desc" }, take: 1 },
+          },
+        },
+        channel: { select: { id: true, displayName: true, phoneNumber: true } },
+      },
+    });
+
+    return ok(campaigns);
   });
 };
