@@ -23,7 +23,7 @@ export async function getCreativeProvider(organizationId: string): Promise<Creat
   };
 
   const apiKey = extractString(keyRow?.value) || process.env.USEVELIX_API_KEY || "";
-  const baseUrl = extractString(baseRow?.value) || process.env.USEVELIX_BASE_URL || "https://api.usevelix.com";
+  const baseUrl = extractString(baseRow?.value) || process.env.USEVELIX_BASE_URL || "https://usevelix.com";
   const enabled = statusRow ? statusRow.value === true || statusRow.value === "true" || (typeof statusRow.value === "object" && (statusRow.value as any)?.enabled === true) : true;
 
   if (!apiKey) {
@@ -81,7 +81,7 @@ export async function getProviderAdminSettings(organizationId: string) {
     provider: "usevelix",
     configured: isConfigured,
     maskedApiKey: maskedKey,
-    baseUrl: extractString(baseRow?.value) || process.env.USEVELIX_BASE_URL || "https://api.usevelix.com",
+    baseUrl: extractString(baseRow?.value) || process.env.USEVELIX_BASE_URL || "https://usevelix.com",
     enabled: statusRow ? statusRow.value === true || statusRow.value === "true" || (typeof statusRow.value === "object" && (statusRow.value as any)?.enabled === true) : true,
     defaultType: extractString(typeRow?.value) || "3d",
     defaultAspect: extractString(aspectRow?.value) || "1:1",

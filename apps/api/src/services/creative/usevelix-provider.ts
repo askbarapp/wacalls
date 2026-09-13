@@ -28,7 +28,7 @@ export class UseVelixProvider implements CreativeProvider {
     }
     this.apiKey = config.apiKey.trim();
     // Normalize base URL, removing trailing slash
-    const base = config.baseUrl?.trim() || process.env.USEVELIX_BASE_URL || "https://api.usevelix.com";
+    const base = config.baseUrl?.trim() || process.env.USEVELIX_BASE_URL || "https://usevelix.com";
     this.baseUrl = base.replace(/\/+$/, "");
   }
 

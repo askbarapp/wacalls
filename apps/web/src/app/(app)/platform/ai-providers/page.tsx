@@ -36,7 +36,7 @@ export default function PlatformAiProvidersPage() {
     try {
       const res = await api<{ success: true; data: UseVelixSettings }>("/api/v1/creative/providers/usevelix");
       setSettings(res.data);
-      setBaseUrlInput(res.data.baseUrl || "https://api.usevelix.com");
+      setBaseUrlInput(res.data.baseUrl || "https://usevelix.com");
       setEnabledInput(res.data.enabled);
       setDefaultTypeInput(res.data.defaultType || "3d");
       setDefaultAspectInput(res.data.defaultAspect || "1:1");
@@ -57,7 +57,7 @@ export default function PlatformAiProvidersPage() {
     setMsg("");
     try {
       const payload: any = {
-        baseUrl: baseUrlInput.trim() || "https://api.usevelix.com",
+        baseUrl: baseUrlInput.trim() || "https://usevelix.com",
         enabled: enabledInput,
         defaultType: defaultTypeInput,
         defaultAspect: defaultAspectInput,
