@@ -9,6 +9,11 @@ import {
 import { sendWhatsAppText } from "./messaging.js";
 import { resolveVoiceApiKey } from "./sarvam-key.js";
 import { broadcast } from "../ws.js";
+import {
+  isOwnerPhone,
+  handleOwnerCommand,
+  classifyAndEscalateCustomerMessage,
+} from "./business-assistant.js";
 
 const log = pino({ name: "chatbot-engine" });
 
@@ -34,6 +39,18 @@ export async function handleOutboundChat(input: {
     where: { id: input.channelId },
   });
   if (!channel) return;
+
+  // If owner sent message to self-chat or own line, handle as Owner Command
+  const isOwner = await isOwnerPhone(channel.id, phone);
+  if (isOwner && channel.phoneNumber && phone.includes(channel.phoneNumber.replace(/\D/g, ""))) {
+    const handled = await handleOwnerCommand({
+      channelId: channel.id,
+      phone,
+      text,
+      messageId: input.messageId,
+    });
+    if (handled) return;
+  }
 
   // Ensure contact exists
   const contact = await prisma.contact.upsert({
@@ -197,6 +214,25 @@ export async function handleInboundChat(input: {
     status: conversation.status,
     message: msg,
   });
+
+  // Check if message is from the Business Owner
+  const isOwner = await isOwnerPhone(channel.id, phone);
+  if (isOwner) {
+    const handled = await handleOwnerCommand({
+      channelId: channel.id,
+      phone,
+      text,
+      messageId: input.messageId,
+    });
+    if (handled) return;
+  }
+
+  // If from a customer, run background autonomous work classification & escalation check
+  void classifyAndEscalateCustomerMessage({
+    channel,
+    conversation,
+    text,
+  }).catch((err) => log.warn({ err }, "Autonomous classification error"));
 
   const upperText = text.toUpperCase();
 

@@ -14,6 +14,7 @@ import { sendWhatsAppText } from "../services/messaging.js";
 
 const botBody = z.object({
   channelId: z.string().uuid(),
+  ownerPhone: z.string().trim().optional().nullable(),
   enabled: z.boolean().optional(),
   aiEnabled: z.boolean().optional(),
   greetingEnabled: z.boolean().optional(),
@@ -46,7 +47,7 @@ const botInclude = {
       targetKnowledgeBase: { select: { id: true, name: true } },
     },
   },
-  channel: { select: { id: true, displayName: true, status: true, provider: true } },
+  channel: { select: { id: true, displayName: true, status: true, provider: true, ownerPhone: true } },
   aiConfig: { select: { id: true, name: true, provider: true } },
   knowledgeBase: { select: { id: true, name: true } },
 };
@@ -127,7 +128,13 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
       });
       if (!kb) throw new NotFoundError("Knowledge base not found");
     }
-    const { channelId: _channelId, ...patch } = body;
+    const { channelId: _channelId, ownerPhone, ...patch } = body;
+    if (ownerPhone !== undefined) {
+      await prisma.whatsAppChannel.update({
+        where: { id: body.channelId },
+        data: { ownerPhone: ownerPhone ? ownerPhone.trim() : null },
+      });
+    }
     return ok(
       await prisma.chatBot.update({
         where: { id: bot.id },
@@ -206,12 +213,18 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
         channelId: z.string().uuid().optional(),
         status: z.enum(["OPEN", "HANDOFF", "CLOSED"]).optional(),
         search: z.string().optional(),
+        leadStage: z.string().optional(),
+        workCategory: z.string().optional(),
+        sentiment: z.string().optional(),
       })
       .parse(req.query);
     const where = {
       organizationId: auth.orgId,
       ...(q.channelId ? { channelId: q.channelId } : {}),
       ...(q.status ? { status: q.status } : {}),
+      ...(q.leadStage ? { leadStage: q.leadStage } : {}),
+      ...(q.workCategory ? { workCategory: q.workCategory } : {}),
+      ...(q.sentiment ? { sentiment: q.sentiment } : {}),
       ...(q.search?.trim()
         ? { phone: { contains: q.search.trim(), mode: "insensitive" as const } }
         : {}),
@@ -232,6 +245,35 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
       prisma.chatConversation.count({ where }),
     ]);
     return okPage(rows, pageMeta(q.page, q.limit, total));
+  });
+
+  app.get("/chat/tasks", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("chatbot.inbox")(req);
+    const tasks = await prisma.businessTask.findMany({
+      where: { organizationId: auth.orgId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: {
+        channel: { select: { displayName: true } },
+      },
+    });
+    return ok(tasks);
+  });
+
+  app.patch("/chat/tasks/:id", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("chatbot.inbox")(req);
+    const { id } = req.params as { id: string };
+    const body = z.object({
+      status: z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
+      priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+    }).parse(req.body);
+    const updated = await prisma.businessTask.update({
+      where: { id },
+      data: body,
+    });
+    return ok(updated);
   });
 
   app.get("/chat/conversations/:id", async (req) => {

@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { ListPagination } from "@/components/list-pagination";
 import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
 
-type Channel = { id: string; displayName: string; status: string; provider?: string };
+type Channel = { id: string; displayName: string; status: string; provider?: string; ownerPhone?: string | null };
 type Agent = { id: string; name: string; provider?: string };
 type Knowledge = { id: string; name: string };
 type Keyword = {
@@ -38,6 +38,7 @@ type Bot = {
   optOutMessage: string;
   handoffMessage: string;
   unknownHandoff: boolean;
+  ownerPhone?: string | null;
   keywords: Keyword[];
   channel?: Channel;
 };
@@ -47,14 +48,36 @@ type Conversation = {
   status: string;
   optOut: boolean;
   lastMessageAt: string;
+  workCategory?: string | null;
+  leadStage?: string | null;
+  intent?: string | null;
+  sentiment?: string | null;
+  dealValue?: number | null;
+  summary?: string | null;
   channel?: { displayName: string };
   contact?: { name: string | null; phone: string } | null;
   messages?: Array<{ body: string; direction: string; createdAt: string }>;
+};
+type BusinessTask = {
+  id: string;
+  title: string;
+  description?: string | null;
+  dueDate?: string | null;
+  priority: string;
+  status: string;
+  contactPhone?: string | null;
+  contactName?: string | null;
+  category?: string | null;
+  dealAmount?: number | null;
+  createdAt: string;
+  channel?: { displayName: string };
 };
 type ChatLine = { id: string; body: string; direction: string; source: string; createdAt: string };
 type Thread = Omit<Conversation, "messages"> & {
   messages: ChatLine[];
 };
+
+type InboxFilter = "all" | "hot" | "tasks" | "escalations";
 
 const TABS = [
   { id: "setup", label: "Setup" },
@@ -102,6 +125,9 @@ function ChatbotInner() {
   const [meta, setMeta] = useState<ListMeta>(emptyMeta(25));
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const [tasks, setTasks] = useState<BusinessTask[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [thread, setThread] = useState<Thread | null>(null);
   const [reply, setReply] = useState("");
@@ -121,12 +147,47 @@ function ChatbotInner() {
 
   async function loadBot(id: string) {
     const r = await api<{ success: true; data: Bot }>(`/api/v1/chatbots?channelId=${id}`);
-    setBot(r.data);
+    const botData = r.data;
+    if (!botData.ownerPhone && botData.channel?.ownerPhone) {
+      botData.ownerPhone = botData.channel.ownerPhone;
+    }
+    setBot(botData);
   }
 
-  async function loadInbox(pageNum = page, limit = pageSize, ch = channelId) {
+  async function loadTasks() {
+    setLoadingTasks(true);
+    try {
+      const r = await api<{ success: true; data: BusinessTask[] }>("/api/v1/chat/tasks");
+      setTasks(r.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load tasks");
+    } finally {
+      setLoadingTasks(false);
+    }
+  }
+
+  async function toggleTaskStatus(task: BusinessTask) {
+    const nextStatus = task.status === "COMPLETED" ? "PENDING" : "COMPLETED";
+    try {
+      await api(`/api/v1/chat/tasks/${task.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update task");
+    }
+  }
+
+  async function loadInbox(pageNum = page, limit = pageSize, ch = channelId, filter = inboxFilter) {
+    if (filter === "tasks") {
+      await loadTasks();
+      return;
+    }
     const params = new URLSearchParams({ page: String(pageNum), limit: String(limit) });
     if (ch) params.set("channelId", ch);
+    if (filter === "hot") params.set("leadStage", "HOT");
+    if (filter === "escalations") params.set("sentiment", "ANGRY");
     const r = await api<{ success: true; data: Conversation[]; meta?: ListMeta }>(
       `/api/v1/chat/conversations?${params}`,
     );
@@ -160,10 +221,10 @@ function ChatbotInner() {
 
   useEffect(() => {
     if (tab !== "inbox" || !channelId) return;
-    void loadInbox(page, pageSize, channelId).catch((err) =>
+    void loadInbox(page, pageSize, channelId, inboxFilter).catch((err) =>
       setError(err instanceof Error ? err.message : "Failed to load inbox"),
     );
-  }, [tab, page, pageSize, channelId]);
+  }, [tab, page, pageSize, channelId, inboxFilter]);
 
   async function saveBot() {
     if (!bot) return;
@@ -185,9 +246,14 @@ function ChatbotInner() {
           optOutMessage: bot.optOutMessage,
           handoffMessage: bot.handoffMessage,
           unknownHandoff: bot.unknownHandoff,
+          ownerPhone: bot.ownerPhone ?? bot.channel?.ownerPhone ?? null,
         }),
       });
-      setBot(r.data);
+      const updated = r.data;
+      if (!updated.ownerPhone && updated.channel?.ownerPhone) {
+        updated.ownerPhone = updated.channel.ownerPhone;
+      }
+      setBot(updated);
       setMsg("Chatbot saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save chatbot");
@@ -274,6 +340,42 @@ function ChatbotInner() {
       {tab === "setup" && bot ? (
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
+            {/* Business Owner Commander Line Card */}
+            <div className="mb-5 rounded-xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-ink-950/60 to-brand-500/10 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-amber-300">👑 WhatsApp Commander (Owner Line)</span>
+                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 uppercase tracking-wide">
+                      WaCall OS
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-300 leading-relaxed">
+                    अपना व्यक्तिगत WhatsApp नंबर दर्ज करें। इस नंबर से या अपने बिज़नेस नंबर पर <b>Self-Chat</b> करके आप WaCall को सीधे WhatsApp से कमांड दे सकते हैं (जैसे: <i>&quot;आज के काम बताओ&quot;</i>, <i>&quot;Hot leads&quot;</i>, <i>&quot;Call Sharma Ji&quot;</i> या Forwarded chats से tasks बनाना)।
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="text"
+                  placeholder="e.g. 919876543210 (आपका पर्सनल WhatsApp नंबर)"
+                  className="flex-1 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
+                  value={bot.ownerPhone ?? bot.channel?.ownerPhone ?? ""}
+                  onChange={(e) => setBot({ ...bot, ownerPhone: e.target.value })}
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                💡 यदि आप उसी बिज़नेस नंबर से WhatsApp पर खुद को (Self-Chat / Message Yourself) मैसेज करते हैं, तो वह स्वतः कमांडर मोड में काम करेगा।
+              </p>
+              <div className="mt-3 rounded-lg border border-white/5 bg-black/30 p-2.5 text-[11px] text-slate-400 space-y-1">
+                <div className="font-semibold text-slate-200">⚡ WhatsApp Quick Commands (कमांडर कमांड्स):</div>
+                <div>• <b>Forward Customer Chat:</b> WaCall AI बातचीत समझकर तुरंत Appointment, Task या Quote तैयार करके पुष्टि पूछेगा।</div>
+                <div>• <b>&quot;आज के सारे काम बताओ&quot;:</b> आज की मीटिंग्स, Hot Leads और Follow-up की समरी WhatsApp पर पाएँ।</div>
+                <div>• <b>&quot;Hot leads निकालो&quot;:</b> तुरंत हाई-प्रायोरिटी लीड्स की लिस्ट देखें।</div>
+                <div>• <b>&quot;Call [नाम]&quot;:</b> उस क्लाइंट को तुरंत AI कॉल ट्रिगर करें।</div>
+              </div>
+            </div>
+
             <h2 className="mb-4 text-base font-semibold text-white">Bot Controls & Status</h2>
             <div className="mb-5 space-y-4 rounded-xl border border-white/10 bg-black/30 p-4">
               {/* Master Switch */}
@@ -710,122 +812,358 @@ function ChatbotInner() {
       ) : null}
 
       {tab === "inbox" ? (
-        <div className="flex h-[min(70dvh,40rem)] min-h-[22rem] flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-900/80 lg:flex-row">
-          <section
-            className={`flex min-h-0 w-full shrink-0 flex-col border-white/10 lg:w-80 lg:border-r ${
-              thread ? "hidden lg:flex" : "flex"
-            }`}
-          >
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
-              <ul className="space-y-2">
-                {rows.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setOpenId(c.id);
-                        const r = await api<{ success: true; data: Thread }>(`/api/v1/chat/conversations/${c.id}`);
-                        setThread(r.data);
-                      }}
-                      className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm ${
-                        openId === c.id ? "border-brand-500/40 bg-brand-500/10" : "border-white/10 bg-ink-950/40"
-                      }`}
-                    >
-                      <div className="flex justify-between gap-2 text-white">
-                        <span className="truncate">{c.contact?.name || c.phone}</span>
-                        <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{c.status}</span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-slate-400">
-                        {c.messages?.[0]?.body || "No messages yet"}
-                      </p>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {rows.length === 0 ? (
-                <p className="p-4 text-sm text-slate-500">
-                  Inbound WhatsApp texts on this line will show up here after the channel is CONNECTED.
-                </p>
-              ) : null}
-            </div>
-            <div className="shrink-0 border-t border-white/10 px-3 py-2">
-              <ListPagination
-                className="mt-0"
-                meta={meta}
-                pageSize={pageSize}
-                onPageChange={setPage}
-                onPageSizeChange={(size) => {
-                  setPageSize(size);
+        <div className="space-y-4">
+          {/* Work Inbox Filters */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setInboxFilter("all");
                   setPage(1);
                 }}
-              />
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                  inboxFilter === "all"
+                    ? "bg-brand-500 text-ink-950 font-bold shadow"
+                    : "border border-white/10 bg-ink-900/80 text-slate-300 hover:bg-white/10"
+                }`}
+              >
+                All Chats
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setInboxFilter("hot");
+                  setPage(1);
+                }}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                  inboxFilter === "hot"
+                    ? "bg-rose-500 text-white font-bold shadow shadow-rose-500/30"
+                    : "border border-white/10 bg-ink-900/80 text-slate-300 hover:bg-white/10"
+                }`}
+              >
+                <span>🔥 Hot Leads</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setInboxFilter("tasks");
+                }}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                  inboxFilter === "tasks"
+                    ? "bg-amber-500 text-ink-950 font-bold shadow shadow-amber-500/30"
+                    : "border border-white/10 bg-ink-900/80 text-slate-300 hover:bg-white/10"
+                }`}
+              >
+                <span>📋 Tasks & Follow-ups</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setInboxFilter("escalations");
+                  setPage(1);
+                }}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                  inboxFilter === "escalations"
+                    ? "bg-red-600 text-white font-bold shadow shadow-red-600/30 animate-pulse"
+                    : "border border-white/10 bg-ink-900/80 text-slate-300 hover:bg-white/10"
+                }`}
+              >
+                <span>🚨 Urgent Escalations</span>
+              </button>
             </div>
-          </section>
-          <section className={`min-h-0 min-w-0 flex-1 flex-col ${thread ? "flex" : "hidden lg:flex"}`}>
-            {thread ? (
-              <>
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <button
-                      type="button"
-                      className="mb-1 text-xs text-slate-400 lg:hidden"
-                      onClick={() => {
-                        setThread(null);
-                        setOpenId(null);
-                      }}
-                    >
-                      ← Conversations
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-medium text-white">{thread.contact?.name || thread.phone}</span>
-                      {thread.status === "HANDOFF" ? (
-                        <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[11px] font-medium text-amber-300">
-                          👤 Human Active (AI Paused)
-                        </span>
-                      ) : (
-                        <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-                          🤖 AI Bot Active
-                        </span>
-                      )}
-                    </div>
-                    <div className="truncate text-xs text-slate-500">
-                      {thread.phone}
-                      {thread.optOut ? " · opted out" : ""}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    {thread.status === "HANDOFF" ? (
-                      <button
-                        type="button"
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
-                        onClick={async () => {
-                          await api(`/api/v1/chat/conversations/${thread.id}/resume`, { method: "POST" });
-                          const r = await api<{ success: true; data: Thread }>(
-                            `/api/v1/chat/conversations/${thread.id}`,
-                          );
-                          setThread(r.data);
-                          await loadInbox();
-                        }}
+            <div className="text-xs text-slate-400">
+              {inboxFilter === "tasks" ? `${tasks.length} Business Tasks` : `${meta.total} Conversations`}
+            </div>
+          </div>
+
+          {inboxFilter === "tasks" ? (
+            <div className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-white">Business Tasks & Client Actions</h3>
+                  <p className="text-xs text-slate-400">
+                    Tasks and actions automatically extracted from forwarded WhatsApp chats or owner commands
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadTasks()}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10"
+                >
+                  🔄 Refresh
+                </button>
+              </div>
+
+              {loadingTasks ? (
+                <div className="py-12 text-center text-sm text-slate-400">Loading tasks…</div>
+              ) : tasks.length === 0 ? (
+                <div className="rounded-xl border border-white/5 bg-black/20 py-12 text-center text-sm text-slate-400">
+                  <p className="font-medium text-slate-300">No business tasks found.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Forward any client WhatsApp message to your WaCall number or send a WhatsApp command like{" "}
+                    <span className="text-amber-300">&quot;Remind me to call Rahul tomorrow at 5pm&quot;</span> to see tasks here.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {tasks.map((task) => {
+                    const isCompleted = task.status === "COMPLETED";
+                    return (
+                      <div
+                        key={task.id}
+                        className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border p-4 transition-all ${
+                          isCompleted
+                            ? "border-white/5 bg-black/20 opacity-60"
+                            : "border-white/10 bg-black/40 hover:border-white/20"
+                        }`}
                       >
-                        ▶️ Resume AI Bot
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
-                        onClick={async () => {
-                          await api(`/api/v1/chat/conversations/${thread.id}/handoff`, { method: "POST" });
-                          const r = await api<{ success: true; data: Thread }>(
-                            `/api/v1/chat/conversations/${thread.id}`,
-                          );
-                          setThread(r.data);
-                          await loadInbox();
-                        }}
-                      >
-                        👤 Take Over (Pause AI)
-                      </button>
-                    )}
-                  </div>
+                        <div className="flex items-start gap-3 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={isCompleted}
+                            onChange={() => void toggleTaskStatus(task)}
+                            className="mt-1 h-4 w-4 rounded border-white/20 bg-black/40 text-brand-500 focus:ring-brand-500 cursor-pointer"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`text-sm font-semibold ${isCompleted ? "line-through text-slate-400" : "text-white"}`}>
+                                {task.title}
+                              </span>
+                              {task.priority === "URGENT" && (
+                                <span className="rounded bg-red-600/30 px-1.5 py-0.5 text-[10px] font-bold text-red-300">
+                                  URGENT
+                                </span>
+                              )}
+                              {task.priority === "HIGH" && (
+                                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
+                                  HIGH
+                                </span>
+                              )}
+                              {task.category && (
+                                <span className="rounded bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-300 uppercase">
+                                  {task.category}
+                                </span>
+                              )}
+                              {task.dealAmount ? (
+                                <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300">
+                                  ₹{task.dealAmount.toLocaleString()}
+                                </span>
+                              ) : null}
+                            </div>
+                            {task.description && (
+                              <p className="mt-1 text-xs text-slate-400 whitespace-pre-wrap">
+                                {task.description}
+                              </p>
+                            )}
+                            <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                              {task.contactName || task.contactPhone ? (
+                                <span>
+                                  👤 Contact: <b className="text-slate-300">{task.contactName || task.contactPhone}</b>
+                                  {task.contactPhone && (
+                                    <a
+                                      href={`https://wa.me/${task.contactPhone.replace(/\D/g, "")}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="ml-1 text-emerald-400 underline hover:text-emerald-300"
+                                    >
+                                      Chat on WA
+                                    </a>
+                                  )}
+                                </span>
+                              ) : null}
+                              {task.dueDate && (
+                                <span>
+                                  📅 Due: <b className="text-amber-300">{new Date(task.dueDate).toLocaleString()}</b>
+                                </span>
+                              )}
+                              <span>Created: {new Date(task.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => void toggleTaskStatus(task)}
+                            className={`rounded-lg px-3 py-1 text-xs font-semibold ${
+                              isCompleted
+                                ? "border border-white/10 text-slate-400 hover:text-white"
+                                : "bg-emerald-600/80 text-white hover:bg-emerald-500"
+                            }`}
+                          >
+                            {isCompleted ? "Mark Pending" : "Mark Done ✓"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex h-[min(70dvh,40rem)] min-h-[22rem] flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-900/80 lg:flex-row">
+              <section
+                className={`flex min-h-0 w-full shrink-0 flex-col border-white/10 lg:w-80 lg:border-r ${
+                  thread ? "hidden lg:flex" : "flex"
+                }`}
+              >
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+                  <ul className="space-y-2">
+                    {rows.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setOpenId(c.id);
+                            const r = await api<{ success: true; data: Thread }>(`/api/v1/chat/conversations/${c.id}`);
+                            setThread(r.data);
+                          }}
+                          className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm transition-all ${
+                            openId === c.id ? "border-brand-500/40 bg-brand-500/10" : "border-white/10 bg-ink-950/40 hover:border-white/20"
+                          }`}
+                        >
+                          <div className="flex justify-between gap-2 text-white">
+                            <span className="truncate font-medium">{c.contact?.name || c.phone}</span>
+                            <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{c.status}</span>
+                          </div>
+
+                          {/* Work Categorization & Badges */}
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            {c.leadStage === "HOT" && (
+                              <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-bold text-rose-300">
+                                🔥 HOT
+                              </span>
+                            )}
+                            {c.leadStage === "WARM" && (
+                              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
+                                ⚡ WARM
+                              </span>
+                            )}
+                            {c.sentiment === "ANGRY" && (
+                              <span className="rounded bg-red-600/30 px-1.5 py-0.5 text-[10px] font-bold text-red-300 animate-pulse">
+                                🚨 ESCALATION
+                              </span>
+                            )}
+                            {c.intent && (
+                              <span className="rounded bg-brand-500/10 px-1.5 py-0.5 text-[10px] text-brand-300 font-medium">
+                                {c.intent}
+                              </span>
+                            )}
+                            {c.dealValue ? (
+                              <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300">
+                                ₹{c.dealValue.toLocaleString()}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <p className="mt-1 truncate text-xs text-slate-400">
+                            {c.summary || c.messages?.[0]?.body || "No messages yet"}
+                          </p>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {rows.length === 0 ? (
+                    <p className="p-4 text-sm text-slate-500">
+                      Inbound WhatsApp texts on this line will show up here after the channel is CONNECTED.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="shrink-0 border-t border-white/10 px-3 py-2">
+                  <ListPagination
+                    className="mt-0"
+                    meta={meta}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={(size) => {
+                      setPageSize(size);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+              </section>
+              <section className={`min-h-0 min-w-0 flex-1 flex-col ${thread ? "flex" : "hidden lg:flex"}`}>
+                {thread ? (
+                  <>
+                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <button
+                          type="button"
+                          className="mb-1 text-xs text-slate-400 lg:hidden"
+                          onClick={() => {
+                            setThread(null);
+                            setOpenId(null);
+                          }}
+                        >
+                          ← Conversations
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium text-white">{thread.contact?.name || thread.phone}</span>
+                          {thread.status === "HANDOFF" ? (
+                            <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                              👤 Human Active (AI Paused)
+                            </span>
+                          ) : (
+                            <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                              🤖 AI Bot Active
+                            </span>
+                          )}
+                          {thread.leadStage === "HOT" && (
+                            <span className="rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-bold text-rose-300">
+                              🔥 Hot Lead
+                            </span>
+                          )}
+                          {thread.sentiment === "ANGRY" && (
+                            <span className="rounded bg-red-600/30 px-2 py-0.5 text-[11px] font-bold text-red-300 animate-pulse">
+                              🚨 Escalation
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <span>{thread.phone}</span>
+                          {thread.optOut ? <span>· opted out</span> : null}
+                          {thread.intent ? <span>· Intent: {thread.intent}</span> : null}
+                          {thread.dealValue ? <span className="font-semibold text-emerald-400">· Deal: ₹{thread.dealValue.toLocaleString()}</span> : null}
+                        </div>
+                        {thread.summary ? (
+                          <p className="mt-1 text-xs text-slate-300 italic">
+                            💡 AI Summary: {thread.summary}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        {thread.status === "HANDOFF" ? (
+                          <button
+                            type="button"
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                            onClick={async () => {
+                              await api(`/api/v1/chat/conversations/${thread.id}/resume`, { method: "POST" });
+                              const r = await api<{ success: true; data: Thread }>(
+                                `/api/v1/chat/conversations/${thread.id}`,
+                              );
+                              setThread(r.data);
+                              await loadInbox();
+                            }}
+                          >
+                            ▶️ Resume AI Bot
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
+                            onClick={async () => {
+                              await api(`/api/v1/chat/conversations/${thread.id}/handoff`, { method: "POST" });
+                              const r = await api<{ success: true; data: Thread }>(
+                                `/api/v1/chat/conversations/${thread.id}`,
+                              );
+                              setThread(r.data);
+                              await loadInbox();
+                            }}
+                          >
+                            👤 Take Over (Pause AI)
+                          </button>
+                        )}
+                      </div>
                 </div>
                 <div
                   ref={chatScrollRef}
@@ -902,7 +1240,9 @@ function ChatbotInner() {
             )}
           </section>
         </div>
-      ) : null}
+      )}
+    </div>
+  ) : null}
     </div>
   );
 }

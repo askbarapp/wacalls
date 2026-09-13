@@ -196,6 +196,8 @@ model Organization {
   chatKeywords        ChatKeyword[]
   chatConversations   ChatConversation[]
   chatMessages        ChatMessage[]
+  businessTasks       BusinessTask[]
+  pendingActions      PendingAction[]
 
   @@index([planId])
   @@index([status])
@@ -321,6 +323,9 @@ model WhatsAppChannel {
   incomingAnswer     IncomingAnswerConfig?
   chatBot            ChatBot?
   chatConversations  ChatConversation[]
+  ownerPhone         String?             @map("owner_phone")
+  businessTasks      BusinessTask[]
+  pendingActions     PendingAction[]
 
   @@index([organizationId])
   @@index([status])
@@ -905,6 +910,12 @@ model ChatConversation {
   lastInboundAt  DateTime?              @map("last_inbound_at")
   lastGreetingAt   DateTime?              @map("last_greeting_at")
   activeAiConfigId String?                @map("active_ai_config_id")
+  workCategory     String?                @map("work_category")
+  leadStage        String?                @map("lead_stage")
+  intent           String?
+  sentiment        String?
+  dealValue        Float?                 @map("deal_value")
+  summary          String?
   createdAt        DateTime               @default(now()) @map("created_at")
   updatedAt        DateTime               @updatedAt @map("updated_at")
 
@@ -914,6 +925,8 @@ model ChatConversation {
   assignee       User?           @relation("ChatAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
   activeAiConfig AiConfig?       @relation(fields: [activeAiConfigId], references: [id], onDelete: SetNull)
   messages       ChatMessage[]
+  businessTasks  BusinessTask[]
+  pendingActions PendingAction[]
 
   @@unique([organizationId, channelId, phone])
   @@index([organizationId, lastMessageAt])
@@ -1274,3 +1287,54 @@ model CsvImport {
   @@index([organizationId])
   @@map("csv_imports")
 }
+
+model BusinessTask {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  channelId      String    @map("channel_id")
+  conversationId String?   @map("conversation_id")
+  title          String
+  description    String?
+  assignedTo     String?   @map("assigned_to")
+  contactPhone   String?   @map("contact_phone")
+  contactName    String?   @map("contact_name")
+  dueAt          DateTime? @map("due_at")
+  priority       String    @default("MEDIUM")
+  status         String    @default("PENDING")
+  source         String    @default("owner_command")
+  amount         Float?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  conversation ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([channelId])
+  @@index([dueAt])
+  @@map("business_tasks")
+}
+
+model PendingAction {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  channelId      String   @map("channel_id")
+  conversationId String?  @map("conversation_id")
+  actionType     String   @map("action_type")
+  summary        String
+  payload        Json
+  status         String   @default("PENDING")
+  expiresAt      DateTime @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  conversation ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([channelId])
+  @@map("pending_actions")
+}
+
