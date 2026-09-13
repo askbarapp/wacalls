@@ -184,7 +184,7 @@ export async function processCadenceTick() {
             phone: item.contactPhone,
             contactName: item.contactName || undefined,
             aiConfigId,
-            mode: "ai",
+            hangupAfterPlayback: false,
             source: "dialer",
           }).catch((err) => log.warn({ err: err.message }, "enqueueCall for cadence failed"));
         }
