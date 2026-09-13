@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "@wacalls/database";
-import { NotFoundError, ok, okPage, pageMeta, pageQuerySchema, pageSkip } from "@wacalls/shared";
+import { NotFoundError, ok } from "@wacalls/shared";
+import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
 import {
   createInvoiceOrQuote,
   sendInvoiceToClient,

@@ -3,7 +3,7 @@ import { prisma } from "@wacalls/database";
 import { normalizePhone } from "@wacalls/shared";
 import { sendWhatsAppText } from "./messaging.js";
 import { whatsappClient } from "./whatsapp-client.js";
-import { callQueue } from "../queues.js";
+import { enqueueCall } from "./calls.js";
 
 const log = pino({ name: "followup-cadence" });
 
@@ -168,24 +168,25 @@ export async function processCadenceTick() {
         log.info({ cadenceId: item.id, phone: item.contactPhone }, "triggering 3-day follow-up AI voice call");
 
         // Resolve AI agent for the call
-        let aiConfigId = item.voiceAiConfigId;
+        let aiConfigId: string | undefined = item.voiceAiConfigId || undefined;
         if (!aiConfigId) {
           const defaultAgent = await prisma.aiConfig.findFirst({
             where: { organizationId: item.organizationId },
             select: { id: true },
           });
-          aiConfigId = defaultAgent?.id;
+          aiConfigId = defaultAgent?.id || undefined;
         }
 
         if (aiConfigId) {
-          await callQueue.add("cadence-voice-call", {
-            channelId: item.channelId,
+          await enqueueCall({
             organizationId: item.organizationId,
+            channelId: item.channelId,
             phone: item.contactPhone,
-            aiConfigId,
             contactName: item.contactName || undefined,
-            hangupAfterPlayback: false,
-          });
+            aiConfigId,
+            mode: "ai",
+            source: "dialer",
+          }).catch((err) => log.warn({ err: err.message }, "enqueueCall for cadence failed"));
         }
 
         // Mark cadence completed
