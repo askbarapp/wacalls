@@ -23,6 +23,8 @@ import {
   CreditCard,
   Receipt,
   Palette,
+  Sparkles,
+  Cpu,
   type LucideIcon,
 } from "lucide-react";
 
@@ -41,6 +43,7 @@ export const NAV: Array<{
   { href: "/channels", label: "WhatsApp", icon: Phone, group: "Calling" },
   { href: "/live", label: "Live", icon: Radio, group: "Calling" },
   { href: "/messages", label: "Messages", icon: MessageSquare, group: "Workspace" },
+  { href: "/creative-studio", label: "Creative Studio", icon: Sparkles, group: "Workspace" },
   { href: "/chatbot", label: "Chatbot", icon: MessagesSquare, group: "Workspace" },
   { href: "/auto-reply", label: "Call follow-up", icon: Reply, group: "Workspace" },
   { href: "/contacts", label: "Contacts", icon: Users, group: "Workspace" },
@@ -58,6 +61,7 @@ export const NAV: Array<{
   { href: "/platform/users", label: "Users", icon: UserCog, group: "Super admin", superAdmin: true },
   { href: "/platform/plans", label: "Plans", icon: CreditCard, group: "Super admin", superAdmin: true },
   { href: "/platform/billing", label: "Billing", icon: Receipt, group: "Super admin", superAdmin: true },
+  { href: "/platform/ai-providers", label: "AI Providers", icon: Cpu, group: "Super admin", superAdmin: true },
   { href: "/platform/settings", label: "Branding", icon: Palette, group: "Super admin", superAdmin: true },
 ];
 

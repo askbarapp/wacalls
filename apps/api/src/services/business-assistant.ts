@@ -16,6 +16,11 @@ import {
   getPendingPaymentsSummary,
   markInvoicePayment,
 } from "./invoice-service.js";
+import {
+  createCreativeRequest,
+  smartEditCreativeRequest,
+  finalizeCreativeAsset,
+} from "./creative/creative-service.js";
 
 const log = pino({ name: "business-assistant" });
 
@@ -382,12 +387,167 @@ export async function handleOwnerCommand(input: {
     }
   }
 
+  // H. "Final" / Lock Creative Command
+  if (
+    upperText === "FINAL" ||
+    upperText === "FINAL KAR DO" ||
+    upperText === "FINAL HAI" ||
+    upperText === "LOCK KARO" ||
+    upperText === "LOCK" ||
+    upperText === "APPROVE" ||
+    upperText === "APPROVED" ||
+    upperText === "YE SAHI HAI" ||
+    upperText === "YE THEEK HAI"
+  ) {
+    const latestAsset = await prisma.creativeAsset.findFirst({
+      where: {
+        organizationId: channel.organizationId,
+        ...(channel.id ? { channelId: channel.id } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (latestAsset && latestAsset.status !== "FINAL") {
+      await finalizeCreativeAsset(latestAsset.id);
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: `🔒 *WaCall Creative Studio — Poster Finalized!*
+━━━━━━━━━━━━━━━━━━━━
+✨ *${latestAsset.title}*
+
+आपकी creative को *Final Locked* कर दिया गया है ✅
+अब यह सुरक्षित है। आप इसे:
+• WhatsApp Status पर लगा सकते हैं
+• WhatsApp Broadcast campaign में ग्राहकों को भेज सकते हैं!`,
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return true;
+    }
+  }
+
+  // I. Creative Smart Edit / Revision Command (e.g. "Logo chhota karo", "Background blue karo", "Ek aur banao")
+  const isEditIntent =
+    upperText.includes("LOGO CHHOTA") ||
+    upperText.includes("LOGO BADA") ||
+    upperText.includes("LOGO HATA") ||
+    upperText.includes("BACKGROUND") ||
+    upperText.includes("EK AUR BANAO") ||
+    upperText.includes("ANOTHER OPTION") ||
+    upperText.includes("REVISION") ||
+    upperText.startsWith("EDIT ") ||
+    upperText.startsWith("UPDATE ") ||
+    upperText.includes("POSTER ME") ||
+    upperText.includes("CREATIVE ME");
+
+  if (isEditIntent) {
+    const recentAsset = await prisma.creativeAsset.findFirst({
+      where: {
+        organizationId: channel.organizationId,
+        ...(channel.id ? { channelId: channel.id } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+    });
+
+    if (recentAsset) {
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: `🎨 *WaCall Creative Studio — Revision in Progress!*\n━━━━━━━━━━━━━━━━━━━━\nWaCall आपके निर्देश के अनुसार poster को update कर रहा है:\n✏️ *"${text}"*\n\n⏳ नया version तैयार होते ही 1-2 मिनट में यहीं भेजा जाएगा।`,
+        chatSource: "bot",
+      }).catch(() => undefined);
+
+      try {
+        await smartEditCreativeRequest({
+          organizationId: channel.organizationId,
+          assetId: recentAsset.id,
+          channelId: channel.id,
+          editInstruction: text,
+          notifyPhone: input.phone,
+        });
+      } catch (editErr: any) {
+        log.error({ err: editErr?.message }, "Failed to initiate creative smart edit");
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `⚠️ ${editErr?.message || "Creative edit शुरू नहीं हो सकी।"}`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+      }
+      return true;
+    }
+  }
+
+  // J. Creative Studio Generation (e.g. "Diwali ka poster bana do", "Banner bana do", "Poster banao")
+  const isCreateIntent =
+    upperText.includes("POSTER BANA") ||
+    upperText.includes("POSTER CHAHIYE") ||
+    upperText.includes("BANNER BANA") ||
+    upperText.includes("BANNER CHAHIYE") ||
+    upperText.includes("CREATIVE BANA") ||
+    upperText.includes("CREATIVE CHAHIYE") ||
+    upperText.includes("CREATE POSTER") ||
+    upperText.includes("GENERATE POSTER") ||
+    upperText.includes("MAKE A POSTER") ||
+    upperText.includes("POSTER DESIGN");
+
+  if (isCreateIntent) {
+    const festivalKeywords = [
+      "DIWALI", "DEEPAVALI", "HOLI", "EID", "INDEPENDENCE DAY", "REPUBLIC DAY",
+      "NAVRATRI", "DURGA PUJA", "DUSSEHRA", "RAKSHA BANDHAN", "JANMASHTAMI",
+      "GANESH CHATURTHI", "NEW YEAR", "CHRISTMAS", "MAHA SHIVRATRI", "MAHAVIR JAYANTI"
+    ];
+    let detectedFestival: string | undefined;
+    for (const fest of festivalKeywords) {
+      if (upperText.includes(fest)) {
+        detectedFestival = fest.charAt(0) + fest.slice(1).toLowerCase();
+        break;
+      }
+    }
+
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: input.phone,
+      body: `🎨 *WaCall Creative Studio — Poster Design Started!*\n━━━━━━━━━━━━━━━━━━━━\n${
+        detectedFestival ? `🎉 *Festival:* ${detectedFestival}\n` : ""
+      }📝 *Requirement:* "${text}"\n\nWaCall आपकी business branding के अनुसार AI poster तैयार कर रहा है।\n⏳ 1-2 मिनट में creative तैयार होकर यहीं आ जाएगी!`,
+      chatSource: "bot",
+    }).catch(() => undefined);
+
+    try {
+      await createCreativeRequest({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        userInstruction: text,
+        festivalName: detectedFestival,
+        creativeType: upperText.includes("BANNER") ? "banner" : "poster",
+        aspect: "1:1",
+        notifyPhone: input.phone,
+      });
+    } catch (genErr: any) {
+      log.error({ err: genErr?.message }, "Failed to initiate creative generation");
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: `⚠️ ${genErr?.message || "Creative generation शुरू नहीं हो सकी।"}`,
+        chatSource: "bot",
+      }).catch(() => undefined);
+    }
+    return true;
+  }
+
   // Default Assistant Response to Owner
   await sendWhatsAppText({
     organizationId: channel.organizationId,
     channelId: channel.id,
     phone: input.phone,
-    body: `👋 *WaCall Assistant Active*\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Send quotation to [Name] for ₹[Amount]"*\n• *"Pending payments बताओ"*\n• *"Call [Name/Number]"*\n• *"जब भी कोई पूछे [प्रश्न], तो बोलो [उत्तर]"* (Rule सिखाएं)\n• या किसी भी ग्राहक का मैसेज/विजिटिंग कार्ड मुझे *Forward* कर दीजिए!`,
+    body: `👋 *WaCall Assistant Active*\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Diwali ka poster bana do"* (AI Creative Studio)\n• *"Logo छोटा करो" / "Final"* (Creative Edit/Lock)\n• *"Send quotation to [Name] for ₹[Amount]"*\n• *"Pending payments बताओ"*\n• *"Call [Name/Number]"*\n• *"जब भी कोई पूछे [प्रश्न], तो बोलो [उत्तर]"* (Rule सिखाएं)\n• या किसी भी ग्राहक का मैसेज/विजिटिंग कार्ड मुझे *Forward* कर दीजिए!`,
     chatSource: "bot",
   }).catch(() => undefined);
 
