@@ -91,9 +91,11 @@ export function getAccessToken() {
 
 /** Cookie session can place calls while localStorage is empty or stale. */
 export async function ensureAccessToken(): Promise<string | null> {
+  const current = getAccessToken();
+  if (current) return current;
   const next = await refreshAccessToken();
   if (next) return next;
-  return getAccessToken();
+  return null;
 }
 
 async function refreshAccessToken(): Promise<string | null> {
