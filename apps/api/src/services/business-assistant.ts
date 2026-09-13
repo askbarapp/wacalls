@@ -2,12 +2,13 @@ import pino from "pino";
 import { prisma } from "@wacalls/database";
 import { normalizePhone } from "@wacalls/shared";
 import {
+  SarvamClient,
   createVoiceAiClient,
   defaultModelForProvider,
   normalizeVoiceProvider,
 } from "@wacalls/audio-engine";
 import { sendWhatsAppText } from "./messaging.js";
-import { resolveVoiceApiKey } from "./sarvam-key.js";
+import { resolveVoiceApiKey, resolveSarvamApiKey } from "./sarvam-key.js";
 import { broadcast } from "../ws.js";
 import {
   createInvoiceOrQuote,
