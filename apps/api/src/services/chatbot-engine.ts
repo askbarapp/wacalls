@@ -49,13 +49,9 @@ export async function handleOutboundChat(input: {
   });
   if (!channel) return;
 
-  // If owner sent message to self-chat or own line, handle as Owner Command
+  // If message is to/from an authorized Commander Line or self-chat, handle as Commander Command
   const isOwner = await isOwnerPhone(channel.id, phone);
-  const isSelfOrOwnerPhone =
-    (channel.phoneNumber && phone.includes(channel.phoneNumber.replace(/\D/g, ""))) ||
-    (channel.ownerPhone && phone.includes(channel.ownerPhone.replace(/\D/g, "")));
-
-  if (isOwner && isSelfOrOwnerPhone) {
+  if (isOwner) {
     if (input.mediaType === "audio" && input.mediaBase64) {
       const handled = await handleVoiceNoteFromCommander({
         channelId: channel.id,

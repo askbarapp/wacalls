@@ -24,33 +24,207 @@ import {
 
 const log = pino({ name: "business-assistant" });
 
+export type CommanderRole = "OWNER" | "SALES_MANAGER" | "ACCOUNTS" | "SUPPORT";
+
+export interface CommanderResolution {
+  authorized: boolean;
+  role: CommanderRole;
+  name: string;
+  phone: string;
+  memberId?: string;
+}
+
+export function isActionAllowedForRole(
+  role: CommanderRole,
+  action: "CALLS" | "LEADS" | "FINANCE" | "CAMPAIGN" | "CREATIVE" | "RULES" | "CALL_OUTBOUND",
+): boolean {
+  if (role === "OWNER") return true;
+  if (role === "SALES_MANAGER") {
+    return ["CALLS", "LEADS", "CAMPAIGN", "CREATIVE", "CALL_OUTBOUND"].includes(action);
+  }
+  if (role === "ACCOUNTS") {
+    return ["CALLS", "FINANCE"].includes(action);
+  }
+  if (role === "SUPPORT") {
+    return ["CALLS", "RULES"].includes(action);
+  }
+  return false;
+}
+
 /**
- * Checks if a given incoming/outbound sender phone number belongs to the Business Owner.
+ * Resolves whether the sender phone is an authorized Commander and returns member details & role.
  */
-export async function isOwnerPhone(channelId: string, rawPhone: string): Promise<boolean> {
+export async function resolveCommander(channelId: string, rawPhone: string): Promise<CommanderResolution> {
   const channel = await prisma.whatsAppChannel.findUnique({
     where: { id: channelId },
-    select: { ownerPhone: true, phoneNumber: true },
+    select: { id: true, ownerPhone: true, phoneNumber: true, displayName: true },
   });
-  if (!channel) return false;
+  if (!channel) return { authorized: false, role: "OWNER", name: "", phone: rawPhone };
 
   const phoneParsed = normalizePhone(rawPhone);
   const normalizedSender = phoneParsed.ok ? phoneParsed.e164.replace(/\D/g, "") : rawPhone.replace(/\D/g, "");
 
-  // Match against ownerPhone if configured
+  // 1. Channel's own paired phone (self-chat / message yourself) -> Full OWNER
+  if (channel.phoneNumber) {
+    const channelPhone = channel.phoneNumber.replace(/\D/g, "");
+    if (normalizedSender === channelPhone) {
+      return { authorized: true, role: "OWNER", name: "Business Owner", phone: rawPhone };
+    }
+  }
+
+  // 2. Channel's configured primary ownerPhone -> Full OWNER
   if (channel.ownerPhone) {
     const ownerParsed = normalizePhone(channel.ownerPhone);
     const normalizedOwner = ownerParsed.ok ? ownerParsed.e164.replace(/\D/g, "") : channel.ownerPhone.replace(/\D/g, "");
-    if (normalizedSender === normalizedOwner) return true;
+    if (normalizedSender === normalizedOwner) {
+      return { authorized: true, role: "OWNER", name: "Business Owner", phone: rawPhone };
+    }
   }
 
-  // Match against channel's own paired phone (self-chat / message yourself)
-  if (channel.phoneNumber) {
-    const channelPhone = channel.phoneNumber.replace(/\D/g, "");
-    if (normalizedSender === channelPhone) return true;
+  // 3. Match against CommanderMember table
+  const members = await prisma.commanderMember.findMany({
+    where: { channelId, enabled: true },
+  });
+
+  for (const m of members) {
+    const mParsed = normalizePhone(m.phone);
+    const normalizedMemberPhone = mParsed.ok ? mParsed.e164.replace(/\D/g, "") : m.phone.replace(/\D/g, "");
+    if (normalizedSender === normalizedMemberPhone) {
+      return {
+        authorized: true,
+        role: (m.role as CommanderRole) || "OWNER",
+        name: m.name,
+        phone: rawPhone,
+        memberId: m.id,
+      };
+    }
   }
 
-  return false;
+  return { authorized: false, role: "OWNER", name: "", phone: rawPhone };
+}
+
+/**
+ * Checks if a given incoming/outbound sender phone number belongs to an authorized Commander.
+ */
+export async function isOwnerPhone(channelId: string, rawPhone: string): Promise<boolean> {
+  const res = await resolveCommander(channelId, rawPhone);
+  return res.authorized;
+}
+
+/**
+ * Aggregates today's real call metrics from PostgreSQL in Indian Standard Time (IST).
+ */
+export async function getTodayCallMetrics(organizationId: string, channelId: string) {
+  const now = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffsetMs);
+
+  const istStartOfDay = new Date(
+    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0) - istOffsetMs,
+  );
+  const istEndOfDay = new Date(
+    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999) - istOffsetMs,
+  );
+
+  const calls = await prisma.call.findMany({
+    where: {
+      organizationId,
+      channelId,
+      createdAt: { gte: istStartOfDay, lte: istEndOfDay },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      phone: true,
+      contactName: true,
+      status: true,
+      outcome: true,
+      durationMs: true,
+      source: true,
+      startedAt: true,
+      createdAt: true,
+    },
+  });
+
+  const totalCalls = calls.length;
+  const answeredCalls = calls.filter(
+    (c) =>
+      c.status === "ANSWERED" ||
+      c.status === "ENDED" ||
+      c.outcome === "ANSWERED" ||
+      c.durationMs > 0,
+  );
+  const missedCalls = calls.filter(
+    (c) =>
+      ["NO_ANSWER", "BUSY", "REJECTED", "FAILED"].includes(c.status) ||
+      ["NO_ANSWER", "BUSY", "REJECTED", "FAILED"].includes(c.outcome || ""),
+  );
+  const inProgressCalls = calls.filter((c) =>
+    ["QUEUED", "CONNECTING", "RINGING"].includes(c.status),
+  );
+
+  const totalDurationSec = Math.round(
+    answeredCalls.reduce((acc, c) => acc + (c.durationMs || 0), 0) / 1000,
+  );
+  const totalMinutes = Math.floor(totalDurationSec / 60);
+  const remainingSec = totalDurationSec % 60;
+  const durationStr = totalMinutes > 0 ? `${totalMinutes}m ${remainingSec}s` : `${remainingSec}s`;
+
+  return {
+    totalCalls,
+    answeredCount: answeredCalls.length,
+    missedCount: missedCalls.length,
+    inProgressCount: inProgressCalls.length,
+    durationStr,
+    missedCalls: missedCalls.slice(0, 5),
+    allMissedCalls: missedCalls,
+  };
+}
+
+/**
+ * Builds the WhatsApp intelligence card for today's call report.
+ */
+export function buildCallMetricsCard(metrics: Awaited<ReturnType<typeof getTodayCallMetrics>>) {
+  const dateFormatted = new Date().toLocaleDateString("hi-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  let card = `📊 *WaCall OS — Today's Call Intelligence*\n📅 दिनांक: ${dateFormatted} (आज का स्कोरकार्ड)\n━━━━━━━━━━━━━━━━━━━━\n`;
+  card += `📞 *कुल कॉल्स:* ${metrics.totalCalls}\n`;
+  card += `✅ *सफल / Answered:* ${metrics.answeredCount}\n`;
+  card += `❌ *छूट गए / Missed:* ${metrics.missedCount}\n`;
+  card += `⏳ *कुल टॉक-टाइम:* ${metrics.durationStr}\n`;
+  if (metrics.inProgressCount > 0) {
+    card += `🔄 *चालू / In-progress:* ${metrics.inProgressCount}\n`;
+  }
+  card += `━━━━━━━━━━━━━━━━━━━━\n`;
+
+  if (metrics.missedCount > 0) {
+    card += `⚠️ *हालिया मिस्ड कॉल्स:*\n`;
+    metrics.missedCalls.forEach((c, i) => {
+      const timeStr = new Date(c.createdAt).toLocaleTimeString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      card += `${i + 1}. *${c.contactName || "अज्ञात"}* (${c.phone}) — ${timeStr}\n`;
+    });
+    if (metrics.allMissedCalls.length > 5) {
+      card += `...और ${metrics.allMissedCalls.length - 5} अन्य छूटे हुए कॉल्स।\n`;
+    }
+
+    card += `\n⚡ *त्वरित कार्रवाई (Quick Reply):*\n`;
+    card += `1️⃣ *1* — सभी मिस्ड कॉलर्स को WhatsApp फॉलो-अप मैसेज भेजें\n`;
+    card += `2️⃣ *2* — मिस्ड कॉलर्स को AI Auto-Dialer लाइन में कतारबद्ध करें\n`;
+    card += `3️⃣ *3* — सभी छूटे हुए कॉल्स की पूरी सूची देखें`;
+  } else {
+    card += `🎉 *शानदार!* आज कोई भी महत्वपूर्ण कॉल नहीं छूटी है।`;
+  }
+
+  return card;
 }
 
 /**
@@ -72,6 +246,9 @@ export async function handleOwnerCommand(input: {
   });
   if (!channel) return false;
 
+  const commander = await resolveCommander(channel.id, input.phone);
+  if (!commander.authorized) return false;
+
   const upperText = text.toUpperCase();
 
   // -------------------------------------------------------------
@@ -87,7 +264,108 @@ export async function handleOwnerCommand(input: {
   });
 
   if (pendingAction) {
-    // Check Affirmative responses
+    // A. Special Handler for Call Intelligence Actions (1, 2, 3)
+    if (pendingAction.actionType === "CALL_METRICS_ACTIONS") {
+      const missedList = ((pendingAction.payload as any)?.missedCalls || []) as Array<{
+        phone: string;
+        contactName?: string;
+      }>;
+
+      // Option 1: Send WhatsApp follow-up message to missed callers
+      if (
+        upperText === "1" ||
+        upperText.includes("FOLLOWUP") ||
+        upperText.includes("MESSAGE") ||
+        upperText.includes("BHEJO")
+      ) {
+        const seenPhones = new Set<string>();
+        let sentCount = 0;
+        for (const item of missedList) {
+          if (!item.phone || seenPhones.has(item.phone)) continue;
+          seenPhones.add(item.phone);
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: item.phone,
+            body: `नमस्ते! हमारे नंबर पर आपका कॉल आया था, लेकिन व्यस्त होने के कारण कॉल रिसीव नहीं हो सका। कृपया बताएं हम आपकी क्या सहायता कर सकते हैं? — ${channel.displayName || "WaCall"}`,
+            chatSource: "bot",
+          }).catch(() => undefined);
+          sentCount++;
+        }
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "APPROVED" },
+        });
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `✅ *फॉलो-अप मैसेज भेज दिया गया!*\n━━━━━━━━━━━━━━━━━━━━\nWaCall ने ${sentCount} मिस्ड कॉलर्स को ऑटो-फॉलोअप WhatsApp संदेश भेज दिया है।`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+
+      // Option 2: Queue missed calls in AI Auto-Dialer
+      if (
+        upperText === "2" ||
+        upperText.includes("DIAL") ||
+        upperText.includes("CALL") ||
+        upperText.includes("कॉल करो")
+      ) {
+        const seenPhones = new Set<string>();
+        let dialerCount = 0;
+        for (const item of missedList) {
+          if (!item.phone || seenPhones.has(item.phone)) continue;
+          seenPhones.add(item.phone);
+          await prisma.callbackTask.create({
+            data: {
+              organizationId: channel.organizationId,
+              phone: item.phone,
+              contactName: item.contactName || undefined,
+              reason: "Missed Call Auto-Dialer Followup",
+            },
+          }).catch(() => undefined);
+          dialerCount++;
+        }
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "APPROVED" },
+        });
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `📞 *AI Auto-Dialer कतारबद्ध!*\n━━━━━━━━━━━━━━━━━━━━\n${dialerCount} मिस्ड कॉलर्स को ऑटो-डायल कतार (Callback Task) में जोड़ दिया गया है। लाइन उपलब्ध होते ही कॉल कनेक्ट की जाएगी।`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+
+      // Option 3: Full list of missed calls
+      if (
+        upperText === "3" ||
+        upperText.includes("LIST") ||
+        upperText.includes("DETAIL") ||
+        upperText.includes("SABHI")
+      ) {
+        let listCard = `📋 *आज के सभी मिस्ड कॉल्स (${missedList.length})*\n━━━━━━━━━━━━━━━━━━━━\n`;
+        missedList.forEach((c, i) => {
+          listCard += `${i + 1}. *${c.contactName || "अज्ञात"}*: ${c.phone}\n`;
+        });
+        listCard += `━━━━━━━━━━━━━━━━━━━━\n💡 कार्रवाई के लिए *1* (WhatsApp भेजें) या *2* (कॉल करें) टाइप करें।`;
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: listCard,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+    }
+
+    // Check Affirmative responses for standard proposals
     const isYes = [
       "YES",
       "Y",
@@ -184,6 +462,68 @@ export async function handleOwnerCommand(input: {
   // -------------------------------------------------------------
   // 3. Natural Language Commands
   // -------------------------------------------------------------
+
+  // A. Call Intelligence: "Today total call" / "आज कितने call आए हैं" / "Call summary" / "Missed calls"
+  const isCallQuery =
+    (upperText.includes("CALL") || upperText.includes("कॉल")) &&
+    (upperText.includes("TODAY") ||
+      upperText.includes("AJ") ||
+      upperText.includes("AAJ") ||
+      upperText.includes("आज") ||
+      upperText.includes("TOTAL") ||
+      upperText.includes("KITNE") ||
+      upperText.includes("KITNI") ||
+      upperText.includes("कितने") ||
+      upperText.includes("कितनी") ||
+      upperText.includes("REPORT") ||
+      upperText.includes("SUMMARY") ||
+      upperText.includes("STATUS") ||
+      upperText.includes("COUNT") ||
+      upperText.includes("MISSED") ||
+      upperText.includes("MISSCALL") ||
+      upperText.includes("MISS") ||
+      upperText.includes("आए हैं") ||
+      upperText.includes("आई हैं"));
+
+  if (isCallQuery) {
+    if (!isActionAllowedForRole(commander.role, "CALLS")) {
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: `🔒 आपकी कमांडर भूमिका (${commander.role}) के पास कॉल रिपोर्ट देखने की अनुमति नहीं है।`,
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return true;
+    }
+
+    const metrics = await getTodayCallMetrics(channel.organizationId, channel.id);
+    const card = buildCallMetricsCard(metrics);
+
+    if (metrics.missedCount > 0) {
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+      await prisma.pendingAction.create({
+        data: {
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          actionType: "CALL_METRICS_ACTIONS",
+          summary: `Call Intelligence: ${metrics.missedCount} Missed Calls`,
+          payload: { missedCalls: metrics.allMissedCalls } as any,
+          status: "PENDING",
+          expiresAt,
+        },
+      });
+    }
+
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: input.phone,
+      body: card,
+      chatSource: "bot",
+    }).catch(() => undefined);
+    return true;
+  }
 
   // A. "Today's Work" / "आज के सारे काम बताओ" / "Summary"
   if (
@@ -542,12 +882,12 @@ export async function handleOwnerCommand(input: {
     return true;
   }
 
-  // Default Assistant Response to Owner
+  // Default Assistant Response to Commander
   await sendWhatsAppText({
     organizationId: channel.organizationId,
     channelId: channel.id,
     phone: input.phone,
-    body: `👋 *WaCall Assistant Active*\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Diwali ka poster bana do"* (AI Creative Studio)\n• *"Logo छोटा करो" / "Final"* (Creative Edit/Lock)\n• *"Send quotation to [Name] for ₹[Amount]"*\n• *"Pending payments बताओ"*\n• *"Call [Name/Number]"*\n• *"जब भी कोई पूछे [प्रश्न], तो बोलो [उत्तर]"* (Rule सिखाएं)\n• या किसी भी ग्राहक का मैसेज/विजिटिंग कार्ड मुझे *Forward* कर दीजिए!`,
+    body: `👋 *नमस्ते ${commander.name || "Boss"}! WaCall OS Assistant Active*\n_${commander.role}_ भूमिका अधिकृत ✅\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"today total call"* / *"आज कितने call आए हैं"* (कॉल रिपोर्ट व 1-क्लिक फॉलो-अप)\n• *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Diwali ka poster bana do"* (AI Creative Studio)\n• *"Logo छोटा करो" / "Final"* (Creative Edit/Lock)\n• *"Send quotation to [Name] for ₹[Amount]"*\n• *"Pending payments बताओ"*\n• *"Call [Name/Number]"*\n• *"जब भी कोई पूछे [प्रश्न], तो बोलो [उत्तर]"* (Rule सिखाएं)\n• या किसी भी ग्राहक का मैसेज/विजिटिंग कार्ड मुझे *Forward* कर दीजिए!`,
     chatSource: "bot",
   }).catch(() => undefined);
 

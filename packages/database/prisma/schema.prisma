@@ -206,6 +206,7 @@ model Organization {
   aiCreditBalance     AiCreditBalance?
   featureEntitlements FeatureEntitlement[]
   festivalCampaigns   FestivalCampaign[]
+  commanderMembers    CommanderMember[]
 
   @@index([planId])
   @@index([status])
@@ -340,6 +341,7 @@ model WhatsAppChannel {
   creativeAssets     CreativeAsset[]
   featureEntitlements FeatureEntitlement[]
   festivalCampaigns  FestivalCampaign[]
+  commanderMembers   CommanderMember[]
 
   @@index([organizationId])
   @@index([status])
@@ -1595,4 +1597,25 @@ model FestivalCampaign {
   @@map("festival_campaigns")
 }
 
+model CommanderMember {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  channelId      String   @map("channel_id")
+  name           String
+  phone          String
+  role           String   @default("OWNER") /// OWNER, SALES_MANAGER, ACCOUNTS, SUPPORT
+  dailyMorning   Boolean  @default(true) @map("daily_morning")
+  dailyEod       Boolean  @default(true) @map("daily_eod")
+  missedAlert    Boolean  @default(true) @map("missed_alert")
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel        WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, phone])
+  @@index([organizationId])
+  @@index([channelId])
+  @@map("commander_members")
+}

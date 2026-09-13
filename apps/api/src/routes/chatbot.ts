@@ -7,6 +7,7 @@ import {
   ConflictError,
   DEFAULT_CHAT_KEYWORDS,
   NotFoundError,
+  normalizePhone,
   ok,
 } from "@wacalls/shared";
 import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
@@ -47,7 +48,18 @@ const botInclude = {
       targetKnowledgeBase: { select: { id: true, name: true } },
     },
   },
-  channel: { select: { id: true, displayName: true, status: true, provider: true, ownerPhone: true } },
+  channel: {
+    select: {
+      id: true,
+      displayName: true,
+      status: true,
+      provider: true,
+      ownerPhone: true,
+      commanderMembers: {
+        orderBy: { createdAt: "asc" as const },
+      },
+    },
+  },
   aiConfig: { select: { id: true, name: true, provider: true } },
   knowledgeBase: { select: { id: true, name: true } },
 };
@@ -370,5 +382,119 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
         data: { assignedUserId: body.userId },
       }),
     );
+  });
+
+  // -------------------------------------------------------------
+  // Commander Members Management (WaCall OS Hub)
+  // -------------------------------------------------------------
+  app.get("/chatbots/commanders", async (req) => {
+    const auth = await app.authenticate(req);
+    const q = z.object({ channelId: z.string().uuid() }).parse(req.query);
+    const members = await prisma.commanderMember.findMany({
+      where: { organizationId: auth.orgId, channelId: q.channelId },
+      orderBy: { createdAt: "asc" },
+    });
+    return ok(members);
+  });
+
+  app.post("/chatbots/commanders", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("chatbot.manage")(req);
+    const body = z
+      .object({
+        channelId: z.string().uuid(),
+        name: z.string().trim().min(1).max(100),
+        phone: z.string().trim().min(8).max(30),
+        role: z.enum(["OWNER", "SALES_MANAGER", "ACCOUNTS", "SUPPORT"]).default("OWNER"),
+        dailyMorning: z.boolean().default(true),
+        dailyEod: z.boolean().default(true),
+        missedAlert: z.boolean().default(true),
+      })
+      .parse(req.body);
+
+    const channel = await prisma.whatsAppChannel.findFirst({
+      where: { id: body.channelId, organizationId: auth.orgId },
+    });
+    if (!channel) throw new NotFoundError("Channel not found");
+
+    const phoneParsed = normalizePhone(body.phone);
+    const normalizedPhone = phoneParsed.ok ? phoneParsed.e164 : body.phone.replace(/\D/g, "");
+
+    const member = await prisma.commanderMember.upsert({
+      where: {
+        channelId_phone: {
+          channelId: body.channelId,
+          phone: normalizedPhone,
+        },
+      },
+      create: {
+        organizationId: auth.orgId,
+        channelId: body.channelId,
+        name: body.name,
+        phone: normalizedPhone,
+        role: body.role,
+        dailyMorning: body.dailyMorning,
+        dailyEod: body.dailyEod,
+        missedAlert: body.missedAlert,
+        enabled: true,
+      },
+      update: {
+        name: body.name,
+        role: body.role,
+        dailyMorning: body.dailyMorning,
+        dailyEod: body.dailyEod,
+        missedAlert: body.missedAlert,
+        enabled: true,
+      },
+    });
+
+    return ok(member);
+  });
+
+  app.patch("/chatbots/commanders/:id", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("chatbot.manage")(req);
+    const { id } = req.params as { id: string };
+    const body = z
+      .object({
+        name: z.string().trim().min(1).max(100).optional(),
+        phone: z.string().trim().min(8).max(30).optional(),
+        role: z.enum(["OWNER", "SALES_MANAGER", "ACCOUNTS", "SUPPORT"]).optional(),
+        dailyMorning: z.boolean().optional(),
+        dailyEod: z.boolean().optional(),
+        missedAlert: z.boolean().optional(),
+        enabled: z.boolean().optional(),
+      })
+      .parse(req.body);
+
+    const existing = await prisma.commanderMember.findFirst({
+      where: { id, organizationId: auth.orgId },
+    });
+    if (!existing) throw new NotFoundError("Commander member not found");
+
+    const updateData: any = { ...body };
+    if (body.phone) {
+      const parsed = normalizePhone(body.phone);
+      updateData.phone = parsed.ok ? parsed.e164 : body.phone.replace(/\D/g, "");
+    }
+
+    const updated = await prisma.commanderMember.update({
+      where: { id },
+      data: updateData,
+    });
+    return ok(updated);
+  });
+
+  app.delete("/chatbots/commanders/:id", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("chatbot.manage")(req);
+    const { id } = req.params as { id: string };
+    const existing = await prisma.commanderMember.findFirst({
+      where: { id, organizationId: auth.orgId },
+    });
+    if (!existing) throw new NotFoundError("Commander member not found");
+
+    await prisma.commanderMember.delete({ where: { id } });
+    return ok({ success: true, deletedId: id });
   });
 };
