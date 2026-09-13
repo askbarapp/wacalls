@@ -200,6 +200,12 @@ model Organization {
   pendingActions      PendingAction[]
   followUpCadences    FollowUpCadence[]
   businessInvoices    BusinessInvoice[]
+  businessProfiles    BusinessProfile[]
+  creativeAssets      CreativeAsset[]
+  aiJobs              AiJob[]
+  aiCreditBalance     AiCreditBalance?
+  featureEntitlements FeatureEntitlement[]
+  festivalCampaigns   FestivalCampaign[]
 
   @@index([planId])
   @@index([status])
@@ -330,6 +336,10 @@ model WhatsAppChannel {
   pendingActions     PendingAction[]
   followUpCadences   FollowUpCadence[]
   businessInvoices   BusinessInvoice[]
+  businessProfiles   BusinessProfile[]
+  creativeAssets     CreativeAsset[]
+  featureEntitlements FeatureEntitlement[]
+  festivalCampaigns  FestivalCampaign[]
 
   @@index([organizationId])
   @@index([status])
@@ -934,6 +944,7 @@ model ChatConversation {
   pendingActions PendingAction[]
   followUpCadences FollowUpCadence[]
   businessInvoices BusinessInvoice[]
+  creativeAssets   CreativeAsset[]
 
   @@unique([organizationId, channelId, phone])
   @@index([organizationId, lastMessageAt])
@@ -1403,4 +1414,185 @@ model BusinessInvoice {
   @@index([dueDate])
   @@map("business_invoices")
 }
+
+model BusinessProfile {
+  id                  String   @id @default(uuid())
+  organizationId      String   @map("organization_id")
+  channelId           String?  @map("channel_id")
+  businessName        String   @map("business_name")
+  businessCategory    String?  @map("business_category")
+  ownerName           String?  @map("owner_name")
+  phone               String?
+  address             String?
+  website             String?
+  logoUrl             String?  @map("logo_url")
+  brandColors         String?  @map("brand_colors")
+  brandStyle          String?  @map("brand_style")
+  language            String?  @default("Hindi + English")
+  products            String?
+  services            String?
+  usp                 String?
+  targetCustomer      String?  @map("target_customer")
+  defaultOffer        String?  @map("default_offer")
+  creativePreferences Json?    @map("creative_preferences")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, channelId])
+  @@index([organizationId])
+  @@map("business_profiles")
+}
+
+model CreativeAsset {
+  id               String    @id @default(uuid())
+  organizationId   String    @map("organization_id")
+  channelId        String?   @map("channel_id")
+  conversationId   String?   @map("conversation_id")
+  festivalId       String?   @map("festival_id")
+  title            String    @default("Untitled Creative")
+  concept          String?
+  status           String    @default("DRAFT") /// DRAFT, GENERATING, READY, REVISION, APPROVED, FINAL, LOCKED
+  locked           Boolean   @default(false)
+  lockedAt         DateTime? @map("locked_at")
+  currentVersionId String?   @map("current_version_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  conversation ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  festival     Festival?         @relation(fields: [festivalId], references: [id], onDelete: SetNull)
+  versions     CreativeVersion[]
+  campaigns    FestivalCampaign[]
+
+  @@index([organizationId, status])
+  @@index([channelId])
+  @@map("creative_assets")
+}
+
+model CreativeVersion {
+  id            String   @id @default(uuid())
+  assetId       String   @map("asset_id")
+  version       Int      @default(1)
+  prompt        String
+  provider      String   @default("usevelix")
+  providerJobId String?  @map("provider_job_id")
+  imageUrl      String?  @map("image_url")
+  localPath     String?  @map("local_path")
+  status        String   @default("GENERATING") /// GENERATING, READY, FAILED
+  creditsUsed   Int      @default(0) @map("credits_used")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  asset CreativeAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, version])
+  @@map("creative_versions")
+}
+
+model AiJob {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  channelId      String?   @map("channel_id")
+  feature        String    @default("creative") /// creative, smart_edit, video
+  provider       String    @default("usevelix")
+  providerJobId  String    @map("provider_job_id")
+  requestType    String    @map("request_type") /// text-to-image, smart-edit
+  prompt         String?
+  status         String    @default("QUEUED") /// QUEUED, PROCESSING, DONE, FAILED, CANCELLED
+  creditsUsed    Int       @default(0) @map("credits_used")
+  inputUrl       String?   @map("input_url")
+  outputUrl      String?   @map("output_url")
+  error          String?
+  metadata       Json?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([provider, providerJobId])
+  @@map("ai_jobs")
+}
+
+model AiCreditBalance {
+  id             String   @id @default(uuid())
+  organizationId String   @unique @map("organization_id")
+  balance        Int      @default(100)
+  monthlyLimit   Int      @default(100) @map("monthly_limit")
+  used           Int      @default(0)
+  resetDate      DateTime @default(now()) @map("reset_date")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("ai_credit_balances")
+}
+
+model FeatureEntitlement {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  channelId      String?   @map("channel_id")
+  feature        String    /// ai_creative_studio, festival_autopilot, smart_edit
+  enabled        Boolean   @default(true)
+  dailyLimit     Int       @default(50) @map("daily_limit")
+  monthlyLimit   Int       @default(200) @map("monthly_limit")
+  expiresAt      DateTime? @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, channelId, feature])
+  @@index([organizationId, feature])
+  @@map("feature_entitlements")
+}
+
+model Festival {
+  id                String   @id @default(uuid())
+  name              String
+  festivalDate      DateTime @map("festival_date")
+  triggerDaysBefore Int      @default(1) @map("trigger_days_before")
+  creativeType      String   @default("poster") @map("creative_type")
+  language          String   @default("Hindi + English")
+  defaultPrompt     String?  @map("default_prompt")
+  active            Boolean  @default(true)
+  targetPlans       String[] @default([]) @map("target_plans")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  assets    CreativeAsset[]
+  campaigns FestivalCampaign[]
+
+  @@index([festivalDate, active])
+  @@map("festivals")
+}
+
+model FestivalCampaign {
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  channelId       String    @map("channel_id")
+  festivalId      String    @map("festival_id")
+  festivalDate    DateTime  @map("festival_date")
+  status          String    @default("SCHEDULED") /// SCHEDULED, GENERATING, READY, SENT, FAILED
+  creativeAssetId String?   @map("creative_asset_id")
+  sentAt          DateTime? @map("sent_at")
+  error           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel       WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  festival      Festival        @relation(fields: [festivalId], references: [id], onDelete: Cascade)
+  creativeAsset CreativeAsset?  @relation(fields: [creativeAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, channelId, festivalId, festivalDate])
+  @@index([organizationId, status])
+  @@map("festival_campaigns")
+}
+
 
