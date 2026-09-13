@@ -9,6 +9,12 @@ import {
 import { sendWhatsAppText } from "./messaging.js";
 import { resolveVoiceApiKey } from "./sarvam-key.js";
 import { broadcast } from "../ws.js";
+import {
+  createInvoiceOrQuote,
+  sendInvoiceToClient,
+  getPendingPaymentsSummary,
+  markInvoicePayment,
+} from "./invoice-service.js";
 
 const log = pino({ name: "business-assistant" });
 
@@ -220,12 +226,100 @@ export async function handleOwnerCommand(input: {
     return true;
   }
 
+  // D. Quotation / Invoice Request Command (e.g. "Send quotation to Rahul 9876543210 for 25000 Website", "कोटेशन भेजो अमित को 15000")
+  if (
+    (upperText.includes("QUOTATION") || upperText.includes("QUOTE") || upperText.includes("INVOICE") || upperText.includes("कोटेशन") || upperText.includes("बिल")) &&
+    (upperText.includes("SEND") || upperText.includes("BHEJO") || upperText.includes("CREATE") || upperText.includes("BANAO") || upperText.includes("FOR") || upperText.includes("KO") || upperText.includes("FOR"))
+  ) {
+    const quoteProposal = await parseQuotationCommand(channel.organizationId, text);
+    if (quoteProposal) {
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      await prisma.pendingAction.create({
+        data: {
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          actionType: quoteProposal.isInvoice ? "SEND_INVOICE" : "SEND_QUOTATION",
+          summary: quoteProposal.summary,
+          payload: quoteProposal.payload as any,
+          status: "PENDING",
+          expiresAt,
+        },
+      });
+
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: quoteProposal.confirmationCard,
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return true;
+    }
+  }
+
+  // E. Pending Payments / बकाया भुगतान Command
+  if (
+    upperText.includes("PAYMENT") ||
+    upperText.includes("BAKAYA") ||
+    upperText.includes("बकाया") ||
+    upperText.includes("UNPAID") ||
+    upperText.includes("DUE")
+  ) {
+    const summary = await getPendingPaymentsSummary(channel.organizationId);
+    let card = `💰 *WaCall — Outstanding Payments (बकाया भुगतान)*\n━━━━━━━━━━━━━━━━━━━━\n`;
+    if (summary.totalCount === 0) {
+      card += `🎉 बहुत बढ़िया! कोई भी पेंडिंग या बकाया पेमेंट नहीं है। सभी इनवॉइस चुकता हैं।`;
+    } else {
+      card += `*कुल बकाया:* ₹${summary.totalOutstanding.toLocaleString("en-IN")} (${summary.totalCount} इनवॉइस)\n`;
+      if (summary.overdueCount > 0) {
+        card += `⚠️ *अतिदेय (Overdue):* ₹${summary.overdueAmount.toLocaleString("en-IN")} (${summary.overdueCount} इनवॉइस)\n`;
+      }
+      card += `\n*लंबित सूचि:*\n`;
+      summary.invoices.slice(0, 5).forEach((inv, i) => {
+        const dueStr = inv.dueDate ? new Date(inv.dueDate).toLocaleDateString("en-IN") : "No due date";
+        card += `${i + 1}. *${inv.clientName}*: ₹${(inv.total - inv.amountPaid).toLocaleString("en-IN")} (Due: ${dueStr})\n`;
+      });
+      if (summary.invoices.length > 5) {
+        card += `...और ${summary.invoices.length - 5} अन्य इनवॉइस।\n`;
+      }
+    }
+    card += `━━━━━━━━━━━━━━━━━━━━\n💡 आप किसी इनवॉइस को चुकता करने के लिए *"Mark paid [Client] [Amount]"* लिख सकते हैं।`;
+
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: input.phone,
+      body: card,
+      chatSource: "bot",
+    }).catch(() => undefined);
+    return true;
+  }
+
+  // F. Mark Paid Command (e.g. "Mark paid Rahul 25000", "पेमेंट मिल गया राहुल 25000")
+  if (
+    upperText.startsWith("MARK PAID") ||
+    upperText.startsWith("PAID ") ||
+    upperText.includes("PAYMENT MIL GAYA") ||
+    upperText.includes("PAID HO GAYA")
+  ) {
+    const target = text.replace(/^(mark paid|paid|payment mil gaya|paid ho gaya)\s+/i, "").trim();
+    const markCard = await handleMarkPaidCommand(channel.organizationId, target);
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: input.phone,
+      body: markCard,
+      chatSource: "bot",
+    }).catch(() => undefined);
+    return true;
+  }
+
   // Default Assistant Response to Owner
   await sendWhatsAppText({
     organizationId: channel.organizationId,
     channelId: channel.id,
     phone: input.phone,
-    body: `👋 *WaCall Assistant Active*\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Call [Name/Number]"*\n• या किसी भी ग्राहक का मैसेज मुझे *Forward* कर दीजिए!`,
+    body: `👋 *WaCall Assistant Active*\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Send quotation to [Name] for ₹[Amount]"*\n• *"Pending payments बताओ"*\n• *"Call [Name/Number]"*\n• या किसी भी ग्राहक का मैसेज मुझे *Forward* कर दीजिए!`,
     chatSource: "bot",
   }).catch(() => undefined);
 
@@ -338,6 +432,41 @@ async function executePendingAction(channel: any, action: any): Promise<void> {
       chatSource: "bot",
     }).catch(() => undefined);
     return;
+  }
+
+  if (action.actionType === "SEND_QUOTATION" || action.actionType === "SEND_INVOICE") {
+    const isInvoice = action.actionType === "SEND_INVOICE";
+    const clientName = payload.clientName || payload.contactName || "Client";
+    const clientPhone = payload.clientPhone || payload.phone;
+    const amount = payload.amount ? parseFloat(String(payload.amount)) : 0;
+    const itemDesc = payload.item || payload.itemOrProduct || (isInvoice ? "Invoice Services" : "Quotation Services");
+
+    if (clientPhone && amount > 0) {
+      const inv = await createInvoiceOrQuote({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        clientName,
+        clientPhone,
+        kind: isInvoice ? "INVOICE" : "QUOTATION",
+        items: [{ description: itemDesc, quantity: 1, unitPrice: amount, amount }],
+        total: amount,
+        subtotal: amount,
+        notes: payload.notes || "Generated via WaCall OS",
+        dueDate: payload.dueDate ? new Date(payload.dueDate) : new Date(Date.now() + 7 * 24 * 3600 * 1000),
+        autoEnrollFollowUp: true,
+      });
+
+      const sendRes = await sendInvoiceToClient(inv.id);
+
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: channel.ownerPhone || channel.phoneNumber,
+        body: `✅ *${isInvoice ? "Invoice" : "Quotation"} Generated & Sent!*\n\n• *Client*: ${clientName} (${clientPhone})\n• *Doc Number*: #${inv.invoiceNumber}\n• *Amount*: ₹${amount.toLocaleString("en-IN")}\n• *PDF Link*: ${sendRes.pdfUrl}\n\n🔄 *Follow-up Cadence Active*: Client will be automatically followed up in +4h, +24h, and +3d (AI Voice Call) if no reply.`,
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return;
+    }
   }
 
   // Default acknowledgement
@@ -670,3 +799,99 @@ export async function classifyAndEscalateCustomerMessage(input: {
     );
   }
 }
+
+/**
+ * Parses quotation or invoice creation requests from the Business Owner.
+ */
+async function parseQuotationCommand(
+  organizationId: string,
+  rawText: string,
+): Promise<{
+  isInvoice: boolean;
+  summary: string;
+  payload: Record<string, any>;
+  confirmationCard: string;
+} | null> {
+  try {
+    const { apiKey } = await resolveVoiceApiKey(organizationId, "sarvam");
+    const client = createVoiceAiClient("sarvam", apiKey);
+
+    const prompt = `A business owner wants to create and send a Quotation or Invoice to a client via WhatsApp.
+Extract the details from this text:
+- clientName: string (person or company name)
+- clientPhone: string (phone number or null)
+- item: string (service or product description)
+- amount: number (total price in INR, digits only)
+- isInvoice: boolean (true if bill/invoice requested, false if quote/quotation)
+- dueDate: string or null (e.g. "2026-09-20")
+
+Input text:
+"${rawText}"
+
+Output STRICTLY valid JSON:
+{
+  "clientName": string,
+  "clientPhone": string | null,
+  "item": string,
+  "amount": number,
+  "isInvoice": boolean,
+  "dueDate": string | null
+}`;
+
+    const res = await client.chat(
+      [
+        { role: "system", content: "You are a precise JSON extractor. Output ONLY JSON." },
+        { role: "user", content: prompt },
+      ],
+      { temperature: 0.1, maxTokens: 300 },
+    );
+
+    const data = JSON.parse(res.replace(/```json/gi, "").replace(/```/g, "").trim());
+    if (!data.amount) return null;
+
+    const docType = data.isInvoice ? "Invoice" : "Quotation";
+    const confirmationCard = `📄 *${docType} Proposal Detected*\n━━━━━━━━━━━━━━━━━━━━\n• *Client*: ${data.clientName || "Client"} (${data.clientPhone || "Phone provided"})\n• *Item*: ${data.item || "Commercial Service"}\n• *Amount*: ₹${Number(data.amount).toLocaleString("en-IN")}\n\n*क्या मैं PDF बनाकर ग्राहक को WhatsApp कर दूँ और Follow-up Drip शुरू करूँ?*\n👉 पुष्टि के लिए *'YES'* लिखें या रद्द करने के लिए *'NO'* लिखें।`;
+
+    return {
+      isInvoice: Boolean(data.isInvoice),
+      summary: `${docType} for ${data.clientName || "Client"} - Rs. ${data.amount}`,
+      payload: data,
+      confirmationCard,
+    };
+  } catch (err) {
+    log.warn({ err }, "parseQuotationCommand failed");
+    return null;
+  }
+}
+
+/**
+ * Handles marking an invoice as paid from owner WhatsApp.
+ */
+async function handleMarkPaidCommand(organizationId: string, target: string): Promise<string> {
+  const amountMatch = target.match(/\b\d+(\.\d+)?\b/);
+  const amount = amountMatch ? parseFloat(amountMatch[0]) : null;
+  const nameQuery = target.replace(/\b\d+(\.\d+)?\b/g, "").replace(/rs\.?|inr|rupees/gi, "").trim();
+
+  const invoice = await prisma.businessInvoice.findFirst({
+    where: {
+      organizationId,
+      status: { in: ["UNPAID", "PARTIAL", "OVERDUE"] },
+      OR: [
+        { clientName: { contains: nameQuery, mode: "insensitive" } },
+        { clientPhone: { contains: nameQuery } },
+        { invoiceNumber: { contains: nameQuery, mode: "insensitive" } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!invoice) {
+    return `❓ मुझे "${nameQuery || target}" के नाम पर कोई खुला इनवॉइस नहीं मिला। कृपया इनवॉइस नंबर या सही ग्राहक नाम लिखें।`;
+  }
+
+  const payAmount = amount ?? (invoice.total - invoice.amountPaid);
+  const updated = await markInvoicePayment(invoice.id, payAmount);
+
+  return `✅ *भुगतान दर्ज कर लिया गया!*\n━━━━━━━━━━━━━━━━━━━━\n• *Invoice*: #${invoice.invoiceNumber}\n• *ग्राहक*: ${invoice.clientName}\n• *जमा राशि*: ₹${payAmount.toLocaleString("en-IN")}\n• *वर्तमान स्थिति*: ${updated.status === "PAID" ? "✅ चुकता (PAID)" : `⏳ शेष राशि: ₹${(updated.total - updated.amountPaid).toLocaleString("en-IN")}`}\n━━━━━━━━━━━━━━━━━━━━`;
+}
+

@@ -72,12 +72,28 @@ type BusinessTask = {
   createdAt: string;
   channel?: { displayName: string };
 };
+type BusinessInvoice = {
+  id: string;
+  invoiceNumber: string;
+  clientName: string;
+  clientPhone: string;
+  kind: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  amountPaid: number;
+  status: string;
+  dueDate?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  channel?: { displayName: string };
+};
 type ChatLine = { id: string; body: string; direction: string; source: string; createdAt: string };
 type Thread = Omit<Conversation, "messages"> & {
   messages: ChatLine[];
 };
 
-type InboxFilter = "all" | "hot" | "tasks" | "escalations";
+type InboxFilter = "all" | "hot" | "tasks" | "invoices" | "escalations";
 
 const TABS = [
   { id: "setup", label: "Setup" },
@@ -128,6 +144,8 @@ function ChatbotInner() {
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [tasks, setTasks] = useState<BusinessTask[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
+  const [invoices, setInvoices] = useState<BusinessInvoice[]>([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [thread, setThread] = useState<Thread | null>(null);
   const [reply, setReply] = useState("");
@@ -166,6 +184,41 @@ function ChatbotInner() {
     }
   }
 
+  async function loadInvoices() {
+    setLoadingInvoices(true);
+    try {
+      const r = await api<{ success: true; data: BusinessInvoice[] }>("/api/v1/invoices?limit=50");
+      setInvoices(r.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load invoices");
+    } finally {
+      setLoadingInvoices(false);
+    }
+  }
+
+  async function sendInvoiceWhatsApp(invoiceId: string) {
+    try {
+      await api(`/api/v1/invoices/${invoiceId}/send`, { method: "POST" });
+      setMsg("Quotation / Invoice sent to client on WhatsApp with PDF!");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send invoice on WhatsApp");
+    }
+  }
+
+  async function markInvoiceAsPaid(invoice: BusinessInvoice) {
+    try {
+      const balance = invoice.total - invoice.amountPaid;
+      await api(`/api/v1/invoices/${invoice.id}/payment`, {
+        method: "PATCH",
+        body: JSON.stringify({ amount: balance }),
+      });
+      setMsg(`Invoice #${invoice.invoiceNumber} marked as PAID.`);
+      await loadInvoices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update payment");
+    }
+  }
+
   async function toggleTaskStatus(task: BusinessTask) {
     const nextStatus = task.status === "COMPLETED" ? "PENDING" : "COMPLETED";
     try {
@@ -182,6 +235,10 @@ function ChatbotInner() {
   async function loadInbox(pageNum = page, limit = pageSize, ch = channelId, filter = inboxFilter) {
     if (filter === "tasks") {
       await loadTasks();
+      return;
+    }
+    if (filter === "invoices") {
+      await loadInvoices();
       return;
     }
     const params = new URLSearchParams({ page: String(pageNum), limit: String(limit) });
@@ -860,6 +917,19 @@ function ChatbotInner() {
               <button
                 type="button"
                 onClick={() => {
+                  setInboxFilter("invoices");
+                }}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                  inboxFilter === "invoices"
+                    ? "bg-emerald-500 text-ink-950 font-bold shadow shadow-emerald-500/30"
+                    : "border border-white/10 bg-ink-900/80 text-slate-300 hover:bg-white/10"
+                }`}
+              >
+                <span>💰 Invoices & Quotes</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   setInboxFilter("escalations");
                   setPage(1);
                 }}
@@ -873,7 +943,11 @@ function ChatbotInner() {
               </button>
             </div>
             <div className="text-xs text-slate-400">
-              {inboxFilter === "tasks" ? `${tasks.length} Business Tasks` : `${meta.total} Conversations`}
+              {inboxFilter === "tasks"
+                ? `${tasks.length} Business Tasks`
+                : inboxFilter === "invoices"
+                ? `${invoices.length} Invoices & Quotes`
+                : `${meta.total} Conversations`}
             </div>
           </div>
 
@@ -993,6 +1067,116 @@ function ChatbotInner() {
                           >
                             {isCompleted ? "Mark Pending" : "Mark Done ✓"}
                           </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : inboxFilter === "invoices" ? (
+            <div className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-white">Commercial Invoices & Quotations</h3>
+                  <p className="text-xs text-slate-400">
+                    PDF Quotations and Invoices generated via WhatsApp commands with automated 3-Step Follow-up Drip & Payment Reminders
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadInvoices()}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10"
+                >
+                  🔄 Refresh
+                </button>
+              </div>
+
+              {loadingInvoices ? (
+                <div className="py-12 text-center text-sm text-slate-400">Loading invoices…</div>
+              ) : invoices.length === 0 ? (
+                <div className="rounded-xl border border-white/5 bg-black/20 py-12 text-center text-sm text-slate-400">
+                  <p className="font-medium text-slate-300">No invoices or quotations created yet.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Type a WhatsApp command like <span className="text-emerald-300">&quot;Send quotation to Rahul 9876543210 for ₹25000 Website Development&quot;</span> to create your first PDF quotation!
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {invoices.map((inv) => {
+                    const isPaid = inv.status === "PAID";
+                    const isOverdue = inv.status === "OVERDUE";
+                    return (
+                      <div
+                        key={inv.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 p-4 transition-all hover:border-white/20"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded bg-brand-500/20 px-2 py-0.5 text-xs font-mono font-bold text-brand-300">
+                              #{inv.invoiceNumber}
+                            </span>
+                            <span className="text-sm font-semibold text-white">
+                              {inv.clientName}
+                            </span>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                isPaid
+                                  ? "bg-emerald-500/20 text-emerald-300"
+                                  : isOverdue
+                                  ? "bg-rose-600/30 text-rose-300"
+                                  : "bg-amber-500/20 text-amber-300"
+                              }`}
+                            >
+                              {inv.status}
+                            </span>
+                            <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-300 uppercase">
+                              {inv.kind}
+                            </span>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                            <span>
+                              💰 Total: <b className="text-white">₹{inv.total.toLocaleString("en-IN")}</b>
+                            </span>
+                            {inv.amountPaid > 0 && !isPaid && (
+                              <span>Paid: ₹{inv.amountPaid.toLocaleString("en-IN")}</span>
+                            )}
+                            {inv.dueDate && (
+                              <span>
+                                📅 Due: <b className="text-amber-300">{new Date(inv.dueDate).toLocaleDateString("en-IN")}</b>
+                              </span>
+                            )}
+                            <span>📞 {inv.clientPhone}</span>
+                            <span>Created: {new Date(inv.createdAt).toLocaleDateString("en-IN")}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <a
+                            href={`/api/v1/invoices/public/${inv.id}/pdf`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10 hover:text-white"
+                          >
+                            📄 Download PDF
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => void sendInvoiceWhatsApp(inv.id)}
+                            className="rounded-lg bg-emerald-600/80 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+                          >
+                            📲 Send on WA
+                          </button>
+                          {!isPaid && (
+                            <button
+                              type="button"
+                              onClick={() => void markInvoiceAsPaid(inv)}
+                              className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-bold text-ink-950 hover:bg-brand-400"
+                            >
+                              ✓ Mark Paid
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

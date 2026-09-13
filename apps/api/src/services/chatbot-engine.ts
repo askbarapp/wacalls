@@ -14,6 +14,7 @@ import {
   handleOwnerCommand,
   classifyAndEscalateCustomerMessage,
 } from "./business-assistant.js";
+import { cancelActiveCadenceOnReply } from "./followup-cadence.js";
 
 const log = pino({ name: "chatbot-engine" });
 
@@ -227,12 +228,14 @@ export async function handleInboundChat(input: {
     if (handled) return;
   }
 
-  // If from a customer, run background autonomous work classification & escalation check
+  // If from a customer, run background autonomous work classification, escalation check & cancel active follow-up cadences
   void classifyAndEscalateCustomerMessage({
     channel,
     conversation,
     text,
   }).catch((err) => log.warn({ err }, "Autonomous classification error"));
+
+  void cancelActiveCadenceOnReply(channel.organizationId, phone).catch(() => undefined);
 
   const upperText = text.toUpperCase();
 

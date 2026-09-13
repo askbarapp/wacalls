@@ -198,6 +198,8 @@ model Organization {
   chatMessages        ChatMessage[]
   businessTasks       BusinessTask[]
   pendingActions      PendingAction[]
+  followUpCadences    FollowUpCadence[]
+  businessInvoices    BusinessInvoice[]
 
   @@index([planId])
   @@index([status])
@@ -326,6 +328,8 @@ model WhatsAppChannel {
   ownerPhone         String?             @map("owner_phone")
   businessTasks      BusinessTask[]
   pendingActions     PendingAction[]
+  followUpCadences   FollowUpCadence[]
+  businessInvoices   BusinessInvoice[]
 
   @@index([organizationId])
   @@index([status])
@@ -687,6 +691,7 @@ model AiConfig {
   chatBots         ChatBot[]
   chatKeywords     ChatKeyword[]
   chatConversations ChatConversation[]
+  followUpCadences FollowUpCadence[]
 
   @@index([organizationId])
   @@index([knowledgeBaseId])
@@ -927,6 +932,8 @@ model ChatConversation {
   messages       ChatMessage[]
   businessTasks  BusinessTask[]
   pendingActions PendingAction[]
+  followUpCadences FollowUpCadence[]
+  businessInvoices BusinessInvoice[]
 
   @@unique([organizationId, channelId, phone])
   @@index([organizationId, lastMessageAt])
@@ -1336,5 +1343,64 @@ model PendingAction {
   @@index([organizationId, status])
   @@index([channelId])
   @@map("pending_actions")
+}
+
+model FollowUpCadence {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  channelId       String   @map("channel_id")
+  conversationId  String?  @map("conversation_id")
+  contactPhone    String   @map("contact_phone")
+  contactName     String?  @map("contact_name")
+  stage           Int      @default(1)
+  status          String   @default("ACTIVE") /// ACTIVE, COMPLETED, CANCELLED, REPLIED
+  nextRunAt       DateTime @map("next_run_at")
+  context         String?
+  voiceAiConfigId String?  @map("voice_ai_config_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel       WhatsAppChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  conversation  ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  voiceAiConfig AiConfig?         @relation(fields: [voiceAiConfigId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([channelId])
+  @@index([nextRunAt, status])
+  @@map("follow_up_cadences")
+}
+
+model BusinessInvoice {
+  id             String    @id @default(uuid())
+  invoiceNumber  String    @map("invoice_number")
+  organizationId String    @map("organization_id")
+  channelId      String    @map("channel_id")
+  conversationId String?   @map("conversation_id")
+  clientName     String    @map("client_name")
+  clientPhone    String    @map("client_phone")
+  kind           String    @default("QUOTATION") /// QUOTATION, INVOICE
+  items          Json      /// [{ description: string, quantity: number, unitPrice: number, amount: number }]
+  subtotal       Float
+  tax            Float     @default(0)
+  total          Float
+  amountPaid     Float     @default(0) @map("amount_paid")
+  status         String    @default("UNPAID") /// UNPAID, PARTIAL, PAID, OVERDUE
+  dueDate        DateTime? @map("due_date")
+  notes          String?
+  pdfPath        String?   @map("pdf_path")
+  remindersSent  Int       @default(0) @map("reminders_sent")
+  lastReminderAt DateTime? @map("last_reminder_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  conversation ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([channelId])
+  @@index([dueDate])
+  @@map("business_invoices")
 }
 
