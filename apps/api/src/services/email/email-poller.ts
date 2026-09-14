@@ -40,12 +40,17 @@ export async function processEmailSyncTick(): Promise<void> {
         await syncSingleAccount(account);
       } catch (err: any) {
         log.warn({ err: err?.message, accountId: account.id, email: account.email }, "Sync error on email account");
+        // Distinguish between hard auth errors vs transient socket timeouts
+        const isAuthError =
+          /auth|credential|login|invalid|unauthorized|denied|command failed/i.test(err?.message || "");
+        
         await prisma.emailAccount
           .update({
             where: { id: account.id },
             data: {
               lastError: err?.message || "Sync failed",
-              status: "ERROR",
+              // Only flag ERROR state if authentication or command failed permanently; keep CONNECTED on temporary socket timeouts
+              status: isAuthError ? "ERROR" : account.status,
             },
           })
           .catch(() => undefined);

@@ -4,13 +4,19 @@ import { useEffect, useState, useCallback } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  BookOpen,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   ExternalLink,
   Filter,
+  HelpCircle,
+  Key,
   Loader2,
   Mail,
   Paperclip,
+  Pencil,
   Plus,
   RefreshCw,
   Send,
@@ -101,6 +107,9 @@ export default function EmailCommandCenterPage() {
 
   // Modals
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [setupGuideOpen, setSetupGuideOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<EmailMessage | null>(null);
   const [replyText, setReplyText] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
@@ -129,11 +138,73 @@ export default function EmailCommandCenterPage() {
     targetPhone: "",
   });
 
+  // Edit account form
+  const [editForm, setEditForm] = useState({
+    id: "",
+    label: "",
+    email: "",
+    fromName: "",
+    imapHost: "",
+    imapPort: 993,
+    imapSecure: true,
+    imapUser: "",
+    imapPassword: "",
+    smtpHost: "",
+    smtpPort: 465,
+    smtpSecure: true,
+    smtpUser: "",
+    smtpPassword: "",
+    filterSendersStr: "",
+    filterDomainsStr: "",
+    filterKeywordsStr: "",
+    minPriority: "IMPORTANT",
+    aiFilterEnabled: true,
+    targetPhone: "",
+    syncEnabled: true,
+  });
+
   const [testingImap, setTestingImap] = useState(false);
   const [imapTestResult, setImapTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [testingSmtp, setTestingSmtp] = useState(false);
   const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [savingAccount, setSavingAccount] = useState(false);
+
+  // Edit testing states
+  const [editTestingImap, setEditTestingImap] = useState(false);
+  const [editImapTestResult, setEditImapTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [editTestingSmtp, setEditTestingSmtp] = useState(false);
+  const [editSmtpTestResult, setEditSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [updatingAccount, setUpdatingAccount] = useState(false);
+
+  // Open Edit Modal for an account
+  function openEditModal(acc: EmailAccount) {
+    setEditForm({
+      id: acc.id,
+      label: acc.label || "",
+      email: acc.email || "",
+      fromName: acc.fromName || "",
+      imapHost: acc.imapHost || "imap.gmail.com",
+      imapPort: acc.imapPort || 993,
+      imapSecure: acc.imapSecure !== false,
+      imapUser: acc.imapUser || acc.email || "",
+      imapPassword: "", // Leave blank to keep existing encrypted password
+      smtpHost: acc.smtpHost || "smtp.gmail.com",
+      smtpPort: acc.smtpPort || 465,
+      smtpSecure: acc.smtpSecure !== false,
+      smtpUser: acc.smtpUser || acc.imapUser || acc.email || "",
+      smtpPassword: "", // Leave blank to keep existing encrypted password
+      filterSendersStr: acc.filterSenders ? acc.filterSenders.join(", ") : "",
+      filterDomainsStr: acc.filterDomains ? acc.filterDomains.join(", ") : "",
+      filterKeywordsStr: acc.filterKeywords ? acc.filterKeywords.join(", ") : "",
+      minPriority: acc.minPriority || "IMPORTANT",
+      aiFilterEnabled: acc.aiFilterEnabled !== false,
+      targetPhone: acc.targetPhone || "",
+      syncEnabled: acc.syncEnabled !== false,
+    });
+    setEditImapTestResult(null);
+    setEditSmtpTestResult(null);
+    setEditModalOpen(true);
+  }
 
   // Load Data
   const loadData = useCallback(async () => {
@@ -183,7 +254,7 @@ export default function EmailCommandCenterPage() {
     }
   }
 
-  // Test IMAP
+  // Test IMAP (New)
   async function handleTestImap() {
     setTestingImap(true);
     setImapTestResult(null);
@@ -206,7 +277,7 @@ export default function EmailCommandCenterPage() {
     }
   }
 
-  // Test SMTP
+  // Test SMTP (New)
   async function handleTestSmtp() {
     setTestingSmtp(true);
     setSmtpTestResult(null);
@@ -217,7 +288,7 @@ export default function EmailCommandCenterPage() {
           host: form.smtpHost,
           port: Number(form.smtpPort),
           secure: form.smtpSecure,
-          user: form.smtpUser || form.email,
+          user: form.smtpUser || form.imapUser || form.email,
           password: form.smtpPassword || form.imapPassword,
         }),
       });
@@ -226,6 +297,107 @@ export default function EmailCommandCenterPage() {
       setSmtpTestResult({ success: false, message: err?.message || "Connection failed" });
     } finally {
       setTestingSmtp(false);
+    }
+  }
+
+  // Test IMAP (Edit)
+  async function handleEditTestImap() {
+    setEditTestingImap(true);
+    setEditImapTestResult(null);
+    try {
+      const res = await api<{ success: boolean; message: string }>("/api/v1/email/accounts/test-imap", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: editForm.id,
+          host: editForm.imapHost,
+          port: Number(editForm.imapPort),
+          secure: editForm.imapSecure,
+          user: editForm.imapUser || editForm.email,
+          password: editForm.imapPassword || undefined,
+        }),
+      });
+      setEditImapTestResult(res);
+    } catch (err: any) {
+      setEditImapTestResult({ success: false, message: err?.message || "Connection failed" });
+    } finally {
+      setEditTestingImap(false);
+    }
+  }
+
+  // Test SMTP (Edit)
+  async function handleEditTestSmtp() {
+    setEditTestingSmtp(true);
+    setEditSmtpTestResult(null);
+    try {
+      const res = await api<{ success: boolean; message: string }>("/api/v1/email/accounts/test-smtp", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: editForm.id,
+          host: editForm.smtpHost,
+          port: Number(editForm.smtpPort),
+          secure: editForm.smtpSecure,
+          user: editForm.smtpUser || editForm.imapUser || editForm.email,
+          password: editForm.smtpPassword || editForm.imapPassword || undefined,
+        }),
+      });
+      setEditSmtpTestResult(res);
+    } catch (err: any) {
+      setEditSmtpTestResult({ success: false, message: err?.message || "Connection failed" });
+    } finally {
+      setEditTestingSmtp(false);
+    }
+  }
+
+  // Update Existing Account
+  async function handleUpdateAccount(e: React.FormEvent) {
+    e.preventDefault();
+    setUpdatingAccount(true);
+    try {
+      const filterSenders = editForm.filterSendersStr
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      const filterDomains = editForm.filterDomainsStr
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      const filterKeywords = editForm.filterKeywordsStr
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+
+      await api(`/api/v1/email/accounts/${editForm.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          label: editForm.label,
+          email: editForm.email,
+          fromName: editForm.fromName || undefined,
+          imapHost: editForm.imapHost,
+          imapPort: Number(editForm.imapPort),
+          imapSecure: editForm.imapSecure,
+          imapUser: editForm.imapUser || editForm.email,
+          imapPassword: editForm.imapPassword || undefined,
+          smtpHost: editForm.smtpHost || undefined,
+          smtpPort: editForm.smtpPort ? Number(editForm.smtpPort) : undefined,
+          smtpSecure: editForm.smtpSecure,
+          smtpUser: editForm.smtpUser || editForm.imapUser || editForm.email,
+          smtpPassword: editForm.smtpPassword || editForm.imapPassword || undefined,
+          filterSenders,
+          filterDomains,
+          filterKeywords,
+          minPriority: editForm.minPriority,
+          aiFilterEnabled: editForm.aiFilterEnabled,
+          targetPhone: editForm.targetPhone || undefined,
+          syncEnabled: editForm.syncEnabled,
+        }),
+      });
+
+      setEditModalOpen(false);
+      await loadData();
+    } catch (err: any) {
+      alert(err?.message || "Failed to update email account");
+    } finally {
+      setUpdatingAccount(false);
     }
   }
 
@@ -323,6 +495,14 @@ export default function EmailCommandCenterPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setSetupGuideOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs font-semibold text-violet-300 transition-colors hover:bg-violet-500/20"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Setup Guide (App Password)
+          </button>
           <button
             type="button"
             onClick={() => loadData()}
@@ -610,15 +790,28 @@ export default function EmailCommandCenterPage() {
       {activeTab === "accounts" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white">Configured Email Mailboxes</h2>
-            <button
-              type="button"
-              onClick={() => setAccountModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add Mailbox
-            </button>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Configured Email Mailboxes</h2>
+              <p className="text-[11px] text-slate-400">Incoming IMAP and outgoing SMTP credentials &amp; routing rules.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSetupGuideOpen(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <HelpCircle className="h-3.5 w-3.5 text-amber-400" />
+                Setup Guide
+              </button>
+              <button
+                type="button"
+                onClick={() => setAccountModalOpen(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Mailbox
+              </button>
+            </div>
           </div>
 
           {accounts.length === 0 ? (
@@ -649,7 +842,15 @@ export default function EmailCommandCenterPage() {
                       <div className="text-xs text-slate-400 font-mono mt-0.5">{acc.email}</div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(acc)}
+                        className="rounded p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                        title="Edit Mailbox & Password"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         type="button"
                         disabled={syncingId === acc.id}
@@ -752,7 +953,15 @@ export default function EmailCommandCenterPage() {
                     type="email"
                     required
                     value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    onChange={(e) => {
+                      const newEmail = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        email: newEmail,
+                        imapUser: prev.imapUser === prev.email || !prev.imapUser ? newEmail : prev.imapUser,
+                        smtpUser: prev.smtpUser === prev.email || !prev.smtpUser ? newEmail : prev.smtpUser,
+                      }));
+                    }}
                     placeholder="you@company.com"
                     className="mt-1 w-full rounded-lg border border-white/10 bg-black/60 p-2 text-white placeholder-slate-500 focus:border-violet-500 focus:outline-none"
                   />
@@ -804,9 +1013,9 @@ export default function EmailCommandCenterPage() {
                     <span className="text-slate-400">Username</span>
                     <input
                       type="text"
-                      value={form.imapUser || form.email}
+                      value={form.imapUser}
                       onChange={(e) => setForm({ ...form, imapUser: e.target.value })}
-                      placeholder="Email username"
+                      placeholder={form.email || "user@domain.com"}
                       className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
                     />
                   </label>
@@ -958,10 +1167,452 @@ export default function EmailCommandCenterPage() {
                   disabled={savingAccount}
                   className="rounded-lg bg-violet-600 px-5 py-2 font-semibold text-white hover:bg-violet-500 transition-colors disabled:opacity-50"
                 >
-                  {savingAccount ? "Connecting..." : "Save &amp; Activate Mailbox"}
+                  {savingAccount ? "Connecting..." : "Save & Activate Mailbox"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Edit Mailbox Account */}
+      {editModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="relative w-full max-w-xl rounded-2xl border border-white/15 bg-ink-900 p-6 shadow-2xl space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">Edit Email Mailbox</h3>
+                <p className="text-xs text-slate-400">
+                  Update host settings, credentials, or filter rules. Passwords left empty will not be changed.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditModalOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateAccount} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="font-semibold text-slate-300">Account Label</span>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.label}
+                    onChange={(e) => setEditForm({ ...editForm, label: e.target.value })}
+                    placeholder="e.g. Work Gmail"
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/60 p-2 text-white placeholder-slate-500 focus:border-violet-500 focus:outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="font-semibold text-slate-300">Email Address</span>
+                  <input
+                    type="email"
+                    required
+                    value={editForm.email}
+                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                    placeholder="you@company.com"
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/60 p-2 text-white placeholder-slate-500 focus:border-violet-500 focus:outline-none"
+                  />
+                </label>
+              </div>
+
+              {/* IMAP Settings Section */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-violet-300 uppercase tracking-wider text-[10px]">
+                    1. Incoming Mail (IMAP Server)
+                  </span>
+                  <button
+                    type="button"
+                    disabled={editTestingImap}
+                    onClick={handleEditTestImap}
+                    className="rounded bg-violet-600/30 px-2 py-1 text-[10px] font-bold text-violet-200 hover:bg-violet-600/50 transition-colors disabled:opacity-50"
+                  >
+                    {editTestingImap ? "Testing..." : "Test IMAP Connection"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="col-span-2 block">
+                    <span className="text-slate-400">IMAP Host</span>
+                    <input
+                      type="text"
+                      required
+                      value={editForm.imapHost}
+                      onChange={(e) => setEditForm({ ...editForm, imapHost: e.target.value })}
+                      placeholder="imap.gmail.com"
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-slate-400">Port</span>
+                    <input
+                      type="number"
+                      required
+                      value={editForm.imapPort}
+                      onChange={(e) => setEditForm({ ...editForm, imapPort: parseInt(e.target.value) || 993 })}
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white text-center"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-slate-400">Username</span>
+                    <input
+                      type="text"
+                      value={editForm.imapUser}
+                      onChange={(e) => setEditForm({ ...editForm, imapUser: e.target.value })}
+                      placeholder={editForm.email || "user@domain.com"}
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-slate-400">Password / App Password</span>
+                    <input
+                      type="password"
+                      value={editForm.imapPassword}
+                      onChange={(e) => setEditForm({ ...editForm, imapPassword: e.target.value })}
+                      placeholder="Leave blank to keep existing password"
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                </div>
+
+                {editImapTestResult && (
+                  <div
+                    className={`rounded-lg p-2 text-[11px] font-medium border ${
+                      editImapTestResult.success
+                        ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                        : "bg-rose-500/10 text-rose-300 border-rose-500/20"
+                    }`}
+                  >
+                    {editImapTestResult.success ? "✓ " : "✕ "}
+                    {editImapTestResult.message}
+                  </div>
+                )}
+              </div>
+
+              {/* SMTP Settings Section */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-violet-300 uppercase tracking-wider text-[10px]">
+                    2. Outgoing Replies (SMTP Server)
+                  </span>
+                  <button
+                    type="button"
+                    disabled={editTestingSmtp}
+                    onClick={handleEditTestSmtp}
+                    className="rounded bg-violet-600/30 px-2 py-1 text-[10px] font-bold text-violet-200 hover:bg-violet-600/50 transition-colors disabled:opacity-50"
+                  >
+                    {editTestingSmtp ? "Testing..." : "Test SMTP Connection"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="col-span-2 block">
+                    <span className="text-slate-400">SMTP Host</span>
+                    <input
+                      type="text"
+                      value={editForm.smtpHost}
+                      onChange={(e) => setEditForm({ ...editForm, smtpHost: e.target.value })}
+                      placeholder="smtp.gmail.com"
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-slate-400">Port</span>
+                    <input
+                      type="number"
+                      value={editForm.smtpPort}
+                      onChange={(e) => setEditForm({ ...editForm, smtpPort: parseInt(e.target.value) || 465 })}
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white text-center"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-slate-400">SMTP Username</span>
+                    <input
+                      type="text"
+                      value={editForm.smtpUser}
+                      onChange={(e) => setEditForm({ ...editForm, smtpUser: e.target.value })}
+                      placeholder={editForm.imapUser || editForm.email}
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-slate-400">SMTP Password</span>
+                    <input
+                      type="password"
+                      value={editForm.smtpPassword}
+                      onChange={(e) => setEditForm({ ...editForm, smtpPassword: e.target.value })}
+                      placeholder="Leave blank to keep existing password"
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                </div>
+
+                {editSmtpTestResult && (
+                  <div
+                    className={`rounded-lg p-2 text-[11px] font-medium border ${
+                      editSmtpTestResult.success
+                        ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                        : "bg-rose-500/10 text-rose-300 border-rose-500/20"
+                    }`}
+                  >
+                    {editSmtpTestResult.success ? "✓ " : "✕ "}
+                    {editSmtpTestResult.message}
+                  </div>
+                )}
+              </div>
+
+              {/* 3-Level Filter Configuration */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 space-y-3">
+                <span className="font-bold text-amber-300 uppercase tracking-wider text-[10px]">
+                  3. Intelligence & 3-Level Filter Rules
+                </span>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-slate-400">Allowed Senders (Comma separated)</span>
+                    <input
+                      type="text"
+                      value={editForm.filterSendersStr}
+                      onChange={(e) => setEditForm({ ...editForm, filterSendersStr: e.target.value })}
+                      placeholder="accounts@abc.com, hr@xyz.com"
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-slate-400">Allowed Domains (Comma separated)</span>
+                    <input
+                      type="text"
+                      value={editForm.filterDomainsStr}
+                      onChange={(e) => setEditForm({ ...editForm, filterDomainsStr: e.target.value })}
+                      placeholder="@company.com, @client.com"
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-slate-400">Min WhatsApp Priority Required</span>
+                    <select
+                      value={editForm.minPriority}
+                      onChange={(e) => setEditForm({ ...editForm, minPriority: e.target.value })}
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    >
+                      <option value="IMPORTANT">⚡ Important & Urgent (Recommended)</option>
+                      <option value="URGENT">🔴 Urgent Only</option>
+                      <option value="ALL">All Emails</option>
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="text-slate-400">Target WhatsApp Line (Optional)</span>
+                    <input
+                      type="text"
+                      value={editForm.targetPhone}
+                      onChange={(e) => setEditForm({ ...editForm, targetPhone: e.target.value })}
+                      placeholder="e.g. 918800101513"
+                      className="mt-0.5 w-full rounded border border-white/10 bg-black/60 p-1.5 text-white"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="editSyncEnabled"
+                    checked={editForm.syncEnabled}
+                    onChange={(e) => setEditForm({ ...editForm, syncEnabled: e.target.checked })}
+                    className="h-4 w-4 rounded border-white/10 bg-black/60 text-violet-600 focus:ring-violet-500"
+                  />
+                  <label htmlFor="editSyncEnabled" className="text-xs text-slate-300 select-none cursor-pointer">
+                    Enable real-time background sync for this mailbox
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setEditModalOpen(false)}
+                  className="rounded-lg px-4 py-2 text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updatingAccount}
+                  className="rounded-lg bg-violet-600 px-5 py-2 font-semibold text-white hover:bg-violet-500 transition-colors disabled:opacity-50"
+                >
+                  {updatingAccount ? "Saving..." : "Update Mailbox"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: App Password & Setup Guide */}
+      {setupGuideOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="relative w-full max-w-2xl rounded-2xl border border-white/15 bg-ink-900 p-6 shadow-2xl space-y-5 my-8">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-600/20 text-violet-300 border border-violet-500/30">
+                  <Key className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">App Password & SMTP Setup Guide</h3>
+                  <p className="text-xs text-slate-400">Step-by-step instructions for Gmail, Outlook, and Custom Mailboxes</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSetupGuideOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1 text-xs">
+              {/* Google Gmail Guide */}
+              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-sm flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-[10px] text-white">1</span>
+                    Gmail / Google Workspace (Recommended)
+                  </span>
+                  <a
+                    href="https://myaccount.google.com/apppasswords"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 text-[11px] font-semibold text-violet-300 hover:text-violet-200 underline"
+                  >
+                    Open Google App Passwords <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+
+                <p className="text-slate-300 text-xs leading-relaxed">
+                  Google requires an <b>App Password</b> (a 16-character passkey) rather than your standard Gmail password to protect your account.
+                </p>
+
+                <div className="space-y-2 rounded-lg bg-black/50 p-3 border border-white/5 text-[11px] text-slate-300">
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-violet-400">Step A:</span>
+                    <span>Make sure <b>2-Step Verification</b> is turned ON in your Google Account security settings.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-violet-400">Step B:</span>
+                    <span>Go to <code className="text-violet-300 font-mono bg-violet-950/50 px-1 py-0.5 rounded">myaccount.google.com/apppasswords</code></span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-violet-400">Step C:</span>
+                    <span>Enter an app name (e.g. <b className="text-white">WaCall Email</b>) and click <b>Create</b>.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-violet-400">Step D:</span>
+                    <span>Copy the 16-character code (e.g. <code className="text-emerald-300 font-mono">abcd efgh ijkl mnop</code>) and paste it into the <b>Password</b> field here.</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px] rounded-lg bg-black/40 p-2.5 border border-white/5">
+                  <div>
+                    <span className="text-slate-400 block font-medium">IMAP Host:</span>
+                    <span className="text-white font-mono">imap.gmail.com</span>
+                    <span className="text-slate-500 block text-[10px]">Port: 993 (SSL)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-medium">SMTP Host:</span>
+                    <span className="text-white font-mono">smtp.gmail.com</span>
+                    <span className="text-slate-500 block text-[10px]">Port: 465 (SSL)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Microsoft Outlook / Office 365 Guide */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-sm flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-[10px] text-white">2</span>
+                    Microsoft Outlook / Office 365
+                  </span>
+                  <a
+                    href="https://account.live.com/proofs/AppPassword"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 text-[11px] font-semibold text-slate-300 hover:text-white underline"
+                  >
+                    Outlook App Passwords <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+
+                <p className="text-slate-300 text-xs leading-relaxed">
+                  For Outlook.com and Office 365, ensure IMAP access is enabled in your webmail settings and generate an App Password under Advanced Security.
+                </p>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px] rounded-lg bg-black/40 p-2.5 border border-white/5">
+                  <div>
+                    <span className="text-slate-400 block font-medium">IMAP Host:</span>
+                    <span className="text-white font-mono">outlook.office365.com</span>
+                    <span className="text-slate-500 block text-[10px]">Port: 993 (SSL)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-medium">SMTP Host:</span>
+                    <span className="text-white font-mono">smtp.office365.com</span>
+                    <span className="text-slate-500 block text-[10px]">Port: 587 (TLS)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Custom Webmail / cPanel */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-sm flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-[10px] text-white">3</span>
+                    Custom Corporate Webmail / cPanel
+                  </span>
+                </div>
+
+                <p className="text-slate-300 text-xs leading-relaxed">
+                  For custom company domains (e.g. <code className="text-slate-300 font-mono">info@yourbrand.com</code>), use your standard webmail credentials provided by your hosting provider.
+                </p>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px] rounded-lg bg-black/40 p-2.5 border border-white/5">
+                  <div>
+                    <span className="text-slate-400 block font-medium">IMAP Host:</span>
+                    <span className="text-white font-mono">mail.yourbrand.com</span>
+                    <span className="text-slate-500 block text-[10px]">Port: 993 (SSL)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-medium">SMTP Host:</span>
+                    <span className="text-white font-mono">mail.yourbrand.com</span>
+                    <span className="text-slate-500 block text-[10px]">Port: 465 (SSL)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end border-t border-white/10 pt-3">
+              <button
+                type="button"
+                onClick={() => setSetupGuideOpen(false)}
+                className="rounded-lg bg-violet-600 px-5 py-2 text-xs font-semibold text-white hover:bg-violet-500 transition-colors"
+              >
+                Got It
+              </button>
+            </div>
           </div>
         </div>
       )}

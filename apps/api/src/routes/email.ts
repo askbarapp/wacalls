@@ -1,10 +1,25 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "@wacalls/database";
-import { encryptCredential, maskPassword } from "../services/email/crypto.js";
+import { encryptCredential, decryptCredential, maskPassword } from "../services/email/crypto.js";
 import { testImapConnection } from "../services/email/imap-service.js";
 import { testSmtpConnection, sendOutgoingEmail } from "../services/email/smtp-service.js";
 import { syncSingleAccount } from "../services/email/email-poller.js";
+
+function sanitizeEmailUsername(input?: string | null, fallbackEmail?: string | null): string {
+  let cleaned = (input || fallbackEmail || "").trim();
+  if (fallbackEmail && fallbackEmail.includes("@")) {
+    const double = `${fallbackEmail}${fallbackEmail}`;
+    if (cleaned.toLowerCase() === double.toLowerCase()) {
+      cleaned = fallbackEmail;
+    }
+  }
+  const match = cleaned.match(/^([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\1$/i);
+  if (match && match[1]) {
+    cleaned = match[1];
+  }
+  return cleaned;
+}
 
 export const emailRoutes: FastifyPluginAsync = async (app) => {
   // 1. Stats Bar
@@ -57,13 +72,14 @@ export const emailRoutes: FastifyPluginAsync = async (app) => {
 
   // 3. Test IMAP Connection Handshake
   app.post("/email/accounts/test-imap", async (req, reply) => {
-    await app.authenticate(req);
+    const auth = await app.authenticate(req);
     const bodySchema = z.object({
+      accountId: z.string().optional(),
       host: z.string().min(1),
       port: z.number().int().positive().default(993),
       secure: z.boolean().default(true),
       user: z.string().min(1),
-      password: z.string().min(1),
+      password: z.string().optional(),
     });
 
     const parsed = bodySchema.safeParse(req.body);
@@ -71,19 +87,41 @@ export const emailRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ success: false, error: parsed.error.issues[0]?.message || "Invalid payload" });
     }
 
-    const res = await testImapConnection(parsed.data);
+    let pass = (parsed.data.password || "").trim();
+    if ((!pass || pass.includes("••••")) && parsed.data.accountId) {
+      const existing = await prisma.emailAccount.findFirst({
+        where: { id: parsed.data.accountId, organizationId: auth.orgId },
+      });
+      if (existing?.imapPasswordEncrypted) {
+        pass = decryptCredential(existing.imapPasswordEncrypted) || "";
+      }
+    }
+
+    if (!pass) {
+      return reply.code(400).send({ success: false, message: "Password / App Password is required to test connection." });
+    }
+
+    const cleanUser = sanitizeEmailUsername(parsed.data.user);
+    const res = await testImapConnection({
+      host: parsed.data.host,
+      port: parsed.data.port,
+      secure: parsed.data.secure,
+      user: cleanUser,
+      password: pass,
+    });
     return { success: res.success, message: res.message };
   });
 
   // 4. Test SMTP Connection Handshake
   app.post("/email/accounts/test-smtp", async (req, reply) => {
-    await app.authenticate(req);
+    const auth = await app.authenticate(req);
     const bodySchema = z.object({
+      accountId: z.string().optional(),
       host: z.string().min(1),
       port: z.number().int().positive().default(465),
       secure: z.boolean().default(true),
       user: z.string().min(1),
-      password: z.string().min(1),
+      password: z.string().optional(),
     });
 
     const parsed = bodySchema.safeParse(req.body);
@@ -91,7 +129,30 @@ export const emailRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ success: false, error: parsed.error.issues[0]?.message || "Invalid payload" });
     }
 
-    const res = await testSmtpConnection(parsed.data);
+    let pass = (parsed.data.password || "").trim();
+    if ((!pass || pass.includes("••••")) && parsed.data.accountId) {
+      const existing = await prisma.emailAccount.findFirst({
+        where: { id: parsed.data.accountId, organizationId: auth.orgId },
+      });
+      if (existing?.smtpPasswordEncrypted) {
+        pass = decryptCredential(existing.smtpPasswordEncrypted) || "";
+      } else if (existing?.imapPasswordEncrypted) {
+        pass = decryptCredential(existing.imapPasswordEncrypted) || "";
+      }
+    }
+
+    if (!pass) {
+      return reply.code(400).send({ success: false, message: "Password / App Password is required to test connection." });
+    }
+
+    const cleanUser = sanitizeEmailUsername(parsed.data.user);
+    const res = await testSmtpConnection({
+      host: parsed.data.host,
+      port: parsed.data.port,
+      secure: parsed.data.secure,
+      user: cleanUser,
+      password: pass,
+    });
     return { success: res.success, message: res.message };
   });
 
@@ -129,25 +190,28 @@ export const emailRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const b = parsed.data;
-    const imapPasswordEncrypted = encryptCredential(b.imapPassword);
-    const smtpPasswordEncrypted = b.smtpPassword ? encryptCredential(b.smtpPassword) : null;
+    const cleanImapUser = sanitizeEmailUsername(b.imapUser, b.email);
+    const cleanSmtpUser = b.smtpUser ? sanitizeEmailUsername(b.smtpUser, b.email) : cleanImapUser;
+
+    const imapPasswordEncrypted = encryptCredential(b.imapPassword.trim());
+    const smtpPasswordEncrypted = b.smtpPassword && b.smtpPassword.trim() ? encryptCredential(b.smtpPassword.trim()) : null;
 
     const account = await prisma.emailAccount.create({
       data: {
         organizationId: auth.orgId,
         channelId: b.channelId || null,
-        label: b.label,
-        email: b.email,
-        fromName: b.fromName || null,
-        imapHost: b.imapHost,
+        label: b.label.trim(),
+        email: b.email.trim().toLowerCase(),
+        fromName: b.fromName ? b.fromName.trim() : null,
+        imapHost: b.imapHost.trim(),
         imapPort: b.imapPort,
         imapSecure: b.imapSecure,
-        imapUser: b.imapUser,
+        imapUser: cleanImapUser,
         imapPasswordEncrypted,
-        smtpHost: b.smtpHost || null,
+        smtpHost: b.smtpHost ? b.smtpHost.trim() : null,
         smtpPort: b.smtpPort || null,
         smtpSecure: b.smtpSecure,
-        smtpUser: b.smtpUser || null,
+        smtpUser: cleanSmtpUser,
         smtpPasswordEncrypted,
         syncEnabled: b.syncEnabled,
         filterSenders: b.filterSenders,
@@ -155,7 +219,7 @@ export const emailRoutes: FastifyPluginAsync = async (app) => {
         filterKeywords: b.filterKeywords,
         minPriority: b.minPriority,
         aiFilterEnabled: b.aiFilterEnabled,
-        targetPhone: b.targetPhone || null,
+        targetPhone: b.targetPhone ? b.targetPhone.trim() : null,
         digestMode: b.digestMode,
         status: "CONNECTED",
       },
@@ -219,12 +283,38 @@ export const emailRoutes: FastifyPluginAsync = async (app) => {
     delete updateData.imapPassword;
     delete updateData.smtpPassword;
 
-    if (b.imapPassword && !b.imapPassword.includes("••••")) {
-      updateData.imapPasswordEncrypted = encryptCredential(b.imapPassword);
+    if (b.email) {
+      updateData.email = b.email.trim().toLowerCase();
     }
-    if (b.smtpPassword && !b.smtpPassword.includes("••••")) {
-      updateData.smtpPasswordEncrypted = encryptCredential(b.smtpPassword);
+    if (b.label) {
+      updateData.label = b.label.trim();
     }
+    if (b.imapHost) {
+      updateData.imapHost = b.imapHost.trim();
+    }
+    if (b.imapUser !== undefined) {
+      updateData.imapUser = sanitizeEmailUsername(b.imapUser, b.email || existing.email);
+    }
+    if (b.smtpHost !== undefined) {
+      updateData.smtpHost = b.smtpHost ? b.smtpHost.trim() : null;
+    }
+    if (b.smtpUser !== undefined) {
+      updateData.smtpUser = b.smtpUser ? sanitizeEmailUsername(b.smtpUser, b.email || existing.email) : null;
+    }
+    if (b.targetPhone !== undefined) {
+      updateData.targetPhone = b.targetPhone ? b.targetPhone.trim() : null;
+    }
+
+    if (b.imapPassword && b.imapPassword.trim() && !b.imapPassword.includes("••••")) {
+      updateData.imapPasswordEncrypted = encryptCredential(b.imapPassword.trim());
+    }
+    if (b.smtpPassword && b.smtpPassword.trim() && !b.smtpPassword.includes("••••")) {
+      updateData.smtpPasswordEncrypted = encryptCredential(b.smtpPassword.trim());
+    }
+
+    // Always reset error and mark connected when settings are updated
+    updateData.status = "CONNECTED";
+    updateData.lastError = null;
 
     const updated = await prisma.emailAccount.update({
       where: { id },
