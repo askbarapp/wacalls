@@ -93,9 +93,9 @@ export async function fetchNewEmails(account: {
     const lock = await client.getMailboxLock("INBOX");
 
     try {
-      // Look back at most 24 hours if lastSyncAt is null
+      // Look back 2 hours before lastSyncAt (or at most 24 hours if null) to avoid missing emails due to time sync skew
       const defaultSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const sinceDate = account.lastSyncAt ? new Date(account.lastSyncAt.getTime() - 5 * 60 * 1000) : defaultSince;
+      const sinceDate = account.lastSyncAt ? new Date(account.lastSyncAt.getTime() - 2 * 60 * 60 * 1000) : defaultSince;
 
       // Search recent messages
       const searchCriteria: any = {
@@ -110,7 +110,8 @@ export async function fetchNewEmails(account: {
       // Limit to latest 30 messages per sync tick to prevent worker overload
       const recentUids = uids.slice(-30);
 
-      for await (const msg of client.fetch(recentUids, { source: true, uid: true, envelope: true })) {
+      // In ImapFlow, when fetching by UIDs (array of numbers), options must be passed as 3rd argument: { uid: true }
+      for await (const msg of (client as any).fetch(recentUids, { source: true, envelope: true }, { uid: true })) {
         try {
           if (!msg.source) continue;
           const parsed = await simpleParser(msg.source);

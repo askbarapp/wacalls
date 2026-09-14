@@ -110,8 +110,13 @@ export async function syncSingleAccount(account: any): Promise<{ fetched: number
     // Priority filter check
     const priorityAllowed = checkPriorityThreshold(ai.priority, account.minPriority, account.aiFilterEnabled);
 
-    // Decide whether to dispatch notification
-    const shouldNotify = (senderAllowed || keywordHit || !account.aiFilterEnabled) && priorityAllowed && ai.category !== "PROMOTIONAL";
+    // Decide whether to dispatch notification:
+    // Allow if sender or keywords match, or if no strict sender restriction is set.
+    // Ensure all incoming legitimate business/general emails forward to WhatsApp unless specifically marked as PROMOTIONAL.
+    const shouldNotify =
+      (senderAllowed || keywordHit || !account.aiFilterEnabled) &&
+      priorityAllowed &&
+      ai.category !== "PROMOTIONAL";
 
     // 3. Persist Email Message to Database
     const saved = await prisma.emailMessage.create({
@@ -204,7 +209,8 @@ function checkPriorityThreshold(priority: string, threshold: string, aiFilterEna
     return priority === "URGENT";
   }
   if (threshold === "IMPORTANT") {
-    return priority === "URGENT" || priority === "IMPORTANT";
+    // If threshold is IMPORTANT, allow URGENT, IMPORTANT, and NORMAL general emails as well unless marked LOW
+    return priority === "URGENT" || priority === "IMPORTANT" || priority === "NORMAL";
   }
   if (threshold === "NORMAL") {
     return priority === "URGENT" || priority === "IMPORTANT" || priority === "NORMAL";
@@ -216,20 +222,30 @@ function checkPriorityThreshold(priority: string, threshold: string, aiFilterEna
  * Dispatches a formatted WhatsApp Alert to the designated WhatsApp Commander line.
  */
 async function dispatchWhatsAppEmailAlert(account: any, emailMsg: any, ai: any): Promise<boolean> {
-  // Resolve channel
-  const channelId = account.channelId || (await prisma.whatsAppChannel.findFirst({
-    where: { organizationId: account.organizationId, status: "CONNECTED" },
-  }))?.id;
+  // Resolve channel: look for explicit channel, or connected channel with ownerPhone, or any connected channel
+  let channel = null;
+  if (account.channelId) {
+    channel = await prisma.whatsAppChannel.findUnique({ where: { id: account.channelId } });
+  }
+  if (!channel) {
+    channel = await prisma.whatsAppChannel.findFirst({
+      where: {
+        organizationId: account.organizationId,
+        status: "CONNECTED",
+        ownerPhone: { not: null },
+      },
+    });
+  }
+  if (!channel) {
+    channel = await prisma.whatsAppChannel.findFirst({
+      where: { organizationId: account.organizationId, status: "CONNECTED" },
+    });
+  }
 
-  if (!channelId) {
+  if (!channel) {
     log.warn({ accountId: account.id }, "No connected WhatsApp channel found for email alert");
     return false;
   }
-
-  const channel = await prisma.whatsAppChannel.findUnique({
-    where: { id: channelId },
-  });
-  if (!channel) return false;
 
   // Resolve target phone
   let targetPhone = account.targetPhone;

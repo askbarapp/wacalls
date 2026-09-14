@@ -243,6 +243,20 @@ export default function EmailCommandCenterPage() {
     }
   }
 
+  // Toggle syncEnabled directly from account card
+  async function handleToggleSync(acc: EmailAccount) {
+    const nextState = !acc.syncEnabled;
+    try {
+      await api(`/api/v1/email/accounts/${acc.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ syncEnabled: nextState }),
+      });
+      await loadData();
+    } catch (err: any) {
+      alert(err?.message || "Failed to toggle email sync");
+    }
+  }
+
   // Delete account
   async function handleDeleteAccount(id: string) {
     if (!confirm("Are you sure you want to disconnect this email account?")) return;
@@ -843,6 +857,21 @@ export default function EmailCommandCenterPage() {
                     </div>
 
                     <div className="flex items-center gap-1">
+                      {/* ON/OFF Switch for WhatsApp Sync */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSync(acc)}
+                        className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold transition-all ${
+                          acc.syncEnabled
+                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30"
+                            : "bg-slate-800 text-slate-400 border border-white/10 hover:bg-slate-700"
+                        }`}
+                        title={acc.syncEnabled ? "Click to Turn OFF Sync & Alerts" : "Click to Turn ON Sync & Alerts"}
+                      >
+                        <span className={`inline-block h-2 w-2 rounded-full ${acc.syncEnabled ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
+                        {acc.syncEnabled ? "SYNC ON" : "SYNC OFF"}
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => openEditModal(acc)}
