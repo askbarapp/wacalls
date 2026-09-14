@@ -262,50 +262,59 @@ async function dispatchWhatsAppEmailAlert(account: any, emailMsg: any, ai: any):
     return false;
   }
 
-  // Build emoji and priority header
+  // Format date and time in IST (Indian Standard Time)
+  const receivedAt = emailMsg.date ? new Date(emailMsg.date) : new Date();
+  const dateFormatted = receivedAt.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const timeFormatted = receivedAt.toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  const dateTimeStr = `${dateFormatted}, ${timeFormatted}`;
+
+  // Build emoji and bold header with Date and Time
   const priorityBadge =
     emailMsg.priority === "URGENT"
-      ? "🚨 *URGENT EMAIL RECEIVED*"
+      ? `🚨 *NEW URGENT EMAIL* — ${dateTimeStr}`
       : emailMsg.priority === "IMPORTANT"
-      ? "⚡ *IMPORTANT EMAIL RECEIVED*"
-      : "📧 *NEW BUSINESS EMAIL*";
-
-  const categoryIcon =
-    emailMsg.category === "PAYMENT"
-      ? "💰 Payment"
-      : emailMsg.category === "INVOICE"
-      ? "📄 Invoice"
-      : emailMsg.category === "MEETING"
-      ? "📅 Meeting Request"
-      : emailMsg.category === "TASK"
-      ? "📌 Action Item"
-      : "✉️ Message";
-
-  const deadlineStr = emailMsg.detectedDeadline
-    ? `\n⏰ *Deadline / Date:* ${new Date(emailMsg.detectedDeadline).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`
-    : "";
-
-  const actionStr = emailMsg.suggestedAction ? `\n⚠️ *Action Required:* ${emailMsg.suggestedAction}` : "";
-
-  const senderDisplay = emailMsg.fromName
-    ? `${emailMsg.fromName} (${emailMsg.fromEmail})`
-    : emailMsg.fromEmail;
+      ? `⚡ *NEW IMPORTANT EMAIL* — ${dateTimeStr}`
+      : `📧 *NEW EMAIL* — ${dateTimeStr}`;
 
   const accountTag = account.label ? ` [${account.label}]` : "";
 
-  // Interactive Quick Action instructions
+  const senderDisplay = emailMsg.fromName
+    ? `${emailMsg.fromName} <${emailMsg.fromEmail}>`
+    : `<${emailMsg.fromEmail}>`;
+
+  // Prepare message content (clean plain text with summary)
+  const cleanBodyText = (emailMsg.bodyText || "").trim();
+  const displayContent = cleanBodyText
+    ? (cleanBodyText.length > 800 ? cleanBodyText.slice(0, 800) + "...\n_(Use option 3 to view full email)_" : cleanBodyText)
+    : (emailMsg.summary || "_(No text body in email)_");
+
+  const actionStr = emailMsg.suggestedAction ? `\n⚠️ *Action Required:* ${emailMsg.suggestedAction}` : "";
+  const deadlineStr = emailMsg.detectedDeadline
+    ? `\n⏰ *Deadline:* ${new Date(emailMsg.detectedDeadline).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`
+    : "";
+
+  // Interactive Quick Reply options
   const optionsText = emailMsg.replyDraft
-    ? `\n━━━━━━━━━━━━━━━━━━━━\nReply to this message:\n*1* → Send AI Draft Reply\n*2* → Create Task in WaCall\n*3* → Show Full Email Content`
-    : `\n━━━━━━━━━━━━━━━━━━━━\nReply to this message:\n*2* → Create Task in WaCall\n*3* → Show Full Email Content`;
+    ? `\n━━━━━━━━━━━━━━━━━━━━\n*HOW TO REPLY / TAKE ACTION:*\n• Reply *1* → Send AI Suggested Reply:\n  _"${emailMsg.replyDraft.slice(0, 100)}..."_\n• Reply *REPLY <your text>* → Send your custom reply directly\n• Reply *2* → Create Task in WaCall\n• Reply *3* → View Complete Email Text`
+    : `\n━━━━━━━━━━━━━━━━━━━━\n*HOW TO REPLY / TAKE ACTION:*\n• Reply *REPLY <your text>* → Send your custom reply directly via SMTP\n• Reply *2* → Create Task in WaCall\n• Reply *3* → View Complete Email Text`;
 
   const body = `${priorityBadge}${accountTag}
 ━━━━━━━━━━━━━━━━━━━━
-*From:* ${senderDisplay}
+*Sender:* ${senderDisplay}
 *Subject:* ${emailMsg.subject}
-*Category:* ${categoryIcon}
 
-🤖 *AI Summary:*
-${emailMsg.summary}
+*Message:*
+${displayContent}
 ${actionStr}${deadlineStr}
 ${optionsText}`;
 

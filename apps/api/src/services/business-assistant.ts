@@ -381,30 +381,65 @@ export async function handleOwnerCommand(input: {
         include: { account: true },
       });
 
-      // Option 1: Send AI Draft Reply
-      if (
+      // Option 1 or Custom Reply: Send AI Draft Reply or Custom Typed Reply
+      const isCustomReply =
+        upperText.startsWith("REPLY ") ||
+        upperText.startsWith("REPLY:") ||
+        upperText.startsWith("JAWAB ") ||
+        upperText.startsWith("JAWAB:");
+
+      const isAiDraftOption =
         upperText === "1" ||
         upperText === "SEND" ||
-        upperText === "REPLY" ||
         upperText === "BHEJO" ||
-        upperText === "APPROVE"
-      ) {
-        if (!emailMsg || !payload.replyDraft) {
+        upperText === "APPROVE";
+
+      if (isAiDraftOption || isCustomReply) {
+        if (!emailMsg) {
           await sendWhatsAppText({
             organizationId: channel.organizationId,
             channelId: channel.id,
             phone: input.phone,
-            body: `⚠️ No draft reply found for this email.`,
+            body: `⚠️ Could not locate the email message to reply.`,
             chatSource: "bot",
           }).catch(() => undefined);
           return true;
+        }
+
+        let bodyToSend = "";
+        if (isCustomReply) {
+          // Extract user's typed reply text after prefix
+          bodyToSend = text.replace(/^(reply[:\s]+|jawab[:\s]+)/i, "").trim();
+          if (!bodyToSend) {
+            await sendWhatsAppText({
+              organizationId: channel.organizationId,
+              channelId: channel.id,
+              phone: input.phone,
+              body: `⚠️ Please write your reply text after *REPLY*. Example: *REPLY Thank you, I will call you tomorrow.*`,
+              chatSource: "bot",
+            }).catch(() => undefined);
+            return true;
+          }
+        } else {
+          // Option 1: AI Draft
+          bodyToSend = payload.replyDraft;
+          if (!bodyToSend) {
+            await sendWhatsAppText({
+              organizationId: channel.organizationId,
+              channelId: channel.id,
+              phone: input.phone,
+              body: `⚠️ No automated draft reply available for this email. Type *REPLY <your text>* to send a reply.`,
+              chatSource: "bot",
+            }).catch(() => undefined);
+            return true;
+          }
         }
 
         try {
           await sendOutgoingEmail(emailMsg.account, {
             to: emailMsg.fromEmail,
             subject: emailMsg.subject.startsWith("Re:") ? emailMsg.subject : `Re: ${emailMsg.subject}`,
-            textBody: payload.replyDraft,
+            textBody: bodyToSend,
             inReplyTo: emailMsg.messageId,
           });
 
@@ -422,7 +457,7 @@ export async function handleOwnerCommand(input: {
             organizationId: channel.organizationId,
             channelId: channel.id,
             phone: input.phone,
-            body: `✅ *Email Reply Sent Successfully!*\n━━━━━━━━━━━━━━━━━━━━\nYour reply was dispatched via SMTP to *${emailMsg.fromEmail}*.\n\n*Subject:* Re: ${emailMsg.subject}\n*Body:*\n${payload.replyDraft}`,
+            body: `✅ *Email Reply Sent Successfully!*\n━━━━━━━━━━━━━━━━━━━━\nYour reply was dispatched via SMTP to *${emailMsg.fromEmail}*.\n\n*Subject:* Re: ${emailMsg.subject}\n*Message Sent:*\n${bodyToSend}`,
             chatSource: "bot",
           }).catch(() => undefined);
           return true;
