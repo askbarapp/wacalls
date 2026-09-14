@@ -3,22 +3,18 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   AlertCircle,
-  ArrowRight,
   Bell,
   Calendar,
   CheckCircle2,
   Clock,
-  ExternalLink,
   Filter,
   Loader2,
-  MoreVertical,
   Phone,
   PhoneCall,
   Plus,
   RefreshCw,
   Repeat,
   Search,
-  Sparkles,
   Trash2,
   User,
   X,
@@ -178,7 +174,7 @@ export default function TasksPage() {
       if (res?.success) {
         setBannerMsg({
           type: "success",
-          text: options.tomorrow ? "Task shifted to tomorrow morning (9 AM)!" : `Task snoozed by ${options.minutes} minutes!`,
+          text: options.tomorrow ? "Task shifted to tomorrow morning (9:00 AM)!" : `Task snoozed by ${options.minutes} minutes!`,
         });
         setSnoozeTaskId(null);
         fetchStats();
@@ -284,41 +280,41 @@ export default function TasksPage() {
     }
   };
 
-  const priorityColor = (p: string) => {
+  const priorityBadge = (p: string) => {
     switch (p) {
       case "URGENT":
-        return "bg-rose-500/10 text-rose-600 border-rose-500/20";
+        return "bg-rose-500/20 text-rose-300 border-rose-500/40";
       case "HIGH":
-        return "bg-amber-500/10 text-amber-600 border-amber-500/20";
+        return "bg-amber-500/20 text-amber-300 border-amber-500/40";
       case "MEDIUM":
-        return "bg-sky-500/10 text-sky-600 border-sky-500/20";
+        return "bg-sky-500/20 text-sky-300 border-sky-500/40";
       default:
-        return "bg-slate-500/10 text-slate-600 border-slate-500/20";
+        return "bg-slate-500/20 text-slate-300 border-slate-500/40";
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 p-6 space-y-6">
+    <div className="space-y-6 pb-12">
       {/* Toast Banner */}
       {bannerMsg && (
         <div
-          className={`flex items-center justify-between px-4 py-3 rounded-xl border shadow-sm transition-all duration-300 ${
+          className={`flex items-center justify-between px-4 py-3 rounded-2xl border shadow-lg transition-all duration-300 ${
             bannerMsg.type === "success"
-              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-              : "bg-rose-50 border-rose-200 text-rose-800"
+              ? "bg-emerald-950/80 border-emerald-500/40 text-emerald-200"
+              : "bg-rose-950/80 border-rose-500/40 text-rose-200"
           }`}
         >
           <div className="flex items-center gap-2.5">
             {bannerMsg.type === "success" ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
             ) : (
-              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
             )}
             <span className="text-sm font-medium">{bannerMsg.text}</span>
           </div>
           <button
             onClick={() => setBannerMsg(null)}
-            className="p-1 rounded-lg hover:bg-black/5 text-slate-500 hover:text-slate-700"
+            className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"
           >
             <X className="w-4 h-4" />
           </button>
@@ -328,16 +324,16 @@ export default function TasksPage() {
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Tasks & Reminders
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              Tasks &amp; Reminders
             </h1>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               WhatsApp Sync Active
             </span>
           </div>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-slate-300 mt-1">
             Create tasks from Web or WhatsApp voice/text. AI tracks deadlines and sends interactive WhatsApp alerts with 1-tap actions.
           </p>
         </div>
@@ -346,16 +342,16 @@ export default function TasksPage() {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 shadow-sm transition"
+            className="p-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 shadow-sm transition"
             title="Refresh"
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-emerald-600" : ""}`} />
+            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-emerald-400" : ""}`} />
           </button>
 
           <button
             onClick={handleBulkShiftTomorrow}
             disabled={shiftLoading}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100/70 text-amber-800 text-xs font-semibold shadow-sm transition"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 text-xs font-semibold shadow-sm transition"
             title="Shift remaining today tasks to tomorrow morning"
           >
             {shiftLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
@@ -364,7 +360,7 @@ export default function TasksPage() {
 
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm shadow-emerald-600/20 transition"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-sm font-bold shadow-lg shadow-emerald-500/20 transition"
           >
             <Plus className="w-4 h-4" />
             Add Task
@@ -378,16 +374,16 @@ export default function TasksPage() {
           onClick={() => setActiveTab("today")}
           className={`cursor-pointer p-4 rounded-2xl border transition-all ${
             activeTab === "today"
-              ? "bg-white border-emerald-500 shadow-md ring-1 ring-emerald-500"
-              : "bg-white border-slate-200/80 hover:border-slate-300 shadow-sm"
+              ? "bg-emerald-500/10 border-emerald-500/50 shadow-lg ring-1 ring-emerald-500/40"
+              : "bg-black/40 border-white/10 hover:border-white/20 shadow-sm backdrop-blur-md"
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+          <div className="flex items-center justify-between text-xs font-medium text-slate-300">
             <span>Due Today</span>
-            <Clock className="w-4 h-4 text-emerald-600" />
+            <Clock className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900">{stats.todayCount}</span>
+            <span className="text-2xl font-bold text-white">{stats.todayCount}</span>
             <span className="text-xs text-slate-400">tasks</span>
           </div>
         </div>
@@ -396,16 +392,16 @@ export default function TasksPage() {
           onClick={() => setActiveTab("overdue")}
           className={`cursor-pointer p-4 rounded-2xl border transition-all ${
             activeTab === "overdue"
-              ? "bg-white border-rose-500 shadow-md ring-1 ring-rose-500"
-              : "bg-white border-slate-200/80 hover:border-slate-300 shadow-sm"
+              ? "bg-rose-500/10 border-rose-500/50 shadow-lg ring-1 ring-rose-500/40"
+              : "bg-black/40 border-white/10 hover:border-white/20 shadow-sm backdrop-blur-md"
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+          <div className="flex items-center justify-between text-xs font-medium text-slate-300">
             <span>Overdue</span>
-            <AlertCircle className="w-4 h-4 text-rose-500" />
+            <AlertCircle className="w-4 h-4 text-rose-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-rose-600">{stats.overdueCount}</span>
+            <span className="text-2xl font-bold text-rose-400">{stats.overdueCount}</span>
             <span className="text-xs text-slate-400">pending</span>
           </div>
         </div>
@@ -414,16 +410,16 @@ export default function TasksPage() {
           onClick={() => setActiveTab("upcoming")}
           className={`cursor-pointer p-4 rounded-2xl border transition-all ${
             activeTab === "upcoming"
-              ? "bg-white border-sky-500 shadow-md ring-1 ring-sky-500"
-              : "bg-white border-slate-200/80 hover:border-slate-300 shadow-sm"
+              ? "bg-sky-500/10 border-sky-500/50 shadow-lg ring-1 ring-sky-500/40"
+              : "bg-black/40 border-white/10 hover:border-white/20 shadow-sm backdrop-blur-md"
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+          <div className="flex items-center justify-between text-xs font-medium text-slate-300">
             <span>Upcoming</span>
-            <Calendar className="w-4 h-4 text-sky-500" />
+            <Calendar className="w-4 h-4 text-sky-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900">{stats.upcomingCount}</span>
+            <span className="text-2xl font-bold text-sky-300">{stats.upcomingCount}</span>
             <span className="text-xs text-slate-400">scheduled</span>
           </div>
         </div>
@@ -432,24 +428,24 @@ export default function TasksPage() {
           onClick={() => setActiveTab("completed")}
           className={`cursor-pointer p-4 rounded-2xl border transition-all ${
             activeTab === "completed"
-              ? "bg-white border-slate-900 shadow-md ring-1 ring-slate-900"
-              : "bg-white border-slate-200/80 hover:border-slate-300 shadow-sm"
+              ? "bg-white/10 border-white/30 shadow-lg ring-1 ring-white/20"
+              : "bg-black/40 border-white/10 hover:border-white/20 shadow-sm backdrop-blur-md"
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+          <div className="flex items-center justify-between text-xs font-medium text-slate-300">
             <span>Completed</span>
-            <CheckCircle2 className="w-4 h-4 text-slate-700" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900">{stats.completedCount}</span>
+            <span className="text-2xl font-bold text-white">{stats.completedCount}</span>
             <span className="text-xs text-slate-400">done</span>
           </div>
         </div>
       </div>
 
       {/* Tabs & Search Filter Bar */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-black/40 p-3 rounded-2xl border border-white/10 backdrop-blur-md shadow-sm">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
           {(
             [
               { id: "today", label: "Today" },
@@ -466,10 +462,10 @@ export default function TasksPage() {
                 setActiveTab(tab.id);
                 setPage(1);
               }}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
                 activeTab === tab.id
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                  ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
+                  : "text-slate-300 hover:text-white hover:bg-white/5"
               }`}
             >
               {tab.label}
@@ -477,29 +473,29 @@ export default function TasksPage() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           {/* Priority Filter */}
           <select
             value={selectedPriority}
             onChange={(e) => setSelectedPriority(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-700 bg-slate-50/50 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            className="px-3 py-2 rounded-xl border border-white/15 bg-ink-800 text-xs text-white focus:border-emerald-500 focus:outline-none"
           >
-            <option value="ALL">All Priorities</option>
-            <option value="URGENT">🚨 Urgent</option>
-            <option value="HIGH">⚡ High</option>
-            <option value="MEDIUM">📌 Medium</option>
-            <option value="LOW">☕ Low</option>
+            <option value="ALL" className="bg-[#0b1320] text-white">All Priorities</option>
+            <option value="URGENT" className="bg-[#0b1320] text-rose-300">🚨 Urgent</option>
+            <option value="HIGH" className="bg-[#0b1320] text-amber-300">⚡ High</option>
+            <option value="MEDIUM" className="bg-[#0b1320] text-sky-300">📌 Medium</option>
+            <option value="LOW" className="bg-[#0b1320] text-slate-300">☕ Low</option>
           </select>
 
           {/* Search Input */}
           <div className="relative flex-1 sm:w-64">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search tasks, clients..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition"
+              className="w-full pl-9 pr-3 py-2 rounded-xl border border-white/15 bg-ink-800 text-xs text-white placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"
             />
           </div>
         </div>
@@ -507,24 +503,24 @@ export default function TasksPage() {
 
       {/* Task Cards List */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center p-16 bg-white rounded-2xl border border-slate-200/80 shadow-sm text-slate-500">
-          <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mb-3" />
-          <p className="text-sm font-medium">Loading your tasks & reminders...</p>
+        <div className="flex flex-col items-center justify-center p-16 bg-black/40 rounded-2xl border border-white/10 backdrop-blur-md text-slate-300 shadow-sm">
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-400 mb-3" />
+          <p className="text-sm font-medium">Loading tasks &amp; reminders...</p>
         </div>
       ) : tasks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center p-16 bg-white rounded-2xl border border-slate-200/80 shadow-sm text-center">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4">
+        <div className="flex flex-col items-center justify-center p-16 bg-black/40 rounded-2xl border border-white/10 backdrop-blur-md shadow-sm text-center">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mb-4">
             <CheckCircle2 className="w-7 h-7" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">No tasks found</h3>
-          <p className="text-xs text-slate-500 max-w-sm mt-1">
+          <h3 className="text-base font-semibold text-white">No tasks found</h3>
+          <p className="text-xs text-slate-400 max-w-sm mt-1">
             {activeTab === "today"
-              ? "You have no pending tasks scheduled for today. Create a task or send a voice/text message to WhatsApp bot!"
+              ? "You have no pending tasks scheduled for today. Create a task or send a voice/text message to the WhatsApp Commander bot!"
               : "No tasks match your current filter."}
           </p>
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="mt-5 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm transition"
+            className="mt-5 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold shadow-md shadow-emerald-500/20 transition"
           >
             <Plus className="w-4 h-4" />
             Create Task
@@ -540,12 +536,12 @@ export default function TasksPage() {
             return (
               <div
                 key={task.id}
-                className={`p-4 rounded-2xl border transition-all ${
+                className={`p-4 rounded-2xl border transition-all backdrop-blur-md ${
                   isCompleted
-                    ? "bg-slate-50/70 border-slate-200/60 opacity-75"
+                    ? "bg-black/25 border-white/5 opacity-60"
                     : isOverdue
-                      ? "bg-white border-rose-200/80 hover:border-rose-300 shadow-sm"
-                      : "bg-white border-slate-200/80 hover:border-slate-300 shadow-sm"
+                      ? "bg-rose-950/20 border-rose-500/40 hover:border-rose-500/60 shadow-md"
+                      : "bg-black/40 border-white/10 hover:border-white/20 shadow-sm"
                 }`}
               >
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -553,7 +549,7 @@ export default function TasksPage() {
                   <div className="space-y-1.5 flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${priorityColor(
+                        className={`px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider border ${priorityBadge(
                           task.priority,
                         )}`}
                       >
@@ -561,19 +557,19 @@ export default function TasksPage() {
                       </span>
 
                       {task.recurrence && task.recurrence !== "NEVER" && (
-                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200/60">
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
                           <Repeat className="w-3 h-3" />
                           {task.recurrence}
                         </span>
                       )}
 
-                      <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600">
+                      <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-white/10 text-slate-300">
                         {task.source === "WHATSAPP" ? "WhatsApp Bot" : task.source === "EMAIL" ? "Email AI" : "Manual"}
                       </span>
 
                       <span
-                        className={`text-xs font-medium flex items-center gap-1 ${
-                          isOverdue ? "text-rose-600 font-semibold" : "text-slate-600"
+                        className={`text-xs font-semibold flex items-center gap-1 ${
+                          isOverdue ? "text-rose-400" : "text-emerald-400"
                         }`}
                       >
                         <Clock className="w-3.5 h-3.5" />
@@ -589,26 +585,26 @@ export default function TasksPage() {
 
                     <h4
                       className={`text-base font-semibold ${
-                        isCompleted ? "line-through text-slate-400" : "text-slate-900"
+                        isCompleted ? "line-through text-slate-500" : "text-white"
                       }`}
                     >
                       {task.title}
                     </h4>
 
                     {task.description && (
-                      <p className="text-xs text-slate-500 line-clamp-2">{task.description}</p>
+                      <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">{task.description}</p>
                     )}
 
                     {/* Contact details & Reminders */}
-                    <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-slate-500">
+                    <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-slate-400">
                       {task.contactName && (
-                        <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                        <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 text-slate-200">
                           <User className="w-3.5 h-3.5 text-slate-400" />
-                          <span className="font-medium text-slate-700">{task.contactName}</span>
+                          <span className="font-semibold text-white">{task.contactName}</span>
                           {task.contactPhone && (
                             <a
                               href={`tel:${task.contactPhone}`}
-                              className="text-emerald-600 hover:underline flex items-center gap-0.5 ml-1"
+                              className="text-emerald-400 hover:underline flex items-center gap-0.5 ml-1 font-medium"
                             >
                               <Phone className="w-3 h-3" />
                               {task.contactPhone}
@@ -618,10 +614,10 @@ export default function TasksPage() {
                       )}
 
                       {task.reminders && task.reminders.length > 0 && (
-                        <div className="flex items-center gap-1 text-[11px] text-slate-500">
-                          <Bell className="w-3 h-3 text-amber-500" />
+                        <div className="flex items-center gap-1.5 text-[11px] text-amber-300">
+                          <Bell className="w-3.5 h-3.5 text-amber-400" />
                           <span>
-                            {task.reminders.filter((r) => r.status === "PENDING").length} alert(s) scheduled
+                            {task.reminders.filter((r) => r.status === "PENDING").length} WhatsApp reminder alert(s) scheduled
                           </span>
                         </div>
                       )}
@@ -635,12 +631,12 @@ export default function TasksPage() {
                         <button
                           onClick={() => handleMarkComplete(task.id)}
                           disabled={actionLoading === task.id}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold transition"
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold transition"
                         >
                           {actionLoading === task.id ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           ) : (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                           )}
                           Done
                         </button>
@@ -648,30 +644,30 @@ export default function TasksPage() {
                         <div className="relative">
                           <button
                             onClick={() => setSnoozeTaskId(snoozeTaskId === task.id ? null : task.id)}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold transition"
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-semibold transition"
                           >
-                            <Clock className="w-3.5 h-3.5 text-slate-500" />
+                            <Clock className="w-3.5 h-3.5 text-slate-400" />
                             Snooze
                           </button>
 
                           {/* Snooze Dropdown */}
                           {snoozeTaskId === task.id && (
-                            <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-20">
+                            <div className="absolute right-0 mt-1.5 w-48 bg-[#0c1424] rounded-2xl shadow-2xl border border-white/15 py-2 z-20 backdrop-blur-xl">
                               <button
                                 onClick={() => handleSnooze(task.id, { minutes: 30 })}
-                                className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                                className="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-white/10 font-medium"
                               >
                                 ⏰ 30 Minutes
                               </button>
                               <button
                                 onClick={() => handleSnooze(task.id, { minutes: 60 })}
-                                className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                                className="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-white/10 font-medium"
                               >
                                 ⏰ 1 Hour
                               </button>
                               <button
                                 onClick={() => handleSnooze(task.id, { tomorrow: true })}
-                                className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                                className="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-white/10 font-medium"
                               >
                                 🌙 Tomorrow 9:00 AM
                               </button>
@@ -682,10 +678,10 @@ export default function TasksPage() {
                         {task.contactPhone && (
                           <a
                             href={`tel:${task.contactPhone}`}
-                            className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+                            className="p-2 rounded-xl border border-white/10 bg-white/5 hover:bg-emerald-500/20 text-emerald-400 transition"
                             title="Call Contact"
                           >
-                            <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
+                            <PhoneCall className="w-3.5 h-3.5" />
                           </a>
                         )}
                       </>
@@ -694,7 +690,7 @@ export default function TasksPage() {
                     <button
                       onClick={() => handleDelete(task.id)}
                       disabled={actionLoading === task.id}
-                      className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition"
+                      className="p-2 rounded-xl border border-white/10 bg-white/5 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition"
                       title="Delete Task"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -707,30 +703,30 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* Create Task Modal */}
+      {/* Create Task Modal (Crystal Clear Dark Theme) */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0c1424] rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-white/15 text-white animate-in fade-in zoom-in-95 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 border-b border-white/10">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Create New Task</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <h3 className="text-lg font-bold text-white">Create New Task</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
                   Set deadlines and automated WhatsApp reminder alerts
                 </p>
               </div>
               <button
                 onClick={() => setIsCreateModalOpen(false)}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleCreateTask} className="mt-4 space-y-4">
-              {/* Task Title (Hindi/English input allowed) */}
+              {/* Task Title (Hindi / English naturally supported) */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Task Title <span className="text-rose-500">*</span>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+                  Task Title <span className="text-rose-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -738,13 +734,13 @@ export default function TasksPage() {
                   placeholder="e.g. Call Rahul for invoice follow-up / कल GST फाइल करना है"
                   value={formTitle}
                   onChange={(e) => setFormTitle(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-ink-800 text-sm text-white placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                   Description / Notes
                 </label>
                 <textarea
@@ -752,32 +748,32 @@ export default function TasksPage() {
                   placeholder="Add any specific context or action checklist..."
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-ink-800 text-sm text-white placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"
                 />
               </div>
 
               {/* Due Date & Time */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                     Due Date
                   </label>
                   <input
                     type="date"
                     value={formDueDate}
                     onChange={(e) => setFormDueDate(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-ink-800 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                     Due Time
                   </label>
                   <input
                     type="time"
                     value={formDueTime}
                     onChange={(e) => setFormDueTime(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-ink-800 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -785,33 +781,33 @@ export default function TasksPage() {
               {/* Priority & Recurrence */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                     Priority
                   </label>
                   <select
                     value={formPriority}
                     onChange={(e) => setFormPriority(e.target.value as any)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-ink-800 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   >
-                    <option value="LOW">Low</option>
-                    <option value="MEDIUM">Medium</option>
-                    <option value="HIGH">High</option>
-                    <option value="URGENT">Urgent</option>
+                    <option value="LOW" className="bg-[#0c1424] text-slate-200">☕ Low</option>
+                    <option value="MEDIUM" className="bg-[#0c1424] text-sky-300">📌 Medium</option>
+                    <option value="HIGH" className="bg-[#0c1424] text-amber-300">⚡ High</option>
+                    <option value="URGENT" className="bg-[#0c1424] text-rose-300">🚨 Urgent</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                     Recurrence
                   </label>
                   <select
                     value={formRecurrence}
                     onChange={(e) => setFormRecurrence(e.target.value as any)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-ink-800 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   >
-                    <option value="NEVER">One Time</option>
-                    <option value="DAILY">Daily</option>
-                    <option value="WEEKLY">Weekly</option>
-                    <option value="MONTHLY">Monthly</option>
+                    <option value="NEVER" className="bg-[#0c1424] text-slate-200">One Time</option>
+                    <option value="DAILY" className="bg-[#0c1424] text-slate-200">Daily</option>
+                    <option value="WEEKLY" className="bg-[#0c1424] text-slate-200">Weekly</option>
+                    <option value="MONTHLY" className="bg-[#0c1424] text-slate-200">Monthly</option>
                   </select>
                 </div>
               </div>
@@ -819,7 +815,7 @@ export default function TasksPage() {
               {/* Contact Attachment */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                     Client / Contact Name
                   </label>
                   <input
@@ -827,11 +823,11 @@ export default function TasksPage() {
                     placeholder="e.g. Rahul Sharma"
                     value={formContactName}
                     onChange={(e) => setFormContactName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-ink-800 text-sm text-white placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                     Contact Phone Number
                   </label>
                   <input
@@ -839,69 +835,69 @@ export default function TasksPage() {
                     placeholder="e.g. +919876543210"
                     value={formContactPhone}
                     onChange={(e) => setFormContactPhone(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-ink-800 text-sm text-white placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
               </div>
 
               {/* Reminder Alerts Checkboxes */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2">
+                <label className="block text-xs font-semibold text-slate-200 mb-2">
                   WhatsApp Alert Timing
                 </label>
-                <div className="grid grid-cols-2 gap-2 text-xs text-slate-700">
-                  <label className="flex items-center gap-2 p-2 rounded-xl border border-slate-100 bg-slate-50 cursor-pointer">
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer transition">
                     <input
                       type="checkbox"
                       checked={formRemindAtDue}
                       onChange={(e) => setFormRemindAtDue(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                      className="rounded accent-emerald-500 w-4 h-4 cursor-pointer"
                     />
-                    <span>At due time</span>
+                    <span className="font-medium text-slate-200">At due time</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 rounded-xl border border-slate-100 bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer transition">
                     <input
                       type="checkbox"
                       checked={formRemind15Min}
                       onChange={(e) => setFormRemind15Min(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                      className="rounded accent-emerald-500 w-4 h-4 cursor-pointer"
                     />
-                    <span>15 min before</span>
+                    <span className="font-medium text-slate-200">15 min before</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 rounded-xl border border-slate-100 bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer transition">
                     <input
                       type="checkbox"
                       checked={formRemind1Hour}
                       onChange={(e) => setFormRemind1Hour(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                      className="rounded accent-emerald-500 w-4 h-4 cursor-pointer"
                     />
-                    <span>1 hour before</span>
+                    <span className="font-medium text-slate-200">1 hour before</span>
                   </label>
-                  <label className="flex items-center gap-2 p-2 rounded-xl border border-slate-100 bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer transition">
                     <input
                       type="checkbox"
                       checked={formRemind1Day}
                       onChange={(e) => setFormRemind1Day(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                      className="rounded accent-emerald-500 w-4 h-4 cursor-pointer"
                     />
-                    <span>1 day before</span>
+                    <span className="font-medium text-slate-200">1 day before</span>
                   </label>
                 </div>
               </div>
 
               {/* Submit Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  className="px-4 py-2.5 rounded-xl border border-white/15 text-xs font-semibold text-slate-300 hover:bg-white/5 transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={actionLoading === "create"}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition"
+                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold shadow-lg shadow-emerald-500/20 transition"
                 >
                   {actionLoading === "create" && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   Save Task
