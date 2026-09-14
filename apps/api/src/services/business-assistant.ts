@@ -21,6 +21,7 @@ import {
   smartEditCreativeRequest,
   finalizeCreativeAsset,
 } from "./creative/creative-service.js";
+import { sendOutgoingEmail } from "./email/smtp-service.js";
 
 const log = pino({ name: "business-assistant" });
 
@@ -365,6 +366,128 @@ export async function handleOwnerCommand(input: {
       }
     }
 
+    // B. Handler for Email Actions (1: Send Reply, 2: Create Task, 3: Full Content)
+    if (pendingAction.actionType === "EMAIL_COMMAND_ACTION") {
+      const payload = (pendingAction.payload || {}) as any;
+      const emailMsg = await prisma.emailMessage.findUnique({
+        where: { id: payload.emailMessageId },
+        include: { account: true },
+      });
+
+      // Option 1: Send AI Draft Reply
+      if (
+        upperText === "1" ||
+        upperText === "SEND" ||
+        upperText === "REPLY" ||
+        upperText === "BHEJO" ||
+        upperText === "APPROVE"
+      ) {
+        if (!emailMsg || !payload.replyDraft) {
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: input.phone,
+            body: `⚠️ No draft reply found for this email.`,
+            chatSource: "bot",
+          }).catch(() => undefined);
+          return true;
+        }
+
+        try {
+          await sendOutgoingEmail(emailMsg.account, {
+            to: emailMsg.fromEmail,
+            subject: emailMsg.subject.startsWith("Re:") ? emailMsg.subject : `Re: ${emailMsg.subject}`,
+            textBody: payload.replyDraft,
+            inReplyTo: emailMsg.messageId,
+          });
+
+          await prisma.emailMessage.update({
+            where: { id: emailMsg.id },
+            data: { replyStatus: "SENT", replySentAt: new Date() },
+          });
+
+          await prisma.pendingAction.update({
+            where: { id: pendingAction.id },
+            data: { status: "APPROVED" },
+          });
+
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: input.phone,
+            body: `✅ *Email Reply Sent Successfully!*\n━━━━━━━━━━━━━━━━━━━━\nYour reply was dispatched via SMTP to *${emailMsg.fromEmail}*.\n\n*Subject:* Re: ${emailMsg.subject}\n*Body:*\n${payload.replyDraft}`,
+            chatSource: "bot",
+          }).catch(() => undefined);
+          return true;
+        } catch (sendErr: any) {
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: input.phone,
+            body: `❌ Failed to send email reply via SMTP: ${sendErr?.message || "Unknown error"}. Check SMTP settings in /email.`,
+            chatSource: "bot",
+          }).catch(() => undefined);
+          return true;
+        }
+      }
+
+      // Option 2: Create Task in WaCall
+      if (
+        upperText === "2" ||
+        upperText.includes("TASK") ||
+        upperText.includes("KAM")
+      ) {
+        const taskTitle = payload.suggestedAction || `Follow up on email: ${payload.subject}`;
+        const dueDate = payload.detectedDeadline
+          ? new Date(payload.detectedDeadline)
+          : new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+        await prisma.businessTask.create({
+          data: {
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            title: taskTitle,
+            description: `Automated task from email by ${payload.fromEmail}.\nSubject: ${payload.subject}`,
+            status: "PENDING",
+            dueAt: dueDate,
+            priority: "HIGH",
+          },
+        }).catch(() => undefined);
+
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "APPROVED" },
+        });
+
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `✅ *Task Created in WaCall OS!*\n━━━━━━━━━━━━━━━━━━━━\n📌 *Task:* ${taskTitle}\n📅 *Due Date:* ${dueDate.toLocaleDateString("en-IN")}\n\nYou will receive an alert before the deadline.`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+
+      // Option 3: Full content
+      if (
+        upperText === "3" ||
+        upperText.includes("BODY") ||
+        upperText.includes("CONTENT") ||
+        upperText.includes("FULL")
+      ) {
+        const snippet = (emailMsg?.bodyText || "").slice(0, 1500) || "(No text content)";
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `📄 *Full Email Content*\n━━━━━━━━━━━━━━━━━━━━\n*From:* ${payload.fromEmail}\n*Subject:* ${payload.subject}\n\n${snippet}\n\n━━━━━━━━━━━━━━━━━━━━\nReply *1* to send reply draft, or *2* to create task.`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+    }
+
     // Check Affirmative responses for standard proposals
     const isYes = [
       "YES",
@@ -520,6 +643,100 @@ export async function handleOwnerCommand(input: {
       channelId: channel.id,
       phone: input.phone,
       body: card,
+      chatSource: "bot",
+    }).catch(() => undefined);
+    return true;
+  }
+
+  // Email Query & Search Commands ("email dikhao", "emails", "emails from Rahul", "unread email", "aaj ke email")
+  if (
+    upperText.includes("EMAIL") ||
+    upperText.includes("EMAILS") ||
+    upperText.includes("MAIL") ||
+    upperText.includes("MAILS") ||
+    upperText.includes("INBOX")
+  ) {
+    const words = text
+      .split(/\s+/)
+      .filter(
+        (w) =>
+          !["email", "emails", "mail", "mails", "dikhao", "show", "batao", "from", "wala", "ke", "ka", "ki", "latest", "unread", "today"].includes(
+            w.toLowerCase(),
+          ),
+      );
+    const searchTerm = words.join(" ").trim();
+
+    const whereClause: any = { organizationId: channel.organizationId };
+    if (searchTerm.length >= 2) {
+      whereClause.OR = [
+        { fromName: { contains: searchTerm, mode: "insensitive" } },
+        { fromEmail: { contains: searchTerm, mode: "insensitive" } },
+        { subject: { contains: searchTerm, mode: "insensitive" } },
+      ];
+    }
+
+    const recentEmails = await prisma.emailMessage.findMany({
+      where: whereClause,
+      orderBy: { date: "desc" },
+      take: 5,
+    });
+
+    if (recentEmails.length === 0) {
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: searchTerm
+          ? `🔍 *Email Search*\n━━━━━━━━━━━━━━━━━━━━\nNo emails found matching "${searchTerm}". Check /email dashboard to verify synced accounts.`
+          : `📬 *Email Command Center*\n━━━━━━━━━━━━━━━━━━━━\nNo recent emails synced yet. Add your email account in /email to activate automatic WhatsApp alerts.`,
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return true;
+    }
+
+    let emailCard = `📬 *Recent Business Emails (${recentEmails.length})*\n━━━━━━━━━━━━━━━━━━━━\n`;
+    recentEmails.forEach((em, idx) => {
+      const priorityIcon = em.priority === "URGENT" ? "🚨" : em.priority === "IMPORTANT" ? "⚡" : "✉️";
+      const sender = em.fromName ? em.fromName : em.fromEmail;
+      emailCard += `${idx + 1}. ${priorityIcon} *${sender}*: ${em.subject}\n`;
+      if (em.summary) {
+        emailCard += `   _${em.summary.replace(/\n/g, " ").slice(0, 100)}..._\n`;
+      }
+    });
+
+    const topEmail = recentEmails[0];
+    if (topEmail && topEmail.replyDraft) {
+      await prisma.pendingAction
+        .create({
+          data: {
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            actionType: "EMAIL_COMMAND_ACTION",
+            summary: `Action on latest email: ${topEmail.subject}`,
+            status: "PENDING",
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            payload: {
+              emailMessageId: topEmail.id,
+              fromEmail: topEmail.fromEmail,
+              fromName: topEmail.fromName,
+              subject: topEmail.subject,
+              replyDraft: topEmail.replyDraft,
+              suggestedAction: topEmail.suggestedAction,
+            },
+          },
+        })
+        .catch(() => undefined);
+
+      emailCard += `━━━━━━━━━━━━━━━━━━━━\n💡 Reply *1* to send AI reply to "${topEmail.fromEmail}", or *2* to create task.`;
+    } else {
+      emailCard += `━━━━━━━━━━━━━━━━━━━━\n💡 Open *https://wacall.in/email* for full thread & actions.`;
+    }
+
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: input.phone,
+      body: emailCard,
       chatSource: "bot",
     }).catch(() => undefined);
     return true;

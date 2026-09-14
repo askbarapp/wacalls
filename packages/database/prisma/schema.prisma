@@ -207,6 +207,9 @@ model Organization {
   featureEntitlements FeatureEntitlement[]
   festivalCampaigns   FestivalCampaign[]
   commanderMembers    CommanderMember[]
+  emailAccounts       EmailAccount[]
+  emailMessages       EmailMessage[]
+  emailRules          EmailRule[]
 
   @@index([planId])
   @@index([status])
@@ -342,6 +345,7 @@ model WhatsAppChannel {
   featureEntitlements FeatureEntitlement[]
   festivalCampaigns  FestivalCampaign[]
   commanderMembers   CommanderMember[]
+  emailAccounts      EmailAccount[]
 
   @@index([organizationId])
   @@index([status])
@@ -1618,4 +1622,110 @@ model CommanderMember {
   @@index([organizationId])
   @@index([channelId])
   @@map("commander_members")
+}
+
+model EmailAccount {
+  id                    String    @id @default(uuid())
+  organizationId        String    @map("organization_id")
+  channelId             String?   @map("channel_id")
+  label                 String    @default("Primary Email")
+  email                 String
+  fromName              String?   @map("from_name")
+  imapHost              String    @map("imap_host")
+  imapPort              Int       @default(993) @map("imap_port")
+  imapSecure            Boolean   @default(true) @map("imap_secure")
+  imapUser              String    @map("imap_user")
+  imapPasswordEncrypted String    @map("imap_password_encrypted")
+  smtpHost              String?   @map("smtp_host")
+  smtpPort              Int?      @default(465) @map("smtp_port")
+  smtpSecure            Boolean   @default(true) @map("smtp_secure")
+  smtpUser              String?   @map("smtp_user")
+  smtpPasswordEncrypted String?   @map("smtp_password_encrypted")
+  syncEnabled           Boolean   @default(true) @map("sync_enabled")
+  lastSyncAt            DateTime? @map("last_sync_at")
+  lastError             String?   @map("last_error")
+  status                String    @default("CONNECTED") /// CONNECTED, ERROR, PAUSED
+  filterSenders         String[]  @default([]) @map("filter_senders")
+  filterDomains         String[]  @default([]) @map("filter_domains")
+  filterKeywords        String[]  @default([]) @map("filter_keywords")
+  minPriority           String    @default("IMPORTANT") @map("min_priority") /// URGENT, IMPORTANT, NORMAL, ALL
+  aiFilterEnabled       Boolean   @default(true) @map("ai_filter_enabled")
+  targetPhone           String?   @map("target_phone")
+  digestMode            String    @default("INSTANT") @map("digest_mode") /// INSTANT, HOURLY, DAILY_ONLY
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  messages     EmailMessage[]
+  rules        EmailRule[]
+
+  @@index([organizationId])
+  @@index([channelId])
+  @@index([syncEnabled, status])
+  @@map("email_accounts")
+}
+
+model EmailMessage {
+  id               String    @id @default(uuid())
+  organizationId   String    @map("organization_id")
+  accountId        String    @map("account_id")
+  messageId        String    @map("message_id")
+  fromName         String?   @map("from_name")
+  fromEmail        String    @map("from_email")
+  toEmail          String    @map("to_email")
+  subject          String
+  bodyText         String?   @map("body_text")
+  bodyHtml         String?   @map("body_html")
+  date             DateTime
+  priority         String    @default("NORMAL") /// URGENT, IMPORTANT, NORMAL, LOW
+  category         String    @default("GENERAL") /// PAYMENT, INVOICE, MEETING, TASK, CLIENT_INQUIRY, PROMOTIONAL, SECURITY, GENERAL
+  summary          String?
+  actionRequired   Boolean   @default(false) @map("action_required")
+  suggestedAction  String?   @map("suggested_action")
+  detectedDeadline DateTime? @map("detected_deadline")
+  attachments      Json?     /// [{ filename: string, contentType: string, size: number, summary?: string }]
+  whatsappSent     Boolean   @default(false) @map("whatsapp_sent")
+  notifiedAt       DateTime? @map("notified_at")
+  replyDraft       String?   @map("reply_draft")
+  replyStatus      String    @default("NONE") @map("reply_status") /// NONE, DRAFTED, PENDING_APPROVAL, SENT, REJECTED
+  replySentAt      DateTime? @map("reply_sent_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account      EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, messageId])
+  @@index([organizationId, priority])
+  @@index([organizationId, date])
+  @@index([accountId])
+  @@map("email_messages")
+}
+
+model EmailRule {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  accountId          String?  @map("account_id")
+  name               String
+  matchSender        String?  @map("match_sender")
+  matchDomain        String?  @map("match_domain")
+  matchKeyword       String?  @map("match_keyword")
+  matchPriority      String?  @map("match_priority")
+  matchCategory      String?  @map("match_category")
+  actionSendWhatsApp Boolean  @default(true) @map("action_send_whatsapp")
+  actionSummarize    Boolean  @default(true) @map("action_summarize")
+  actionCreateTask   Boolean  @default(false) @map("action_create_task")
+  actionCreateRemind Boolean  @default(false) @map("action_create_remind")
+  actionRoutePhone   String?  @map("action_route_phone")
+  enabled            Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account      EmailAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([accountId])
+  @@map("email_rules")
 }

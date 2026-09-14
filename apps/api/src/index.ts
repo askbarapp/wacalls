@@ -7,6 +7,7 @@ import { processCadenceTick } from "./services/followup-cadence.js";
 import { processDuePaymentReminders } from "./services/invoice-service.js";
 import { processDailyBriefingTick } from "./services/daily-briefing.js";
 import { startFestivalAutopilotScheduler } from "./services/creative/festival-scheduler.js";
+import { processEmailSyncTick } from "./services/email/email-poller.js";
 
 const app = await buildApp();
 
@@ -14,6 +15,7 @@ const shutdown = async () => {
   clearInterval(cadenceInterval);
   clearInterval(reminderInterval);
   clearInterval(briefingInterval);
+  clearInterval(emailSyncInterval);
   await app.close();
   await prisma.$disconnect();
   redis.disconnect();
@@ -36,6 +38,10 @@ const reminderInterval = setInterval(() => {
 
 const briefingInterval = setInterval(() => {
   void processDailyBriefingTick().catch(() => undefined);
+}, 60 * 1000);
+
+const emailSyncInterval = setInterval(() => {
+  void processEmailSyncTick().catch(() => undefined);
 }, 60 * 1000);
 
 startFestivalAutopilotScheduler();

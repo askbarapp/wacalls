@@ -119,7 +119,7 @@ async function sendMorningBriefing(
   const startOfDay = new Date(`${todayStr}T00:00:00.000Z`);
   const endOfDay = new Date(`${todayStr}T23:59:59.999Z`);
 
-  const [pendingTasks, hotLeads, dueInvoices, appointments] = await Promise.all([
+  const [pendingTasks, hotLeads, dueInvoices, appointments, importantEmails] = await Promise.all([
     // Today's pending tasks
     prisma.businessTask.findMany({
       where: {
@@ -157,6 +157,16 @@ async function sendMorningBriefing(
         status: "BOOKED",
         startsAt: { gte: startOfDay, lte: endOfDay },
       },
+      take: 3,
+    }),
+    // Recent Urgent/Important Emails
+    prisma.emailMessage.findMany({
+      where: {
+        organizationId: orgId,
+        priority: { in: ["URGENT", "IMPORTANT"] },
+        date: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { date: "desc" },
       take: 3,
     }),
   ]);
@@ -208,6 +218,15 @@ async function sendMorningBriefing(
     const totalPending = dueInvoices.reduce((sum, inv) => sum + (inv.total - inv.amountPaid), 0);
     card += `\n💰 *बकाया भुगतान (Collections to Follow):*\n`;
     card += `• कुल लंबित: ₹${totalPending.toLocaleString("en-IN")} (${dueInvoices.length} इनवॉइस)\n`;
+  }
+
+  // 5. Critical Business Emails
+  if (importantEmails.length > 0) {
+    card += `\n📬 *ज़रूरी ईमेल (Priority Emails):*\n`;
+    for (const em of importantEmails) {
+      const pIcon = em.priority === "URGENT" ? "🚨" : "⚡";
+      card += `• ${pIcon} *${em.fromName || em.fromEmail}*: ${em.subject}\n`;
+    }
   }
 
   card += `\n━━━━━━━━━━━━━━━━━━━━\n💪 *शुभ प्रभात, ${recipient.name || "Boss"}! आज का दिन सफल और उत्पादक रहे!*\n(कॉल रिपोर्ट के लिए *"today total call"* या *"आज के काम"* भेजें)`;
