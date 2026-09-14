@@ -16,6 +16,8 @@ import {
   PartyPopper,
   Calendar,
   Zap,
+  Trash2,
+  AlertCircle,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
@@ -155,6 +157,50 @@ export default function CreativeStudioPage() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  // Silently auto-refresh gallery every 3 seconds while any poster is generating
+  useEffect(() => {
+    const hasGenerating = creatives.some(
+      (c) => c.status === "GENERATING" || c.versions?.some((v) => v.status === "GENERATING")
+    );
+    if (!hasGenerating) return;
+
+    const timer = setInterval(async () => {
+      try {
+        const res = await api<{ success: true; data: CreativeAsset[] }>("/api/v1/creative");
+        if (res?.data) {
+          setCreatives(res.data);
+          setSelectedAsset((prev) => {
+            if (!prev) return null;
+            return res.data.find((c) => c.id === prev.id) || prev;
+          });
+        }
+      } catch {
+        // silent background poll failure
+      }
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [creatives]);
+
+  async function handleDeleteAsset(e: React.MouseEvent, assetId: string) {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this creative? This action cannot be undone.")) {
+      return;
+    }
+    setError("");
+    setMsg("");
+    try {
+      await api(`/api/v1/creative/${assetId}`, { method: "DELETE" });
+      setCreatives((prev) => prev.filter((c) => c.id !== assetId));
+      if (selectedAsset?.id === assetId) {
+        setSelectedAsset(null);
+      }
+      setMsg("Creative deleted successfully.");
+    } catch (err: any) {
+      setError(err?.message || "Failed to delete creative");
+    }
+  }
 
   async function handleSaveProfile() {
     setActionBusy(true);
@@ -407,10 +453,23 @@ export default function CreativeStudioPage() {
                           alt={asset.title}
                           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                         />
+                      ) : latestVersion?.status === "FAILED" || asset.status === "FAILED" ? (
+                        <div className="flex h-full w-full flex-col items-center justify-center p-4 text-center">
+                          <AlertCircle className="h-8 w-8 text-rose-400" />
+                          <span className="mt-2 text-xs font-semibold text-rose-300">Generation Failed</span>
+                          <span className="mt-1 line-clamp-2 text-[10px] text-white/50">Service error or timeout</span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteAsset(e, asset.id)}
+                            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Delete
+                          </button>
+                        </div>
                       ) : (
                         <div className="flex h-full w-full flex-col items-center justify-center text-white/40">
                           <RefreshCw className="h-8 w-8 animate-spin text-violet-400" />
-                          <span className="mt-2 text-xs">Rendering in 3D...</span>
+                          <span className="mt-2 text-xs">Generating creative...</span>
                         </div>
                       )}
 
@@ -419,6 +478,10 @@ export default function CreativeStudioPage() {
                         {asset.locked ? (
                           <span className="flex items-center gap-1 rounded-full bg-emerald-500/90 px-2.5 py-0.5 text-[11px] font-semibold text-white shadow">
                             <Lock className="h-3 w-3" /> Final
+                          </span>
+                        ) : latestVersion?.status === "FAILED" || asset.status === "FAILED" ? (
+                          <span className="flex items-center gap-1 rounded-full bg-rose-500/90 px-2.5 py-0.5 text-[11px] font-semibold text-white shadow">
+                            <AlertCircle className="h-3 w-3" /> Failed
                           </span>
                         ) : asset.status === "GENERATING" ? (
                           <span className="flex items-center gap-1 rounded-full bg-amber-500/90 px-2.5 py-0.5 text-[11px] font-semibold text-white shadow">
@@ -429,6 +492,18 @@ export default function CreativeStudioPage() {
                             <Sliders className="h-3 w-3" /> v{latestVersion?.version || 1}
                           </span>
                         )}
+                      </div>
+
+                      {/* Quick Delete Button */}
+                      <div className="absolute right-3 top-3 z-10">
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteAsset(e, asset.id)}
+                          title="Delete poster"
+                          className="rounded-full bg-black/60 p-1.5 text-white/70 backdrop-blur-md transition-colors hover:bg-rose-600 hover:text-white"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
 
@@ -858,13 +933,24 @@ export default function CreativeStudioPage() {
                 <h3 className="text-base font-semibold text-white">{selectedAsset.title}</h3>
                 <p className="text-xs text-white/60">{selectedAsset.concept}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedAsset(null)}
-                className="text-white/50 hover:text-white"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={(e) => handleDeleteAsset(e, selectedAsset.id)}
+                  title="Delete this poster"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAsset(null)}
+                  className="text-white/50 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -877,6 +963,19 @@ export default function CreativeStudioPage() {
                     alt={selectedAsset.title}
                     className="max-h-[380px] w-auto rounded-lg object-contain"
                   />
+                ) : selectedAsset.versions[0]?.status === "FAILED" || selectedAsset.status === "FAILED" ? (
+                  <div className="flex h-64 flex-col items-center justify-center p-6 text-center">
+                    <AlertCircle className="h-10 w-10 text-rose-400" />
+                    <span className="mt-3 text-sm font-semibold text-rose-300">Generation Failed</span>
+                    <p className="mt-1 text-xs text-white/50">The AI creative could not be generated. Please try again or delete this poster.</p>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteAsset(e, selectedAsset.id)}
+                      className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-rose-500/20 px-4 py-2 text-xs font-medium text-rose-300 hover:bg-rose-500/30"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete Poster
+                    </button>
+                  </div>
                 ) : (
                   <div className="flex h-64 flex-col items-center justify-center text-white/40">
                     <RefreshCw className="h-8 w-8 animate-spin text-violet-400" />

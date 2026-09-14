@@ -12,6 +12,7 @@ import {
   createCreativeRequest,
   smartEditCreativeRequest,
   finalizeCreativeAsset,
+  deleteCreativeAsset,
 } from "../services/creative/creative-service.js";
 import {
   seedStandardFestivals,
@@ -339,6 +340,14 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
     if (!asset) throw new NotFoundError("Creative not found");
 
     return ok(asset);
+  });
+
+  app.delete("/creative/:id", async (req) => {
+    const auth = await app.authenticate(req);
+    const { id } = req.params as { id: string };
+
+    const result = await deleteCreativeAsset(auth.orgId, id);
+    return ok(result);
   });
 
   // -------------------------------------------------------------

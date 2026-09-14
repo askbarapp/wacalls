@@ -116,13 +116,33 @@ export async function createCreativeRequest(input: {
     },
   });
 
-  // 2. Call Provider (UseVelix)
-  const res = await provider.generateTextToImage({
-    prompt,
-    aspect: input.aspect || "1:1",
-    type: "3d",
-    enhancePrompt: 1,
+  // 2. Call Provider (UseVelix with fast settings)
+  const typeRow = await prisma.setting.findFirst({
+    where: { organizationId: input.organizationId, key: "usevelix_default_type" },
   });
+  const defaultType = typeof typeRow?.value === "string" ? typeRow.value : "photorealistic";
+
+  let res: any;
+  try {
+    res = await provider.generateTextToImage({
+      prompt,
+      aspect: input.aspect || "1:1",
+      type: defaultType,
+      enhancePrompt: 0,
+    });
+  } catch (genErr: any) {
+    log.warn({ err: genErr?.message }, "UseVelix generation request failed, using high-speed fallback");
+    return await generateWithFastFallback({
+      organizationId: input.organizationId,
+      channelId: input.channelId,
+      conversationId: input.conversationId,
+      prompt,
+      title,
+      concept: input.userInstruction,
+      aspect: input.aspect || "1:1",
+      notifyPhone: input.notifyPhone,
+    });
+  }
 
   // 3. Create AiJob record
   const job = await prisma.aiJob.create({
@@ -164,6 +184,8 @@ export async function createCreativeRequest(input: {
     jobId: res.jobId,
     assetId: asset.id,
     versionId: version.id,
+    prompt,
+    aspect: input.aspect || "1:1",
     notifyPhone: input.notifyPhone,
     title,
   });
@@ -212,7 +234,7 @@ export async function smartEditCreativeRequest(input: {
   const res = await provider.smartEdit({
     imageUrl,
     prompt: editPrompt,
-    type: "3d",
+    type: "photorealistic",
   });
 
   const nextVersionNum = latestVersion.version + 1;
@@ -251,6 +273,8 @@ export async function smartEditCreativeRequest(input: {
     jobId: res.jobId,
     assetId: asset.id,
     versionId: newVersion.id,
+    prompt: editPrompt,
+    aspect: "1:1",
     notifyPhone: input.notifyPhone,
     title: `${asset.title} (v${nextVersionNum})`,
   });
@@ -281,9 +305,181 @@ export async function finalizeCreativeAsset(assetId: string) {
 }
 
 /**
- * Asynchronous job poller with exponential backoff and maximum retry timeout.
- * Downloads the ready image, saves locally, updates database, deducts credits,
- * and sends the image to WhatsApp!
+ * High-speed fallback image generator using FLUX.
+ * Produces vibrant, high-aesthetic posters in 2-4 seconds.
+ */
+function getFastFallbackUrl(prompt: string, aspect: string = "1:1"): string {
+  const seed = Math.floor(Math.random() * 1000000);
+  let width = 1024;
+  let height = 1024;
+  if (aspect === "9:16") {
+    width = 768;
+    height = 1344;
+  } else if (aspect === "16:9") {
+    width = 1344;
+    height = 768;
+  }
+  const cleanPrompt = encodeURIComponent(prompt.slice(0, 600));
+  return `https://image.pollinations.ai/prompt/${cleanPrompt}?width=${width}&height=${height}&model=flux&seed=${seed}&nologo=true`;
+}
+
+/**
+ * Complete asset generation using fast fallback provider.
+ */
+async function completeWithFastFallback(
+  opts: {
+    organizationId: string;
+    channelId?: string;
+    jobId: string;
+    assetId: string;
+    versionId: string;
+    prompt: string;
+    aspect?: string;
+    notifyPhone?: string;
+    title: string;
+  }
+): Promise<boolean> {
+  try {
+    const fallbackUrl = getFastFallbackUrl(opts.prompt, opts.aspect || "1:1");
+    log.info({ assetId: opts.assetId, fallbackUrl }, "Generating creative with fast FLUX fallback");
+
+    const dir = await ensureCreativeDir();
+    const filename = `creative-${opts.assetId}-${opts.versionId}.jpg`;
+    const localPath = path.join(dir, filename);
+
+    const imgRes = await fetch(fallbackUrl);
+    if (!imgRes.ok) throw new Error(`Fallback HTTP ${imgRes.status}`);
+    const buf = Buffer.from(await imgRes.arrayBuffer());
+    await fs.writeFile(localPath, buf);
+
+    await prisma.creativeVersion.update({
+      where: { id: opts.versionId },
+      data: {
+        status: "READY",
+        imageUrl: fallbackUrl,
+        localPath,
+        creditsUsed: 5,
+      },
+    });
+
+    await prisma.creativeAsset.update({
+      where: { id: opts.assetId },
+      data: { status: "READY" },
+    });
+
+    await prisma.aiJob.updateMany({
+      where: { providerJobId: opts.jobId },
+      data: {
+        status: "DONE",
+        outputUrl: fallbackUrl,
+        creditsUsed: 5,
+        completedAt: new Date(),
+      },
+    });
+
+    await prisma.aiCreditBalance.update({
+      where: { organizationId: opts.organizationId },
+      data: {
+        balance: { decrement: 5 },
+        used: { increment: 5 },
+      },
+    }).catch(() => undefined);
+
+    if (opts.channelId && opts.notifyPhone) {
+      const caption = `🎨 *WaCall Creative Studio — Poster Ready!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nकैसी लगी यह creative? आप कह सकते हैं:\n• *"Logo छोटा करो"*\n• *"Background blue करो"*\n• *"एक और बनाओ"*\n• *"Final"* (lock करने के लिए)`;
+      await whatsappClient.sendText(opts.channelId, opts.notifyPhone, caption, {
+        imagePath: localPath,
+      }).catch((sendErr) => log.error({ err: sendErr?.message }, "Failed to dispatch creative to WhatsApp"));
+    }
+
+    log.info({ assetId: opts.assetId }, "Fast fallback creative generation succeeded!");
+    return true;
+  } catch (fallbackErr: any) {
+    log.error({ err: fallbackErr?.message }, "Fast fallback creative generation also failed");
+    return false;
+  }
+}
+
+/**
+ * Generates creative entirely via fast FLUX engine if primary provider is unavailable.
+ */
+async function generateWithFastFallback(input: {
+  organizationId: string;
+  channelId?: string | null;
+  conversationId?: string | null;
+  prompt: string;
+  title: string;
+  concept: string;
+  aspect: string;
+  notifyPhone?: string;
+}) {
+  const asset = await prisma.creativeAsset.create({
+    data: {
+      organizationId: input.organizationId,
+      channelId: input.channelId || undefined,
+      conversationId: input.conversationId || undefined,
+      title: input.title,
+      concept: input.concept,
+      status: "GENERATING",
+    },
+  });
+
+  const fallbackJobId = `fast-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  const job = await prisma.aiJob.create({
+    data: {
+      organizationId: input.organizationId,
+      channelId: input.channelId || undefined,
+      feature: "creative",
+      provider: "flux-fast",
+      providerJobId: fallbackJobId,
+      requestType: "text-to-image",
+      prompt: input.prompt,
+      status: "QUEUED",
+      creditsUsed: 5,
+    },
+  });
+
+  const version = await prisma.creativeVersion.create({
+    data: {
+      assetId: asset.id,
+      version: 1,
+      prompt: input.prompt,
+      provider: "flux-fast",
+      providerJobId: fallbackJobId,
+      status: "GENERATING",
+      creditsUsed: 5,
+    },
+  });
+
+  await prisma.creativeAsset.update({
+    where: { id: asset.id },
+    data: { currentVersionId: version.id },
+  });
+
+  void completeWithFastFallback({
+    organizationId: input.organizationId,
+    channelId: input.channelId || undefined,
+    jobId: fallbackJobId,
+    assetId: asset.id,
+    versionId: version.id,
+    prompt: input.prompt,
+    aspect: input.aspect,
+    notifyPhone: input.notifyPhone,
+    title: input.title,
+  });
+
+  return {
+    assetId: asset.id,
+    versionId: version.id,
+    jobId: fallbackJobId,
+    prompt: input.prompt,
+  };
+}
+
+/**
+ * Asynchronous job poller with fast early polling.
+ * Catches completion in 15-20 seconds. If provider fails, seamlessly falls back.
  */
 async function pollJobUntilDone(opts: {
   organizationId: string;
@@ -291,13 +487,16 @@ async function pollJobUntilDone(opts: {
   jobId: string;
   assetId: string;
   versionId: string;
+  prompt: string;
+  aspect?: string;
   notifyPhone?: string;
   title: string;
 }) {
   const provider = await getCreativeProvider(opts.organizationId).catch(() => null);
   if (!provider) return;
 
-  const intervals = [5000, 8000, 10000, 15000, 20000, 25000, 30000, 30000, 30000]; // ~3 mins
+  // Fast intervals: 3s, 3s, 4s, 4s, 5s, 5s, 6s, 6s, 8s, 10s, 10s (~64s total)
+  const intervals = [3000, 3000, 4000, 4000, 5000, 5000, 6000, 6000, 8000, 10000, 10000];
   let isDone = false;
 
   for (let i = 0; i < intervals.length; i++) {
@@ -305,7 +504,7 @@ async function pollJobUntilDone(opts: {
 
     try {
       const status = await provider.getJobStatus(opts.jobId);
-      log.info({ attempt: i + 1, status: status.status, jobId: opts.jobId }, "Polled creative job status");
+      log.info({ attempt: i + 1, status: status.status, hasUrl: !!status.imageUrl, jobId: opts.jobId }, "Polled creative job status");
 
       if (status.status === "done" && status.imageUrl) {
         isDone = true;
@@ -374,6 +573,14 @@ async function pollJobUntilDone(opts: {
       }
 
       if (status.status === "failed") {
+        log.warn({ jobId: opts.jobId, error: status.error }, "Provider returned failure, attempting fast fallback");
+        const fallbackOk = await completeWithFastFallback(opts);
+        if (fallbackOk) {
+          isDone = true;
+          break;
+        }
+
+        isDone = true;
         await markJobFailed(opts.jobId, opts.assetId, opts.versionId, status.error || "Provider generation failed");
         if (opts.channelId && opts.notifyPhone) {
           await whatsappClient.sendText(
@@ -390,7 +597,11 @@ async function pollJobUntilDone(opts: {
   }
 
   if (!isDone) {
-    await markJobFailed(opts.jobId, opts.assetId, opts.versionId, "Generation timed out after 3 minutes");
+    log.warn({ jobId: opts.jobId }, "Provider polling timed out, attempting fast fallback");
+    const fallbackOk = await completeWithFastFallback(opts);
+    if (!fallbackOk) {
+      await markJobFailed(opts.jobId, opts.assetId, opts.versionId, "Generation timed out after 60 seconds");
+    }
   }
 }
 
@@ -402,7 +613,7 @@ async function markJobFailed(jobId: string, assetId: string, versionId: string, 
 
   await prisma.creativeAsset.update({
     where: { id: assetId },
-    data: { status: "DRAFT" },
+    data: { status: "FAILED" },
   }).catch(() => undefined);
 
   await prisma.aiJob.updateMany({
@@ -414,3 +625,38 @@ async function markJobFailed(jobId: string, assetId: string, versionId: string, 
     },
   }).catch(() => undefined);
 }
+
+/**
+ * Permanently delete a creative asset and associated local files and versions.
+ */
+export async function deleteCreativeAsset(organizationId: string, assetId: string) {
+  const asset = await prisma.creativeAsset.findFirst({
+    where: { id: assetId, organizationId },
+    include: { versions: true },
+  });
+
+  if (!asset) {
+    throw new Error("Creative not found or unauthorized");
+  }
+
+  // Delete associated local files
+  for (const ver of asset.versions) {
+    if (ver.localPath) {
+      await fs.unlink(ver.localPath).catch(() => undefined);
+    }
+  }
+
+  // Unlink any festival campaigns referencing this creative
+  await prisma.festivalCampaign.updateMany({
+    where: { creativeAssetId: assetId },
+    data: { creativeAssetId: null },
+  }).catch(() => undefined);
+
+  // Delete asset (versions cascade-delete)
+  await prisma.creativeAsset.delete({
+    where: { id: assetId },
+  });
+
+  return { success: true, deletedId: assetId };
+}
+

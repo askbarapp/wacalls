@@ -113,9 +113,9 @@ export class UseVelixProvider implements CreativeProvider {
     const url = `${this.baseUrl}/api/v1/generate/text-to-image`;
     const payload = {
       prompt: params.prompt,
-      type: params.type || "3d",
+      type: params.type || "photorealistic",
       aspect: params.aspect || "1:1",
-      enhancePrompt: params.enhancePrompt ?? 1,
+      enhancePrompt: params.enhancePrompt ?? 0,
       seed: params.seed ?? "",
     };
 
@@ -159,7 +159,7 @@ export class UseVelixProvider implements CreativeProvider {
       imageUrl: params.imageUrl,
       imageUrl2: params.imageUrl2 || undefined,
       prompt: params.prompt,
-      type: params.type || "3d",
+      type: params.type || "photorealistic",
       aspect: params.aspect || "1:1",
     };
 
@@ -232,6 +232,7 @@ export class UseVelixProvider implements CreativeProvider {
 
     // Extract output image URL defensively
     const imageUrl =
+      data.resultUrl ||
       data.result?.imageUrl ||
       data.result?.outputUrl ||
       data.result?.url ||
