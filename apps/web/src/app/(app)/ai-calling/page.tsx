@@ -1054,10 +1054,10 @@ export default function AiCallingPage() {
       {tab === "incoming" ? (
         <div className="space-y-4">
           <p className="text-sm text-slate-400">
-            WhatsApp Web line CONNECTED honi chahiye. Auto-answer ON matlab is number par aane wali har personal
-            audio call WaCalls/AI uthayegi — phone par ring nahi rahegi. Video calls phone par hi chhodi jati hain.
-            Save ke baad AI agent select karein. Line busy (campaign/dialer) ho to dusri call reject ho jayegi. Cloud
-            API channels cannot receive WhatsApp voice.
+            WhatsApp Web line must be CONNECTED. When Auto-answer is ON, every incoming personal audio call to this number
+            will be answered by WaCalls AI — your physical phone will not ring. Video calls will ring on the phone as normal.
+            Select an AI agent after saving. If the line is busy with an active campaign or dialer, incoming calls will be rejected.
+            Cloud API channels cannot receive WhatsApp voice calls.
           </p>
           {incomingChannels.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-white/15 p-6 text-sm text-slate-500">

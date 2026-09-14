@@ -432,7 +432,7 @@ export default function CreativeStudioPage() {
               <Sparkles className="mb-3 h-10 w-10 text-violet-400/60" />
               <h3 className="text-base font-semibold text-white">No creatives generated yet</h3>
               <p className="mt-1 max-w-sm text-xs text-white/50">
-                Type &quot;Diwali ka poster bana do&quot; on WhatsApp, or click &quot;Create Poster&quot; above to generate your first AI business creative!
+                Type &quot;Create a Diwali poster&quot; on WhatsApp, or click &quot;Create Poster&quot; above to generate your first AI business creative!
               </p>
             </div>
           ) : (
@@ -1024,7 +1024,7 @@ export default function CreativeStudioPage() {
                     <span>Smart Edit Revision</span>
                   </div>
                   <p className="text-xs text-white/60">
-                    Ask for modifications naturally (e.g. &quot;Logo छोटा करो&quot;, &quot;Background blue करो&quot;, &quot;एक और विकल्प बनाओ&quot;):
+                    Ask for modifications naturally (e.g. &quot;Make logo smaller&quot;, &quot;Change background to royal blue&quot;, &quot;Create another variation&quot;):
                   </p>
                   <div className="flex gap-2">
                     <input

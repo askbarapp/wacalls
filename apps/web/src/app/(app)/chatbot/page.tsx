@@ -394,7 +394,7 @@ function ChatbotInner() {
           enabled: bot.enabled,
           aiEnabled: bot.aiEnabled,
           greetingEnabled: bot.greetingEnabled ?? true,
-          greetingMessage: bot.greetingMessage ?? "नमस्ते! WaCalls में आपका स्वागत है। हम आपकी क्या सहायता कर सकते हैं?",
+          greetingMessage: bot.greetingMessage ?? "Hello! Welcome to our business. How may we assist you today?",
           greetingCooldownDays: bot.greetingCooldownDays ?? 14,
           aiConfigId: bot.aiConfigId,
           knowledgeBaseId: bot.knowledgeBaseId,
@@ -507,7 +507,7 @@ function ChatbotInner() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-slate-300 leading-relaxed">
-                    बिज़नेस ओनर व आपकी टीम (सेल्स हेड, अकाउंट्स आदि) सीधे अपने WhatsApp से बात करके या वॉइस नोट भेजकर पूरे बिज़नेस को चला सकते हैं।
+                    Empower business owners and designated team members (Sales Head, Accounts, Support) to run operations, query reports, and execute commands directly via WhatsApp chat or voice notes.
                   </p>
                 </div>
                 <button
@@ -515,26 +515,26 @@ function ChatbotInner() {
                   onClick={() => setIsAddingCommander(!isAddingCommander)}
                   className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black transition-all hover:bg-amber-400 self-start sm:self-auto shrink-0 shadow-sm"
                 >
-                  <span>{isAddingCommander ? "✕ बंद करें" : "+ नया कमांडर जोड़ें"}</span>
+                  <span>{isAddingCommander ? "✕ Close" : "+ Add Commander"}</span>
                 </button>
               </div>
 
               {/* Primary Owner Line */}
               <div className="mt-3.5 space-y-1.5">
                 <label className="text-[11px] font-semibold text-amber-200/90 uppercase tracking-wide">
-                  1. प्राइमरी ओनर नंबर (Primary Owner WhatsApp Line)
+                  1. Primary Owner WhatsApp Line
                 </label>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <input
                     type="text"
-                    placeholder="e.g. 919876543210 (आपका व्यक्तिगत WhatsApp नंबर)"
+                    placeholder="e.g. 919876543210 (Your personal WhatsApp number)"
                     className="flex-1 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
                     value={bot.ownerPhone ?? bot.channel?.ownerPhone ?? ""}
                     onChange={(e) => setBot({ ...bot, ownerPhone: e.target.value })}
                   />
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  💡 इस नंबर से या अपने बिज़नेस नंबर पर <b>Self-Chat</b> करके आप WaCall को सीधे कमांड दे सकते हैं। नीचे “Save Changes” दबाने पर यह सेव हो जाएगा।
+                  💡 Send direct commands to WaCall from this phone number, or use <b>Self-Chat</b> on your connected WhatsApp business line. Click &quot;Save Changes&quot; below to apply.
                 </p>
               </div>
 
@@ -542,23 +542,23 @@ function ChatbotInner() {
               {isAddingCommander ? (
                 <div className="mt-4 rounded-xl border border-amber-400/30 bg-black/70 p-3.5 space-y-3">
                   <div className="text-xs font-semibold text-amber-300 flex items-center justify-between">
-                    <span>➕ नया टीम मेंबर कमांडर जोड़ें (Team Commander Line)</span>
+                    <span>➕ Add Authorized Team Commander Line</span>
                     <span className="text-[10px] text-slate-400">Role-Based Access</span>
                   </div>
 
                   <div className="grid gap-2.5 sm:grid-cols-2">
                     <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">नाम व पद (Member Name)</label>
+                      <label className="text-[10px] text-slate-400 block mb-1">Member Name & Title</label>
                       <input
                         type="text"
-                        placeholder="e.g. Pooja (Sales Head)"
+                        placeholder="e.g. Rahul Sharma (Sales Head)"
                         className="w-full rounded-lg border border-white/10 bg-black/60 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
                         value={newCmdName}
                         onChange={(e) => setNewCmdName(e.target.value)}
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">WhatsApp नंबर (Country Code सहित)</label>
+                      <label className="text-[10px] text-slate-400 block mb-1">WhatsApp Phone Number (with Country Code)</label>
                       <input
                         type="text"
                         placeholder="e.g. 919876543210"
@@ -571,20 +571,20 @@ function ChatbotInner() {
 
                   <div className="grid gap-2.5 sm:grid-cols-2">
                     <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">रोल व अनुमति (Role & Permissions)</label>
+                      <label className="text-[10px] text-slate-400 block mb-1">Role & Permissions</label>
                       <select
                         className="w-full rounded-lg border border-white/10 bg-black/60 px-3 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none"
                         value={newCmdRole}
                         onChange={(e) => setNewCmdRole(e.target.value as any)}
                       >
-                        <option value="OWNER">👑 Owner (पूर्ण अधिकार - कॉल, फाइनेंस, लीड्स, पोस्टर)</option>
-                        <option value="SALES_MANAGER">🎯 Sales Head (कॉल रिपोर्ट, हॉट लीड्स, कैंपेन)</option>
-                        <option value="ACCOUNTS">💼 Accounts (इनवॉइस, बकाया पेमेंट, मार्क पेड)</option>
-                        <option value="SUPPORT">🎧 Support (कॉल स्टेटस, ऑटो-रिप्लाई नियम)</option>
+                        <option value="OWNER">👑 Owner (Full Access — Calls, Finance, Leads, Creatives)</option>
+                        <option value="SALES_MANAGER">🎯 Sales Head (Call Intelligence, Hot Leads, Campaigns)</option>
+                        <option value="ACCOUNTS">💼 Accounts (Invoices, Pending Dues, Mark Paid)</option>
+                        <option value="SUPPORT">🎧 Support (Call Logs, Auto-Reply Rules, Bot Status)</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">दैनिक ऑटो-रिपोर्ट्स (Daily Alerts)</label>
+                      <label className="text-[10px] text-slate-400 block mb-1">Daily Automated Alerts & Reports</label>
                       <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] text-slate-300">
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
@@ -593,7 +593,7 @@ function ChatbotInner() {
                             onChange={(e) => setNewCmdMorning(e.target.checked)}
                             className="rounded border-white/20 bg-black/60 text-amber-500 focus:ring-0"
                           />
-                          <span>🌅 9 AM मॉर्निंग</span>
+                          <span>🌅 9 AM Morning Briefing</span>
                         </label>
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
@@ -602,7 +602,7 @@ function ChatbotInner() {
                             onChange={(e) => setNewCmdEod(e.target.checked)}
                             className="rounded border-white/20 bg-black/60 text-amber-500 focus:ring-0"
                           />
-                          <span>🌙 8 PM EOD</span>
+                          <span>🌙 8 PM EOD Scorecard</span>
                         </label>
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
@@ -611,7 +611,7 @@ function ChatbotInner() {
                             onChange={(e) => setNewCmdAlert(e.target.checked)}
                             className="rounded border-white/20 bg-black/60 text-amber-500 focus:ring-0"
                           />
-                          <span>🚨 मिस्ड कॉल</span>
+                          <span>🚨 Missed Call Alerts</span>
                         </label>
                       </div>
                     </div>
@@ -623,7 +623,7 @@ function ChatbotInner() {
                       onClick={() => setIsAddingCommander(false)}
                       className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-slate-400 hover:text-white"
                     >
-                      रद्द करें
+                      Cancel
                     </button>
                     <button
                       type="button"
@@ -631,7 +631,7 @@ function ChatbotInner() {
                       onClick={handleAddCommander}
                       className="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
                     >
-                      {savingCommander ? "सेव हो रहा है…" : "कमांडर जोड़ें"}
+                      {savingCommander ? "Saving…" : "Add Commander"}
                     </button>
                   </div>
                 </div>
@@ -640,13 +640,13 @@ function ChatbotInner() {
               {/* Authorized Commander Members List */}
               <div className="mt-4 space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-semibold text-amber-200/90 uppercase tracking-wide">
-                  <span>2. अधिकृत टीम मेंबर्स ({commanders.length})</span>
-                  <span className="text-[10px] font-normal text-slate-400">कॉल व व्हाट्सऐप से एक्सेस</span>
+                  <span>2. Authorized Team Commander Lines ({commanders.length})</span>
+                  <span className="text-[10px] font-normal text-slate-400">Access via WhatsApp & Voice Notes</span>
                 </div>
 
                 {commanders.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-white/10 bg-black/30 p-3 text-center text-xs text-slate-400">
-                    अभी कोई टीम मेंबर नहीं जोड़ा गया है। &quot;+ नया कमांडर जोड़ें&quot; बटन दबाकर सेल्स हेड या अकाउंट्स का नंबर अधिकृत करें।
+                    No team commanders added yet. Click &quot;+ Add Commander&quot; above to authorize your Sales Head, Accounts, or Support line.
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -709,7 +709,7 @@ function ChatbotInner() {
                               type="button"
                               onClick={() => handleDeleteCommander(cmd.id)}
                               className="rounded p-1 text-slate-500 hover:bg-rose-500/20 hover:text-rose-300 transition-colors"
-                              title="हटाएं"
+                              title="Delete"
                             >
                               ✕
                             </button>
@@ -724,32 +724,32 @@ function ChatbotInner() {
               {/* Natural Language Cheatsheet */}
               <div className="mt-4 rounded-xl border border-white/5 bg-black/40 p-3 text-[11px] text-slate-300 space-y-2">
                 <div className="font-semibold text-amber-300 flex items-center gap-1.5">
-                  <span>⚡ WhatsApp Commander Commands (व्हाट्सऐप कमांड्स):</span>
+                  <span>⚡ WhatsApp Commander Cheatsheet &amp; Controls:</span>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 text-slate-400">
                   <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">📞 Call Intelligence (कॉल रिपोर्ट):</div>
-                    <div>&quot;today total call&quot;, &quot;आज कितने call आए हैं&quot; पूछें। रिपोर्ट के नीचे <b>1</b> (WhatsApp फॉलो-अप) या <b>2</b> (AI डायलर) दबाएँ।</div>
+                    <div className="font-medium text-white">📞 Call Intelligence &amp; Analytics:</div>
+                    <div>Ask &quot;today total call&quot;, &quot;missed call summary&quot;. Reply with <b>1</b> (send WhatsApp follow-up) or <b>2</b> (trigger AI auto-dialer).</div>
                   </div>
                   <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">🎙️ Voice Notes (बोलकर काम कराएं):</div>
-                    <div>WhatsApp पर वॉइस नोट भेजें — Sarvam STT द्वारा WaCall अपने आप ट्रांसक्राइब करके टास्क या रिपोर्ट देगा।</div>
+                    <div className="font-medium text-white">🎙️ Voice Note Commands:</div>
+                    <div>Send any voice note on WhatsApp — WaCalls transcribes audio via Sarvam STT and processes your task or query instantly.</div>
                   </div>
                   <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">🔥 Hot Leads & Tasks:</div>
-                    <div>&quot;Hot leads निकालो&quot;, &quot;आज के सारे काम बताओ&quot; या ग्राहक की चैट WaCall को Forward करें।</div>
+                    <div className="font-medium text-white">🔥 Hot Leads &amp; Task Management:</div>
+                    <div>Command &quot;Show hot leads&quot;, &quot;Today&apos;s pending tasks&quot;, or forward any customer chat directly to WaCalls to extract action items.</div>
                   </div>
                   <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
                     <div className="font-medium text-white">🎨 AI Creative Studio:</div>
-                    <div>&quot;Diwali ka poster bana do&quot; बोलें, पोस्टर पसंद आने पर &quot;Final&quot; या &quot;Logo छोटा करो&quot; कहें।</div>
+                    <div>Request &quot;Create Diwali discount poster&quot;. When generated, reply &quot;Final&quot; or &quot;Make logo smaller&quot; to edit.</div>
                   </div>
                   <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">💰 Finance & Payments:</div>
-                    <div>&quot;Pending payments बताओ&quot;, &quot;Mark paid Rahul 25000&quot; या &quot;Send invoice to Amit 15000&quot;।</div>
+                    <div className="font-medium text-white">💰 Accounts &amp; Invoicing:</div>
+                    <div>Query &quot;Show pending payments&quot;, &quot;Mark paid Rahul 25000&quot;, or &quot;Send invoice to Amit 15000&quot;.</div>
                   </div>
                   <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">🌅 Scheduled Scorecards:</div>
-                    <div>अधिकृत नंबर्स पर रोज़ सुबह 9:00 AM मॉर्निंग ब्रीफिंग व रात 8:00 PM EOD परफॉर्मेंस रिपोर्ट अपने आप आएगी।</div>
+                    <div className="font-medium text-white">🌅 Automated Scheduled Scorecards:</div>
+                    <div>Authorized lines receive an automated Morning Briefing at 9:00 AM and an EOD Performance Report at 8:00 PM daily.</div>
                   </div>
                 </div>
               </div>
@@ -893,7 +893,7 @@ function ChatbotInner() {
                     <span className="font-semibold text-white">Welcome Greeting Text</span>
                     <textarea
                       className="mt-1 min-h-20 w-full rounded-md border border-white/10 bg-black/60 p-2 text-xs text-white placeholder-slate-500 focus:border-brand-500 focus:outline-none"
-                      placeholder="नमस्ते! WaCalls में आपका स्वागत है। हम आपकी क्या सहायता कर सकते हैं?"
+                      placeholder="Hello! Welcome to our business. How may we assist you today?"
                       value={bot.greetingMessage ?? ""}
                       onChange={(e) => setBot({ ...bot, greetingMessage: e.target.value })}
                     />
@@ -940,7 +940,7 @@ function ChatbotInner() {
                       <span className="text-slate-400">days</span>
                     </div>
                     <p className="mt-1 text-[11px] text-slate-400">
-                      💡 इस अवधि के अंदर ग्राहक के दोबारा "Hi" या मैसेज करने पर Greeting दोबारा नहीं जाएगी।
+                      💡 If a customer messages again within this cooldown period, the greeting will not be resent.
                     </p>
                   </div>
                 </div>
@@ -1112,7 +1112,7 @@ function ChatbotInner() {
                     </select>
                   </label>
                   <p className="text-[11px] text-slate-400">
-                    💡 जब ग्राहक यह keyword चुनेगा, तो यह AI Agent उस विषय पर अपनी Knowledge Base के आधार पर बातचीत आगे संभालेगा।
+                    💡 When a customer triggers this keyword, the selected AI Agent will handle the conversation using its assigned Knowledge Base.
                   </p>
                 </div>
               )}
