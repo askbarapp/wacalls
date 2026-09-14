@@ -57,8 +57,11 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       services: z.array(z.string()).optional().default([]),
       defaultOffer: z.string().optional().nullable(),
       phone: z.string().optional().nullable(),
+      email: z.string().optional().nullable(),
       address: z.string().optional().nullable(),
       website: z.string().optional().nullable(),
+      logoUrl: z.string().optional().nullable(),
+      creativePreferences: z.any().optional().nullable(),
       language: z.string().optional().default("Hindi + English"),
     });
 
@@ -86,8 +89,11 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
             services: servicesStr,
             defaultOffer: body.defaultOffer,
             phone: body.phone,
+            email: body.email,
             address: body.address,
             website: body.website,
+            logoUrl: body.logoUrl,
+            creativePreferences: body.creativePreferences !== undefined ? body.creativePreferences : undefined,
             language: body.language,
           },
         })
@@ -104,8 +110,11 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
             services: servicesStr,
             defaultOffer: body.defaultOffer,
             phone: body.phone,
+            email: body.email,
             address: body.address,
             website: body.website,
+            logoUrl: body.logoUrl,
+            creativePreferences: body.creativePreferences || undefined,
             language: body.language,
           },
         });
@@ -242,7 +251,14 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       festivalName: z.string().optional(),
       userInstruction: z.string().min(1, "Instruction is required"),
       creativeType: z.enum(["poster", "banner", "status"]).optional().default("poster"),
-      aspect: z.enum(["1:1", "9:16", "16:9"]).optional().default("1:1"),
+      aspect: z.enum(["1:1", "9:16", "16:9", "4:5"]).optional().default("1:1"),
+      headlineText: z.string().optional(),
+      ctaText: z.string().optional(),
+      conceptTheme: z.string().optional(),
+      showPhone: z.boolean().optional(),
+      showWebsite: z.boolean().optional(),
+      showEmail: z.boolean().optional(),
+      showLogo: z.boolean().optional(),
       notifyPhone: z.string().optional(),
     });
 
@@ -255,6 +271,13 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       userInstruction: body.userInstruction,
       creativeType: body.creativeType,
       aspect: body.aspect,
+      headlineText: body.headlineText,
+      ctaText: body.ctaText,
+      conceptTheme: body.conceptTheme,
+      showPhone: body.showPhone,
+      showWebsite: body.showWebsite,
+      showEmail: body.showEmail,
+      showLogo: body.showLogo,
       notifyPhone: body.notifyPhone,
     });
 

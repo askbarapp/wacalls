@@ -26,7 +26,7 @@ export async function assertCreativeEntitlementAndCredits(organizationId: string
       where: { organizationId, channelId, feature: "ai_creative_studio" },
     });
     if (entitlement && !entitlement.enabled) {
-      throw new Error("🎨 AI Creative Studio आपके इस नंबर पर अभी activated नहीं है। इसे activate करने के लिए admin से संपर्क करें।");
+      throw new Error("🎨 AI Creative Studio is not active on this number. Please contact admin to activate.");
     }
   }
 
@@ -48,7 +48,7 @@ export async function assertCreativeEntitlementAndCredits(organizationId: string
   }
 
   if (credit.balance < 5) {
-    throw new Error("🎨 AI Creative credits खत्म हो गए हैं। कृपया अपना plan upgrade करें।");
+    throw new Error("🎨 AI Creative credits are exhausted. Please upgrade your plan.");
   }
 }
 
@@ -62,7 +62,14 @@ export async function createCreativeRequest(input: {
   festivalName?: string;
   userInstruction: string;
   creativeType?: "poster" | "banner" | "status";
-  aspect?: "1:1" | "9:16" | "16:9";
+  aspect?: "1:1" | "9:16" | "16:9" | "4:5";
+  headlineText?: string;
+  ctaText?: string;
+  conceptTheme?: string;
+  showPhone?: boolean;
+  showWebsite?: boolean;
+  showEmail?: boolean;
+  showLogo?: boolean;
   notifyPhone?: string;
 }) {
   await assertCreativeEntitlementAndCredits(input.organizationId, input.channelId);
@@ -96,6 +103,17 @@ export async function createCreativeRequest(input: {
     creativeType: input.creativeType || "poster",
     aspect: input.aspect || "1:1",
     language: profile?.language || "Hindi + English",
+    headlineText: input.headlineText,
+    ctaText: input.ctaText,
+    conceptTheme: input.conceptTheme,
+    phone: profile?.phone || undefined,
+    email: profile?.email || undefined,
+    website: profile?.website || undefined,
+    logoUrl: profile?.logoUrl || undefined,
+    showPhone: input.showPhone ?? true,
+    showWebsite: input.showWebsite ?? true,
+    showEmail: input.showEmail ?? true,
+    showLogo: input.showLogo ?? true,
   });
 
   const provider = await getCreativeProvider(input.organizationId);
@@ -318,6 +336,9 @@ function getFastFallbackUrl(prompt: string, aspect: string = "1:1"): string {
   } else if (aspect === "16:9") {
     width = 1344;
     height = 768;
+  } else if (aspect === "4:5") {
+    width = 864;
+    height = 1080;
   }
   const cleanPrompt = encodeURIComponent(prompt.slice(0, 600));
   return `https://image.pollinations.ai/prompt/${cleanPrompt}?width=${width}&height=${height}&model=flux&seed=${seed}&nologo=true`;
@@ -386,7 +407,7 @@ async function completeWithFastFallback(
     }).catch(() => undefined);
 
     if (opts.channelId && opts.notifyPhone) {
-      const caption = `🎨 *WaCall Creative Studio — Poster Ready!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nकैसी लगी यह creative? आप कह सकते हैं:\n• *"Logo छोटा करो"*\n• *"Background blue करो"*\n• *"एक और बनाओ"*\n• *"Final"* (lock करने के लिए)`;
+      const caption = `🎨 *WaCall Creative Studio — Poster Ready!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nHow do you like this creative? You can reply with revisions like:\n• *"Make the logo smaller"*\n• *"Change background to royal blue"*\n• *"Generate another variation"*\n• *"Final"* (to approve and lock)`;
       await whatsappClient.sendText(opts.channelId, opts.notifyPhone, caption, {
         imagePath: localPath,
       }).catch((sendErr) => log.error({ err: sendErr?.message }, "Failed to dispatch creative to WhatsApp"));
@@ -562,7 +583,7 @@ async function pollJobUntilDone(opts: {
 
         // 5. Send directly to WhatsApp if notifyPhone is present!
         if (opts.channelId && opts.notifyPhone) {
-          const caption = `🎨 *WaCall Creative Studio — Poster Ready!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nकैसी लगी यह creative? आप कह सकते हैं:\n• *"Logo छोटा करो"*\n• *"Background blue करो"*\n• *"एक और बनाओ"*\n• *"Final"* (lock करने के लिए)`;
+          const caption = `🎨 *WaCall Creative Studio — Poster Ready!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nHow do you like this creative? You can reply with revisions like:\n• *"Make the logo smaller"*\n• *"Change background to royal blue"*\n• *"Generate another variation"*\n• *"Final"* (to approve and lock)`;
 
           await whatsappClient.sendText(opts.channelId, opts.notifyPhone, caption, {
             imagePath: localPath,
@@ -586,7 +607,7 @@ async function pollJobUntilDone(opts: {
           await whatsappClient.sendText(
             opts.channelId,
             opts.notifyPhone,
-            "❌ इस समय creative generate नहीं हो सकी। कृपया कुछ देर बाद फिर प्रयास करें।",
+            "❌ Creative generation could not be completed at this time. Please try again in a few moments.",
           ).catch(() => undefined);
         }
         break;

@@ -1460,6 +1460,7 @@ model BusinessProfile {
   businessCategory    String?  @map("business_category")
   ownerName           String?  @map("owner_name")
   phone               String?
+  email               String?
   address             String?
   website             String?
   logoUrl             String?  @map("logo_url")

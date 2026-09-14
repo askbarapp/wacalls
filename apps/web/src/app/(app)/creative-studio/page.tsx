@@ -18,6 +18,17 @@ import {
   Zap,
   Trash2,
   AlertCircle,
+  Smartphone,
+  Monitor,
+  Square,
+  Layout,
+  Phone,
+  Mail,
+  Globe,
+  Layers,
+  Type,
+  Check,
+  Eye,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
@@ -33,7 +44,12 @@ interface BusinessProfile {
   services: string[];
   defaultOffer?: string | null;
   phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  logoUrl?: string | null;
+  address?: string | null;
   language?: string;
+  creativePreferences?: any;
 }
 
 interface CreativeVersion {
@@ -99,6 +115,11 @@ export default function CreativeStudioPage() {
     products: [],
     services: [],
     defaultOffer: "",
+    phone: "",
+    email: "",
+    website: "",
+    logoUrl: "",
+    address: "",
     language: "Hindi + English",
   });
 
@@ -112,7 +133,14 @@ export default function CreativeStudioPage() {
     userInstruction: "",
     festivalName: "",
     creativeType: "poster" as "poster" | "banner" | "status",
-    aspect: "1:1" as "1:1" | "9:16" | "16:9",
+    aspect: "1:1" as "1:1" | "9:16" | "16:9" | "4:5",
+    headlineText: "",
+    ctaText: "Call Now",
+    conceptTheme: "Modern Minimalist",
+    showPhone: true,
+    showWebsite: true,
+    showEmail: true,
+    showLogo: true,
   });
   const [selectedAsset, setSelectedAsset] = useState<CreativeAsset | null>(null);
   const [editInstruction, setEditInstruction] = useState("");
@@ -236,6 +264,13 @@ export default function CreativeStudioPage() {
         festivalName: "",
         creativeType: "poster",
         aspect: "1:1",
+        headlineText: "",
+        ctaText: "Call Now",
+        conceptTheme: "Modern Minimalist",
+        showPhone: true,
+        showWebsite: true,
+        showEmail: true,
+        showLogo: true,
       });
       setMsg("Poster generation started! It takes ~1 minute to render.");
       await loadData();
@@ -616,6 +651,86 @@ export default function CreativeStudioPage() {
             />
           </div>
 
+          <div className="border-t border-white/10 pt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-violet-400">
+              Poster Branding & Contact Metadata
+            </h4>
+            <p className="mt-0.5 text-xs text-white/50">
+              These details are placed in the clean footer bar and emblem badge on your generated posters and banners.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-white/80">
+                <Phone className="h-3.5 w-3.5 text-violet-400" />
+                Primary Business Contact Phone
+              </label>
+              <input
+                type="text"
+                value={profile.phone || ""}
+                onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                placeholder="e.g. +91 98765 43210"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-white/80">
+                <Mail className="h-3.5 w-3.5 text-violet-400" />
+                Business Email Address
+              </label>
+              <input
+                type="email"
+                value={profile.email || ""}
+                onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                placeholder="e.g. contact@yourbusiness.com"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-white/80">
+                <Globe className="h-3.5 w-3.5 text-violet-400" />
+                Website Domain
+              </label>
+              <input
+                type="text"
+                value={profile.website || ""}
+                onChange={(e) => setProfile({ ...profile, website: e.target.value })}
+                placeholder="e.g. www.yourbusiness.com"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-white/80">
+                <ImageIcon className="h-3.5 w-3.5 text-violet-400" />
+                Brand Logo URL
+              </label>
+              <input
+                type="text"
+                value={profile.logoUrl || ""}
+                onChange={(e) => setProfile({ ...profile, logoUrl: e.target.value })}
+                placeholder="e.g. https://yourbusiness.com/logo.png"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-white/80">
+                Physical Address / Store Location
+              </label>
+              <input
+                type="text"
+                value={profile.address || ""}
+                onChange={(e) => setProfile({ ...profile, address: e.target.value })}
+                placeholder="e.g. Shop 12, Main Market, MG Road, New Delhi"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
           <div className="flex justify-end pt-3">
             <button
               type="button"
@@ -812,112 +927,285 @@ export default function CreativeStudioPage() {
 
       {/* Generate Modal */}
       {isGenerateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-zinc-950 p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/15 bg-zinc-950 p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-violet-400" />
-                <h3 className="text-base font-semibold text-white">Create New Business Creative</h3>
+                <h3 className="text-base font-semibold text-white">Create New Business Creative Pro</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsGenerateOpen(false)}
-                className="text-white/50 hover:text-white"
+                className="rounded-lg p-1 text-white/50 hover:bg-white/10 hover:text-white"
               >
                 ✕
               </button>
             </div>
 
-            <div className="mt-4 space-y-4">
+            <div className="mt-5 space-y-5">
+              {/* 1. Aspect Ratio & Dimensions Control */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-white/80">
-                  Festival / Occasion (Optional)
+                <label className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-violet-300">
+                  <span>1. Aspect Ratio & Canvas Dimensions</span>
+                  <span className="text-[11px] font-normal text-white/50">Optimized for social platforms</span>
                 </label>
-                <select
-                  value={generateForm.festivalName}
-                  onChange={(e) => setGenerateForm({ ...generateForm, festivalName: e.target.value })}
-                  className="w-full rounded-xl border border-white/10 bg-zinc-900 px-3.5 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
-                >
-                  <option value="">None / General Marketing</option>
-                  <option value="Diwali">Diwali / Deepavali</option>
-                  <option value="Holi">Holi Festival of Colors</option>
-                  <option value="Eid">Eid Mubarak</option>
-                  <option value="Navratri">Navratri / Durga Puja</option>
-                  <option value="New Year">Happy New Year</option>
-                  <option value="Independence Day">Independence Day</option>
-                  <option value="Raksha Bandhan">Raksha Bandhan</option>
-                  <option value="Christmas">Christmas</option>
-                </select>
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  {/* 1:1 */}
+                  <button
+                    type="button"
+                    onClick={() => setGenerateForm({ ...generateForm, aspect: "1:1", creativeType: "poster" })}
+                    className={`flex flex-col items-center justify-center rounded-xl border p-3 text-center transition-all ${
+                      generateForm.aspect === "1:1"
+                        ? "border-violet-500 bg-violet-600/20 text-white ring-2 ring-violet-500/40 shadow-lg shadow-violet-500/20"
+                        : "border-white/10 bg-black/30 text-white/70 hover:border-white/20 hover:bg-white/5"
+                    }`}
+                  >
+                    <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-md border border-violet-400/50 bg-violet-500/10">
+                      <Square className="h-4 w-4 text-violet-300" />
+                    </div>
+                    <div className="text-xs font-bold text-white">1:1 Square</div>
+                    <div className="mt-0.5 text-[10px] text-violet-300">1024 × 1024 px</div>
+                    <div className="mt-1 text-[9px] text-white/40">Feed & Catalog</div>
+                  </button>
+
+                  {/* 9:16 */}
+                  <button
+                    type="button"
+                    onClick={() => setGenerateForm({ ...generateForm, aspect: "9:16", creativeType: "status" })}
+                    className={`flex flex-col items-center justify-center rounded-xl border p-3 text-center transition-all ${
+                      generateForm.aspect === "9:16"
+                        ? "border-violet-500 bg-violet-600/20 text-white ring-2 ring-violet-500/40 shadow-lg shadow-violet-500/20"
+                        : "border-white/10 bg-black/30 text-white/70 hover:border-white/20 hover:bg-white/5"
+                    }`}
+                  >
+                    <div className="mb-2 flex h-8 w-5 items-center justify-center rounded-md border border-violet-400/50 bg-violet-500/10">
+                      <Smartphone className="h-4 w-4 text-violet-300" />
+                    </div>
+                    <div className="text-xs font-bold text-white">9:16 Vertical</div>
+                    <div className="mt-0.5 text-[10px] text-violet-300">1080 × 1920 px</div>
+                    <div className="mt-1 text-[9px] text-white/40">Status & Stories</div>
+                  </button>
+
+                  {/* 16:9 */}
+                  <button
+                    type="button"
+                    onClick={() => setGenerateForm({ ...generateForm, aspect: "16:9", creativeType: "banner" })}
+                    className={`flex flex-col items-center justify-center rounded-xl border p-3 text-center transition-all ${
+                      generateForm.aspect === "16:9"
+                        ? "border-violet-500 bg-violet-600/20 text-white ring-2 ring-violet-500/40 shadow-lg shadow-violet-500/20"
+                        : "border-white/10 bg-black/30 text-white/70 hover:border-white/20 hover:bg-white/5"
+                    }`}
+                  >
+                    <div className="mb-2 flex h-5 w-8 items-center justify-center rounded-md border border-violet-400/50 bg-violet-500/10">
+                      <Monitor className="h-3.5 w-3.5 text-violet-300" />
+                    </div>
+                    <div className="text-xs font-bold text-white">16:9 Banner</div>
+                    <div className="mt-0.5 text-[10px] text-violet-300">1920 × 1080 px</div>
+                    <div className="mt-1 text-[9px] text-white/40">Web & Displays</div>
+                  </button>
+
+                  {/* 4:5 */}
+                  <button
+                    type="button"
+                    onClick={() => setGenerateForm({ ...generateForm, aspect: "4:5", creativeType: "poster" })}
+                    className={`flex flex-col items-center justify-center rounded-xl border p-3 text-center transition-all ${
+                      generateForm.aspect === "4:5"
+                        ? "border-violet-500 bg-violet-600/20 text-white ring-2 ring-violet-500/40 shadow-lg shadow-violet-500/20"
+                        : "border-white/10 bg-black/30 text-white/70 hover:border-white/20 hover:bg-white/5"
+                    }`}
+                  >
+                    <div className="mb-2 flex h-7 w-6 items-center justify-center rounded-md border border-violet-400/50 bg-violet-500/10">
+                      <Layout className="h-4 w-4 text-violet-300" />
+                    </div>
+                    <div className="text-xs font-bold text-white">4:5 Portrait</div>
+                    <div className="mt-0.5 text-[10px] text-violet-300">1080 × 1350 px</div>
+                    <div className="mt-1 text-[9px] text-white/40">Social Feeds</div>
+                  </button>
+                </div>
               </div>
 
+              {/* 2. Custom Typography & Headline Studio */}
+              <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3">
+                <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-violet-300">
+                  <Type className="h-4 w-4 text-violet-400" />
+                  <span>2. Custom Headline & Typography Integration</span>
+                </label>
+                <div>
+                  <input
+                    type="text"
+                    value={generateForm.headlineText}
+                    onChange={(e) => setGenerateForm({ ...generateForm, headlineText: e.target.value })}
+                    placeholder="e.g. MEGA DIWALI SALE — 30% OFF ALL SWEETS"
+                    className="w-full rounded-xl border border-white/15 bg-black/50 px-3.5 py-2 text-sm font-medium text-white placeholder-white/30 focus:border-violet-500 focus:outline-none"
+                  />
+                  <p className="mt-1 text-[11px] text-white/40">
+                    The AI enforces clean vector typography guardrails with zero spelling distortion.
+                  </p>
+                </div>
+
+                {/* Call To Action (CTA) Badge */}
+                <div>
+                  <div className="mb-1.5 text-xs font-medium text-white/80">Call-to-Action (CTA) Badge</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      "Call Now",
+                      "Order on WhatsApp",
+                      "Visit Store",
+                      "Book Appointment",
+                      "Special Offer",
+                      "Limited Time",
+                    ].map((cta) => (
+                      <button
+                        key={cta}
+                        type="button"
+                        onClick={() => setGenerateForm({ ...generateForm, ctaText: cta })}
+                        className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                          generateForm.ctaText === cta
+                            ? "bg-violet-600 text-white shadow-sm"
+                            : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        {cta}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Concept Theme & Occasion */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-white/80">
+                    Aesthetic Concept Theme
+                  </label>
+                  <select
+                    value={generateForm.conceptTheme}
+                    onChange={(e) => setGenerateForm({ ...generateForm, conceptTheme: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-zinc-900 px-3.5 py-2 text-xs text-white focus:border-violet-500 focus:outline-none"
+                  >
+                    <option value="Modern Minimalist">Modern Minimalist (Clean Swiss Style)</option>
+                    <option value="Festive Traditional">Festive Traditional (Royal Heritage & Diyas)</option>
+                    <option value="Bold Commercial Sale">Bold Commercial Sale (High Energy Retail)</option>
+                    <option value="Luxury & Elegant">Luxury & Elegant (Gold Foil & Matte Black)</option>
+                    <option value="Corporate Clean">Corporate Clean (Tech & Trustworthy)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-white/80">
+                    Festival / Occasion (Optional)
+                  </label>
+                  <select
+                    value={generateForm.festivalName}
+                    onChange={(e) => setGenerateForm({ ...generateForm, festivalName: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-zinc-900 px-3.5 py-2 text-xs text-white focus:border-violet-500 focus:outline-none"
+                  >
+                    <option value="">None / General Business Marketing</option>
+                    <option value="Diwali">Diwali / Deepavali</option>
+                    <option value="Holi">Holi Festival of Colors</option>
+                    <option value="Eid">Eid Mubarak</option>
+                    <option value="Navratri">Navratri / Durga Puja</option>
+                    <option value="New Year">Happy New Year</option>
+                    <option value="Independence Day">Independence Day</option>
+                    <option value="Raksha Bandhan">Raksha Bandhan</option>
+                    <option value="Christmas">Christmas</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 4. Creative Concept & Visual Details */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-white/80">
-                  Poster Concept / Instructions
+                  Visual Concept & Scene Description
                 </label>
                 <textarea
                   rows={3}
                   value={generateForm.userInstruction}
                   onChange={(e) => setGenerateForm({ ...generateForm, userInstruction: e.target.value })}
-                  placeholder="e.g. Diwali festive poster with glowing diya lamps, showcasing premium gift hampers and elegant packaging..."
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-sm text-white placeholder-white/30 focus:border-violet-500 focus:outline-none"
+                  placeholder="e.g. Glowing festive atmosphere with traditional brass diya lamps, showcasing premium sweet gift boxes, gold floral borders, high-end commercial studio lighting..."
+                  className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-xs text-white placeholder-white/30 focus:border-violet-500 focus:outline-none"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-white/80">Format</label>
-                  <select
-                    value={generateForm.creativeType}
-                    onChange={(e) =>
-                      setGenerateForm({
-                        ...generateForm,
-                        creativeType: e.target.value as any,
-                      })
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-zinc-900 px-3 py-2 text-xs text-white focus:outline-none"
-                  >
-                    <option value="poster">Poster</option>
-                    <option value="banner">Banner</option>
-                    <option value="status">Status Story</option>
-                  </select>
+              {/* 5. Business Branding Metadata Bar */}
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3.5">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-white/90">
+                    <Layers className="h-3.5 w-3.5 text-violet-400" />
+                    Include Business Branding Details on Canvas
+                  </span>
+                  <span className="text-[10px] text-white/40">Configure in Brand Profile</span>
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-white/80">Aspect Ratio</label>
-                  <select
-                    value={generateForm.aspect}
-                    onChange={(e) =>
-                      setGenerateForm({
-                        ...generateForm,
-                        aspect: e.target.value as any,
-                      })
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-zinc-900 px-3 py-2 text-xs text-white focus:outline-none"
-                  >
-                    <option value="1:1">1:1 Square (WhatsApp Feed)</option>
-                    <option value="9:16">9:16 Vertical (Status/Story)</option>
-                    <option value="16:9">16:9 Banner (Horizontal)</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/5 bg-white/5 p-2 text-white/80 hover:bg-white/10">
+                    <input
+                      type="checkbox"
+                      checked={generateForm.showPhone}
+                      onChange={(e) => setGenerateForm({ ...generateForm, showPhone: e.target.checked })}
+                      className="rounded border-white/20 text-violet-600 focus:ring-0"
+                    />
+                    <span className="truncate">Phone: {profile.phone ? "Yes" : "Auto"}</span>
+                  </label>
+
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/5 bg-white/5 p-2 text-white/80 hover:bg-white/10">
+                    <input
+                      type="checkbox"
+                      checked={generateForm.showWebsite}
+                      onChange={(e) => setGenerateForm({ ...generateForm, showWebsite: e.target.checked })}
+                      className="rounded border-white/20 text-violet-600 focus:ring-0"
+                    />
+                    <span className="truncate">Website: {profile.website ? "Yes" : "Auto"}</span>
+                  </label>
+
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/5 bg-white/5 p-2 text-white/80 hover:bg-white/10">
+                    <input
+                      type="checkbox"
+                      checked={generateForm.showEmail}
+                      onChange={(e) => setGenerateForm({ ...generateForm, showEmail: e.target.checked })}
+                      className="rounded border-white/20 text-violet-600 focus:ring-0"
+                    />
+                    <span className="truncate">Email: {profile.email ? "Yes" : "Auto"}</span>
+                  </label>
+
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/5 bg-white/5 p-2 text-white/80 hover:bg-white/10">
+                    <input
+                      type="checkbox"
+                      checked={generateForm.showLogo}
+                      onChange={(e) => setGenerateForm({ ...generateForm, showLogo: e.target.checked })}
+                      className="rounded border-white/20 text-violet-600 focus:ring-0"
+                    />
+                    <span className="truncate">Logo Badge</span>
+                  </label>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setIsGenerateOpen(false)}
-                  className="rounded-xl border border-white/10 px-4 py-2 text-xs text-white hover:bg-white/5"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy || !generateForm.userInstruction.trim()}
-                  onClick={handleGenerateCreative}
-                  className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-50"
-                >
-                  {actionBusy && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-                  Generate (5 Credits)
-                </button>
+              {/* Action Buttons */}
+              <div className="flex items-center justify-between border-t border-white/10 pt-4">
+                <div className="flex items-center gap-1.5 text-xs text-violet-300">
+                  <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+                  <span>Uses 5 credits</span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsGenerateOpen(false)}
+                    className="rounded-xl border border-white/10 px-4 py-2 text-xs font-medium text-white hover:bg-white/5"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionBusy || !generateForm.userInstruction.trim()}
+                    onClick={handleGenerateCreative}
+                    className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-violet-600/30 hover:bg-violet-500 disabled:opacity-50"
+                  >
+                    {actionBusy && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                    Generate Creative
+                  </button>
+                </div>
               </div>
             </div>
           </div>
