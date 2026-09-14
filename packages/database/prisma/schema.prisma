@@ -210,6 +210,7 @@ model Organization {
   emailAccounts       EmailAccount[]
   emailMessages       EmailMessage[]
   emailRules          EmailRule[]
+  taskReminders       TaskReminder[]
 
   @@index([planId])
   @@index([status])
@@ -346,6 +347,7 @@ model WhatsAppChannel {
   festivalCampaigns  FestivalCampaign[]
   commanderMembers   CommanderMember[]
   emailAccounts      EmailAccount[]
+  taskReminders      TaskReminder[]
 
   @@index([organizationId])
   @@index([status])
@@ -1313,31 +1315,60 @@ model CsvImport {
 }
 
 model BusinessTask {
-  id             String    @id @default(uuid())
-  organizationId String    @map("organization_id")
-  channelId      String    @map("channel_id")
-  conversationId String?   @map("conversation_id")
-  title          String
-  description    String?
-  assignedTo     String?   @map("assigned_to")
-  contactPhone   String?   @map("contact_phone")
-  contactName    String?   @map("contact_name")
-  dueAt          DateTime? @map("due_at")
-  priority       String    @default("MEDIUM")
-  status         String    @default("PENDING")
-  source         String    @default("owner_command")
-  amount         Float?
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  channelId       String    @map("channel_id")
+  conversationId  String?   @map("conversation_id")
+  title           String
+  description     String?
+  assignedTo      String?   @map("assigned_to")
+  assignedPhone   String?   @map("assigned_phone")
+  contactPhone    String?   @map("contact_phone")
+  contactName     String?   @map("contact_name")
+  dueAt           DateTime? @map("due_at")
+  timezone        String    @default("Asia/Kolkata")
+  priority        String    @default("MEDIUM") /// URGENT, HIGH, MEDIUM, LOW
+  status          String    @default("TODO")   /// TODO, IN_PROGRESS, COMPLETED, SKIPPED, CANCELLED, OVERDUE, PENDING
+  source          String    @default("WHATSAPP") /// WHATSAPP, EMAIL, CALL, MANUAL, AI, SYSTEM
+  sourceReference String?   @map("source_reference")
+  amount          Float?
+  recurrence      String?   /// NEVER, DAILY, WEEKLY, MONTHLY, CUSTOM
+  recurrenceRule  String?   @map("recurrence_rule")
+  completedAt     DateTime? @map("completed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channel      WhatsAppChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
   conversation ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  reminders    TaskReminder[]
 
   @@index([organizationId, status])
   @@index([channelId])
   @@index([dueAt])
   @@map("business_tasks")
+}
+
+model TaskReminder {
+  id             String    @id @default(uuid())
+  taskId         String    @map("task_id")
+  organizationId String    @map("organization_id")
+  channelId      String    @map("channel_id")
+  reminderAt     DateTime  @map("reminder_at")
+  status         String    @default("PENDING") /// PENDING, SENT, CANCELLED, SNOOZED
+  recipientPhone String    @map("recipient_phone")
+  sentAt         DateTime? @map("sent_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  task         BusinessTask    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([reminderAt, status])
+  @@index([organizationId, status])
+  @@index([taskId])
+  @@map("task_reminders")
 }
 
 model PendingAction {

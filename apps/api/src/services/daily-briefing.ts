@@ -124,7 +124,7 @@ async function sendMorningBriefing(
     prisma.businessTask.findMany({
       where: {
         organizationId: orgId,
-        status: "PENDING",
+        status: { in: ["TODO", "IN_PROGRESS", "PENDING"] },
       },
       orderBy: { dueAt: "asc" },
       take: 5,
@@ -253,7 +253,7 @@ async function sendEodReport(
   const orgId = channel.organizationId;
   const startOfDay = new Date(`${todayStr}T00:00:00.000Z`);
 
-  const [totalMessagesToday, leadsToday, completedTasksToday, callsToday, invoicesToday] =
+  const [totalMessagesToday, leadsToday, completedTasksToday, callsToday, invoicesToday, pendingTasksRemaining] =
     await Promise.all([
       // Total WhatsApp messages received today
       prisma.chatMessage.count({
@@ -296,6 +296,14 @@ async function sendEodReport(
             select: { total: true, amountPaid: true },
           })
         : Promise.resolve([]),
+      // Overdue / pending tasks remaining
+      prisma.businessTask.count({
+        where: {
+          organizationId: orgId,
+          status: { in: ["TODO", "IN_PROGRESS", "PENDING", "OVERDUE"] },
+          dueAt: { lte: new Date() },
+        },
+      }),
     ]);
 
   const totalInvoiced = invoicesToday.reduce((sum, inv) => sum + inv.total, 0);
@@ -322,7 +330,27 @@ async function sendEodReport(
     card += `• 📄 *नए इनवॉइस/कोटेशन:* ${invoicesToday.length}${totalInvoiced > 0 ? ` (₹${totalInvoiced.toLocaleString("en-IN")})` : ""}\n`;
     card += `• 💰 *आज जमा भुगतान (Collected):* ₹${totalCollected.toLocaleString("en-IN")}\n`;
   }
-  card += `━━━━━━━━━━━━━━━━━━━━\n✨ *शानदार काम, ${recipient.name || "Boss"}! आज का पूरा रिकॉर्ड सुरक्षित है। Relax & Good Night!* 😴`;
+
+  if (pendingTasksRemaining > 0) {
+    card += `• ⏳ *लंबित टास्क (Pending Tasks):* ${pendingTasksRemaining} कार्य बाकी हैं।\n`;
+    card += `━━━━━━━━━━━━━━━━━━━━\n💡 Reply *1* to shift all ${pendingTasksRemaining} pending tasks to tomorrow morning (9:00 AM).`;
+
+    await prisma.pendingAction
+      .create({
+        data: {
+          organizationId: orgId,
+          channelId: channel.id,
+          actionType: "EOD_TASK_SHIFT_ACTION",
+          summary: `Shift ${pendingTasksRemaining} pending tasks to tomorrow morning`,
+          status: "PENDING",
+          payload: { count: pendingTasksRemaining },
+          expiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000),
+        },
+      })
+      .catch(() => undefined);
+  } else {
+    card += `━━━━━━━━━━━━━━━━━━━━\n✨ *शानदार काम, ${recipient.name || "Boss"}! आज का पूरा रिकॉर्ड सुरक्षित है। Relax & Good Night!* 😴`;
+  }
 
   await sendWhatsAppText({
     organizationId: orgId,
