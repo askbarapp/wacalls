@@ -110,7 +110,7 @@ export async function processDailyBriefingTick(): Promise<void> {
 /**
  * Builds and sends the 9:00 AM Morning Executive Briefing tailored to the commander's role.
  */
-async function sendMorningBriefing(
+export async function sendMorningBriefing(
   channel: any,
   todayStr: string,
   recipient: { phone: string; name: string; role: string },
@@ -245,7 +245,7 @@ async function sendMorningBriefing(
 /**
  * Builds and sends the 8:00 PM End-of-Day (EOD) Performance Report.
  */
-async function sendEodReport(
+export async function sendEodReport(
   channel: any,
   todayStr: string,
   recipient: { phone: string; name: string; role: string },

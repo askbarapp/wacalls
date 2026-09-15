@@ -72,8 +72,8 @@ export async function processTaskRemindersTick(): Promise<void> {
         const descStr = task.description ? `\n📝 _${task.description.slice(0, 150)}_` : "";
 
         const options = task.contactPhone
-          ? `━━━━━━━━━━━━━━━━━━━━\nReply to this message:\n*1* → ✅ Mark as Done\n*2* → ⏰ Snooze 30 Min\n*3* → 🌙 Snooze to Tomorrow (9 AM)\n*4* → 📞 Call ${task.contactName || "Contact"}`
-          : `━━━━━━━━━━━━━━━━━━━━\nReply to this message:\n*1* → ✅ Mark as Done\n*2* → ⏰ Snooze 30 Min\n*3* → 🌙 Snooze to Tomorrow (9 AM)`;
+          ? `━━━━━━━━━━━━━━━━━━━━\nReply to this message:\n*1* → ✅ Mark as Done\n*2* → ⏰ Snooze 30 Min\n*3* → 🌙 Snooze to Tomorrow (9 AM)\n*4* → 📞 Call ${task.contactName || "Contact"}\n*5* → 🤖 Delegate to AI (AI खुद कॉल/मैसेज फॉलो-अप करे)`
+          : `━━━━━━━━━━━━━━━━━━━━\nReply to this message:\n*1* → ✅ Mark as Done\n*2* → ⏰ Snooze 30 Min\n*3* → 🌙 Snooze to Tomorrow (9 AM)\n*5* → 🤖 Delegate to AI (AI फॉलो-अप करे)`;
 
         const alertBody = `⏰ *TASK REMINDER* ${priorityEmoji}
 ━━━━━━━━━━━━━━━━━━━━

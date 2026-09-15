@@ -29,6 +29,7 @@ import {
   shiftPendingTasksToTomorrow,
 } from "./tasks/task-service.js";
 import { interpretTaskNaturalLanguage } from "./tasks/task-interpreter.js";
+import { sendMorningBriefing, sendEodReport } from "./daily-briefing.js";
 
 const log = pino({ name: "business-assistant" });
 
@@ -654,6 +655,74 @@ export async function handleOwnerCommand(input: {
         }
         return true;
       }
+
+      // Option 5: Delegate to AI (AI Auto-Execution)
+      if (
+        upperText === "5" ||
+        upperText === "DELEGATE" ||
+        upperText.includes("DELEGATE") ||
+        upperText.includes("AI KO BOLO") ||
+        upperText.includes("AI HANDLE") ||
+        upperText.includes("TUM KARO") ||
+        upperText.includes("TUM DEKHO")
+      ) {
+        const contactPhone = payload.contactPhone;
+        const contactName = payload.contactName || "Client";
+        const taskTitle = payload.title || "Task";
+
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "APPROVED" },
+        });
+
+        if (contactPhone) {
+          // 1. Queue outbound callback in dialer queue
+          await prisma.callbackTask.create({
+            data: {
+              organizationId: channel.organizationId,
+              phone: contactPhone,
+              contactName,
+              reason: `Delegated Task Followup: ${taskTitle}`,
+            },
+          }).catch(() => undefined);
+
+          // 2. Send proactive executive WhatsApp follow-up to the client
+          const clientGreeting = `नमस्ते ${contactName} जी,\nयह संदेश *${channel.displayName || "WaCall"}* की तरफ से है।\n\n📌 *विषय:* ${taskTitle}\nकृपया इस बारे में अपडेट साझा करें या सुविधा अनुसार समय बताएं जब आपसे बात हो सके। धन्यवाद!`;
+          
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: contactPhone,
+            body: clientGreeting,
+            chatSource: "bot",
+          }).catch(() => undefined);
+
+          // 3. Mark task as in progress / delegated
+          if (payload.taskId) {
+            await prisma.businessTask.update({
+              where: { id: payload.taskId },
+              data: { status: "IN_PROGRESS", description: `Delegated to AI for auto-followup on ${new Date().toLocaleString("en-IN")}` },
+            }).catch(() => undefined);
+          }
+
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: input.phone,
+            body: `🤖 *Task Delegated to AI Successfully!* 🎯\n━━━━━━━━━━━━━━━━━━━━\n📌 *Task:* ${taskTitle}\n👤 *Contact:* ${contactName} (${contactPhone})\n\n✅ *AI Actions Taken:*\n1. Outbound Call कतारबद्ध (Callback Task) में जोड़ दिया गया है।\n2. ${contactName} को WhatsApp पर औपचारिक फॉलो-अप संदेश भेज दिया गया है।\n\nजैसे ही ग्राहक का रिप्लाई आएगा, मैं आपको तुरंत अपडेट करूँगा!`,
+            chatSource: "bot",
+          }).catch(() => undefined);
+        } else {
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: input.phone,
+            body: `⚠️ इस टास्क के साथ कोई फ़ोन नंबर लिंक नहीं है, इसलिए AI सीधे संपर्क नहीं कर सका। कृपया मुझे ग्राहक का नंबर लिखकर भेजें (उदा: *"Update contact [Number]"*)`,
+            chatSource: "bot",
+          }).catch(() => undefined);
+        }
+        return true;
+      }
     }
 
     // D. EOD Task Shift Action Handler
@@ -1082,6 +1151,40 @@ export async function handleOwnerCommand(input: {
     return true;
   }
 
+  // 0A. On-Demand Morning Executive Briefing
+  if (
+    upperText.includes("MORNING BRIEFING") ||
+    upperText.includes("GOOD MORNING") ||
+    upperText.includes("SUBAH KI REPORT") ||
+    upperText.includes("MORNING REPORT") ||
+    upperText === "GM"
+  ) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    await sendMorningBriefing(channel, todayStr, {
+      phone: input.phone,
+      name: commander.name || "Boss",
+      role: commander.role,
+    });
+    return true;
+  }
+
+  // 0B. On-Demand End of Day (EOD) Report
+  if (
+    upperText.includes("EOD") ||
+    upperText.includes("END OF DAY") ||
+    upperText.includes("SHAM KI REPORT") ||
+    upperText.includes("AAJ KA HISAB") ||
+    upperText.includes("DAY END")
+  ) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    await sendEodReport(channel, todayStr, {
+      phone: input.phone,
+      name: commander.name || "Boss",
+      role: commander.role,
+    });
+    return true;
+  }
+
   // A. "Today's Work" / "आज के सारे काम बताओ" / "Summary"
   if (
     upperText.includes("KAAM") ||
@@ -1436,6 +1539,37 @@ export async function handleOwnerCommand(input: {
       }).catch(() => undefined);
     }
     return true;
+  }
+
+  // K. Conversational Business Memory & Query Search ("AI, बताओ...", "Sharma ji ko call...", "Kitna baki hai?")
+  const isQuestionOrSearch =
+    text.endsWith("?") ||
+    upperText.includes("BATAO") ||
+    upperText.includes("BATA DO") ||
+    upperText.includes("KAB") ||
+    upperText.includes("KHOJO") ||
+    upperText.includes("SEARCH") ||
+    upperText.includes("DHUNDHO") ||
+    upperText.includes("KITNA") ||
+    upperText.includes("KITNE") ||
+    upperText.includes("WHO") ||
+    upperText.includes("WHAT") ||
+    upperText.includes("WHERE") ||
+    upperText.includes("WHEN") ||
+    upperText.includes("KYA");
+
+  if (isQuestionOrSearch && text.trim().length > 3) {
+    const memoryResponse = await queryBusinessMemory(channel.organizationId, text);
+    if (memoryResponse) {
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: memoryResponse,
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return true;
+    }
   }
 
   // Default Assistant Response to Commander
@@ -2184,6 +2318,97 @@ Return ONLY valid JSON:
   }
 
   return null;
+}
+
+/**
+ * Answers natural language questions from the business owner about calls, tasks, payments, or contacts.
+ */
+export async function queryBusinessMemory(
+  organizationId: string,
+  query: string,
+): Promise<string | null> {
+  try {
+    const qLower = query.toLowerCase();
+
+    // 1. Payment or balance questions
+    if (qLower.includes("payment") || qLower.includes("bakaya") || qLower.includes("kitna baki") || qLower.includes("paisa") || qLower.includes("rupaye")) {
+      const summary = await getPendingPaymentsSummary(organizationId);
+      if (summary.totalCount === 0) {
+        return `🎉 *सब ठीक है!* वर्तमान में कोई भी बकाया पेमेंट नहीं है। सभी इनवॉइस चुकता हैं।`;
+      }
+      let resp = `💰 *बकाया भुगतान की जानकारी:*\n━━━━━━━━━━━━━━━━━━━━\n• *कुल बकाया:* ₹${summary.totalOutstanding.toLocaleString("en-IN")} (${summary.totalCount} इनवॉइस)\n`;
+      if (summary.overdueCount > 0) {
+        resp += `⚠️ *Overdue (समय सीमा समाप्त):* ₹${summary.overdueAmount.toLocaleString("en-IN")} (${summary.overdueCount} इनवॉइस)\n`;
+      }
+      resp += `\n*हाल के इनवॉइस:*\n`;
+      summary.invoices.slice(0, 3).forEach((inv, i) => {
+        resp += `${i + 1}. *${inv.clientName}*: ₹${(inv.total - inv.amountPaid).toLocaleString("en-IN")}\n`;
+      });
+      return resp;
+    }
+
+    // 2. Call history or specific client questions
+    if (qLower.includes("call") || qLower.includes("baat") || qLower.includes("phone")) {
+      // Extract possible person name from query
+      const words = query.replace(/[?.,]/g, "").split(/\s+/).filter(w => w.length > 2);
+      let foundCalls: any[] = [];
+      for (const w of words) {
+        if (["call", "karo", "karna", "batao", "kab", "kya", "last", "wali"].includes(w.toLowerCase())) continue;
+        const matches = await prisma.call.findMany({
+          where: {
+            organizationId,
+            OR: [
+              { contactName: { contains: w, mode: "insensitive" } },
+              { phone: { contains: w } },
+            ],
+          },
+          orderBy: { createdAt: "desc" },
+          take: 3,
+        });
+        if (matches.length > 0) {
+          foundCalls = matches;
+          break;
+        }
+      }
+
+      if (foundCalls.length > 0) {
+        let resp = `📞 *कॉल हिस्ट्री व विवरण:*\n━━━━━━━━━━━━━━━━━━━━\n`;
+        foundCalls.forEach((c, idx) => {
+          const time = new Date(c.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "short", timeStyle: "short" });
+          const contactName = c.contactName || c.phone;
+          const durationSec = Math.round((c.durationMs || 0) / 1000);
+          resp += `${idx + 1}. *${contactName}* — ${c.status || "COMPLETED"} (${durationSec}s)\n   🕒 ${time}\n`;
+        });
+        return resp;
+      }
+    }
+
+    // 3. Task or Schedule questions
+    if (qLower.includes("task") || qLower.includes("meeting") || qLower.includes("agenda") || qLower.includes("schedule")) {
+      const tasks = await prisma.businessTask.findMany({
+        where: {
+          organizationId,
+          status: { in: ["TODO", "IN_PROGRESS", "PENDING"] },
+        },
+        orderBy: { dueAt: "asc" },
+        take: 4,
+      });
+      if (tasks.length === 0) {
+        return `✨ *कोई पेंडिंग टास्क नहीं है!* आप पूरी तरह से फ्री हैं। नया टास्क बनाने के लिए बस बोलें या लिखें।`;
+      }
+      let resp = `📋 *आपके शेड्यूल किए गए टास्क:*\n━━━━━━━━━━━━━━━━━━━━\n`;
+      tasks.forEach((t, i) => {
+        const due = t.dueAt ? new Date(t.dueAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }) : "Today";
+        resp += `${i + 1}. *${t.title}* — ⏰ ${due} [${t.priority}]\n`;
+      });
+      return resp;
+    }
+
+    return null;
+  } catch (err: any) {
+    log.warn({ err: err?.message }, "queryBusinessMemory lookup error");
+    return null;
+  }
 }
 
 
