@@ -205,10 +205,15 @@ function BusinessAssistantContent() {
   async function loadChannelData(cid: string) {
     try {
       // Load Commanders
-      const cmdRes = await api<{ success: true; data: CommanderMember[] }>(
+      const cmdRes = await api<any>(
         `/api/v1/chatbots/commanders?channelId=${cid}`
       );
-      setCommanders(cmdRes.data || []);
+      const memberList: CommanderMember[] = Array.isArray(cmdRes?.data)
+        ? cmdRes.data
+        : Array.isArray(cmdRes)
+        ? cmdRes
+        : [];
+      setCommanders(memberList);
 
       // Load Profile
       const profRes = await api<{ success: true; data: any }>(
