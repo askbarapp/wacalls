@@ -1008,7 +1008,144 @@ export async function handleOwnerCommand(input: {
     return true;
   }
 
+  // -------------------------------------------------------------
+  // Active Tasks / Schedule Listing Query (Check FIRST before task creation)
+  // -------------------------------------------------------------
+  const isDirectTaskKeyword = [
+    "TASKS",
+    "TASK",
+    "REMINDERS",
+    "REMINDER",
+    "SCHEDULE",
+    "KAAM",
+    "काम",
+    "TASKS?",
+    "TASK?",
+  ].includes(upperText);
+
+  const hasTaskSubject =
+    upperText.includes("TASK") ||
+    upperText.includes("REMINDER") ||
+    upperText.includes("SCHEDULE") ||
+    upperText.includes("काम") ||
+    upperText.includes("KAAM");
+
+  const hasTaskInquiry =
+    upperText.includes("BATAO") ||
+    upperText.includes("DIKHAO") ||
+    upperText.includes("LIST") ||
+    upperText.includes("SHOW") ||
+    upperText.includes("PENDING") ||
+    upperText.includes("TODAY") ||
+    upperText.includes("AAJ") ||
+    upperText.includes("आज") ||
+    upperText.includes("MY") ||
+    upperText.includes("MERA") ||
+    upperText.includes("MERE") ||
+    upperText.includes("MERI") ||
+    upperText.includes("ALL") ||
+    upperText.includes("SAARE") ||
+    upperText.includes("SARE") ||
+    upperText.includes("सारे") ||
+    upperText.includes("STATUS") ||
+    upperText.includes("WHAT") ||
+    upperText.includes("KYA") ||
+    upperText.includes("KITNE") ||
+    upperText.includes("कितने");
+
+  const isTaskCreationSignal =
+    upperText.includes("BANAO") ||
+    upperText.includes("CREATE") ||
+    upperText.includes("NEW ") ||
+    upperText.includes("ADD ") ||
+    upperText.includes("DAAL") ||
+    upperText.includes("KARNA HAI") ||
+    upperText.includes("KARNI HAI") ||
+    upperText.includes("LAGA DENA") ||
+    upperText.includes("LAGAO");
+
+  const isTaskListingQuery = isDirectTaskKeyword || (hasTaskSubject && hasTaskInquiry && !isTaskCreationSignal);
+
+  if (isTaskListingQuery) {
+    // If sender is an executive or staff, only show tasks assigned to them
+    const isStaffMember = ["EXECUTIVE", "SUPPORT", "ACCOUNTS"].includes(commander.role);
+    const filterCondition: any = {
+      organizationId: channel.organizationId,
+      status: { in: ["TODO", "IN_PROGRESS", "PENDING", "OVERDUE"] },
+    };
+
+    if (isStaffMember && commander.name) {
+      filterCondition.OR = [
+        { assignedTo: { contains: commander.name, mode: "insensitive" } },
+        { assignedPhone: { contains: commander.phone.slice(-10) } },
+      ];
+    }
+
+    const pendingTasks = await prisma.businessTask.findMany({
+      where: filterCondition,
+      include: {
+        reminders: { where: { status: { in: ["PENDING", "SENT"] } }, orderBy: { reminderAt: "asc" } },
+      },
+      orderBy: { dueAt: "asc" },
+      take: 8,
+    });
+
+    // Fetch assistant name from BusinessProfile
+    const profile = await prisma.businessProfile.findFirst({
+      where: { organizationId: channel.organizationId },
+      select: { assistantName: true },
+    });
+    const botName = profile?.assistantName || "TenSy";
+
+    if (pendingTasks.length === 0) {
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: `✨ *कोई पेंडिंग टास्क नहीं है!* 🎉\n━━━━━━━━━━━━━━━━━━━━\nनमस्ते ${commander.name || "Sir"}! आपका आज का शेड्यूल पूरी तरह से खाली है।\n\nनया टास्क या मीटिंग शेड्यूल करने के लिए मुझे लिखकर या बोलकर बताएं:\n_उदा: "कल 11 बजे गुप्ता जी को कॉल करना है"_\nया *https://wacall.in/tasks* खोलें।`,
+        chatSource: "bot",
+      }).catch(() => undefined);
+      return true;
+    }
+
+    let taskListMsg = `📋 *${botName} — आज के कार्य व शेड्यूल (${pendingTasks.length})*\n━━━━━━━━━━━━━━━━━━━━\n`;
+    pendingTasks.forEach((t, idx) => {
+      const pEmoji = t.priority === "URGENT" ? "🚨" : t.priority === "HIGH" ? "⚡" : "📌";
+      const dueStr = t.dueAt
+        ? new Date(t.dueAt).toLocaleString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "No due date";
+      const contactStr = t.contactName ? `\n   👤 *संपर्क:* ${t.contactName}${t.contactPhone ? ` (${t.contactPhone})` : ""}` : "";
+      const statusBadge = t.status === "IN_PROGRESS" ? "🔵 प्रगति पर (AI Delegated)" : t.status === "OVERDUE" ? "🔴 अतिदेय (Overdue)" : "⏳ लंबित (Pending)";
+      
+      const remindersList = (t.reminders || [])
+        .map(r => new Date(r.reminderAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }))
+        .join(", ");
+      const reminderStr = remindersList ? `\n   🔔 *अलर्ट समय:* ${remindersList}` : "";
+
+      taskListMsg += `${idx + 1}. ${pEmoji} *${t.title}*${contactStr}\n   ⏰ *समय:* ${dueStr}\n   📊 *स्थिति:* ${statusBadge}${reminderStr}\n\n`;
+    });
+
+    taskListMsg += `━━━━━━━━━━━━━━━━━━━━\n💡 कार्य पूरा होने पर *Done [नंबर]* लिखें, या AI को सौंपने के लिए *Delegate [नंबर]* लिखें।`;
+
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: input.phone,
+      body: taskListMsg,
+      chatSource: "bot",
+    }).catch(() => undefined);
+    return true;
+  }
+
+  // -------------------------------------------------------------
   // Task & Reminder Creation via Natural Language (Hindi, Hinglish, English)
+  // -------------------------------------------------------------
   const isCreateTaskIntent =
     upperText.startsWith("TASK ") ||
     upperText.startsWith("REMIND ") ||
@@ -1089,101 +1226,6 @@ export async function handleOwnerCommand(input: {
     } catch (tErr: any) {
       log.warn({ err: tErr?.message }, "Task interpretation / creation error");
     }
-  }
-
-  // Active Tasks Listing Query
-  if (
-    upperText === "TASKS" ||
-    upperText === "TASK" ||
-    upperText === "REMINDERS" ||
-    upperText.includes("MY TASKS") ||
-    upperText.includes("PENDING TASKS") ||
-    upperText.includes("TASK LIST") ||
-    upperText.includes("AAJ KE TASK") ||
-    upperText.includes("TODAY TASKS") ||
-    upperText.includes("TODAY TASK") ||
-    upperText.includes("AAJ KA TASK") ||
-    upperText.includes("MERA TASK") ||
-    upperText.includes("MERI TASKS") ||
-    upperText.includes("TASKS DIKHAO") ||
-    upperText.includes("TASK DIKHAO") ||
-    upperText.includes("TASK BATAO") ||
-    upperText.includes("SCHEDULE BATAO")
-  ) {
-    // If sender is an executive or staff, only show tasks assigned to them
-    const isStaffMember = ["EXECUTIVE", "SUPPORT", "ACCOUNTS"].includes(commander.role);
-    const filterCondition: any = {
-      organizationId: channel.organizationId,
-      status: { in: ["TODO", "IN_PROGRESS", "PENDING", "OVERDUE"] },
-    };
-
-    if (isStaffMember && commander.name) {
-      filterCondition.OR = [
-        { assignedTo: { contains: commander.name, mode: "insensitive" } },
-        { assignedPhone: { contains: commander.phone.slice(-10) } },
-      ];
-    }
-
-    const pendingTasks = await prisma.businessTask.findMany({
-      where: filterCondition,
-      include: {
-        reminders: { where: { status: { in: ["PENDING", "SENT"] } }, orderBy: { reminderAt: "asc" } },
-      },
-      orderBy: { dueAt: "asc" },
-      take: 8,
-    });
-
-    // Fetch assistant name from BusinessProfile
-    const profile = await prisma.businessProfile.findFirst({
-      where: { organizationId: channel.organizationId },
-      select: { assistantName: true },
-    });
-    const botName = profile?.assistantName || "TenSy";
-
-    if (pendingTasks.length === 0) {
-      await sendWhatsAppText({
-        organizationId: channel.organizationId,
-        channelId: channel.id,
-        phone: input.phone,
-        body: `✨ *कोई पेंडिंग टास्क नहीं है!* 🎉\n━━━━━━━━━━━━━━━━━━━━\nनमस्ते ${commander.name || "Sir"}! आपका आज का शेड्यूल पूरी तरह से खाली है।\n\nनया टास्क या मीटिंग शेड्यूल करने के लिए मुझे लिखकर या बोलकर बताएं:\n_उदा: "कल 11 बजे गुप्ता जी को कॉल करना है"_\nया *https://wacall.in/tasks* खोलें।`,
-        chatSource: "bot",
-      }).catch(() => undefined);
-      return true;
-    }
-
-    let taskListMsg = `📋 *${botName} — आज के कार्य व शेड्यूल (${pendingTasks.length})*\n━━━━━━━━━━━━━━━━━━━━\n`;
-    pendingTasks.forEach((t, idx) => {
-      const pEmoji = t.priority === "URGENT" ? "🚨" : t.priority === "HIGH" ? "⚡" : "📌";
-      const dueStr = t.dueAt
-        ? new Date(t.dueAt).toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : "No due date";
-      const contactStr = t.contactName ? `\n   👤 *संपर्क:* ${t.contactName}${t.contactPhone ? ` (${t.contactPhone})` : ""}` : "";
-      const statusBadge = t.status === "IN_PROGRESS" ? "🔵 प्रगति पर (AI Delegated)" : t.status === "OVERDUE" ? "🔴 अतिदेय (Overdue)" : "⏳ लंबित (Pending)";
-      
-      const remindersList = (t.reminders || [])
-        .map(r => new Date(r.reminderAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }))
-        .join(", ");
-      const reminderStr = remindersList ? `\n   🔔 *अलर्ट समय:* ${remindersList}` : "";
-
-      taskListMsg += `${idx + 1}. ${pEmoji} *${t.title}*${contactStr}\n   ⏰ *समय:* ${dueStr}\n   📊 *स्थिति:* ${statusBadge}${reminderStr}\n\n`;
-    });
-
-    taskListMsg += `━━━━━━━━━━━━━━━━━━━━\n💡 कार्य पूरा होने पर *Done [नंबर]* लिखें, या AI को सौंपने के लिए *Delegate [नंबर]* लिखें।`;
-
-    await sendWhatsAppText({
-      organizationId: channel.organizationId,
-      channelId: channel.id,
-      phone: input.phone,
-      body: taskListMsg,
-      chatSource: "bot",
-    }).catch(() => undefined);
-    return true;
   }
 
   // 0A. On-Demand Morning Executive Briefing

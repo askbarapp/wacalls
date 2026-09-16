@@ -58,7 +58,7 @@ RULES FOR TIME RESOLUTION:
 - "परसों" (parson) = Day after tomorrow (${new Date(istNow.getTime() + 48 * 60 * 60 * 1000).toISOString().slice(0, 10)})
 - "सुबह" (subah) = Morning (AM)
 - "शाम" (shaam) / "रात" (raat) / "दोपहर" (dopahar) = Afternoon/Evening (PM)
-- If user says "1 घंटा पहले याद दिलाना" (remind 1 hour before), include 60 in reminderOffsets along with 0.
+- If user says "1 घंटा पहले याद दिलाना" (remind 1 hour before) or "10 minutes pahle reminder laga dena", extract the prior offset minutes into reminderOffsets (e.g. [0, 10] or [0, 60]), and clean that reminder instruction completely out of the "title". The title must be pure and concise (e.g. "Website design ke liye meeting" or "Call Rahul").
 - If user asks for recurring: "रोज" / "daily" -> DAILY, "हर सोमवार" -> WEEKLY, "हर महीने" -> MONTHLY.
 - If user provides NO day or time at all (e.g. "Rahul ko call karna hai"), set isAmbiguous: true and clarificationQuestion: "किस समय याद दिलाऊँ? [कल 10 AM] [आज शाम 5 PM] [कस्टम समय]".
 
@@ -188,16 +188,24 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
   const phoneMatch = text.match(/(\+?91[\s-]?)?[6-9]\d{9}/);
   const contactPhone = phoneMatch ? phoneMatch[0].replace(/\D/g, "") : null;
 
-  // Contact name extraction
-  const contactMatch = text.match(/(?:to|ko|को)\s+([A-Za-z\u0900-\u097F]+)/i);
-  const contactName = contactMatch && contactMatch[1] ? contactMatch[1].trim() : null;
+  // Contact name extraction (Bilingual: "Rahul ko" or "Call to Amit")
+  let contactName: string | null = null;
+  const hindiKoMatch = text.match(/\b([A-Za-z\u0900-\u097F]+(?:\s+ji|\s+sir)?)\s+(?:ko|को)\b/i);
+  if (hindiKoMatch && hindiKoMatch[1] && !["aaj", "kal", "parso", "time", "baje", "sabko", "kisi", "me", "main", "unko", "is"].includes(hindiKoMatch[1].toLowerCase())) {
+    contactName = hindiKoMatch[1].trim();
+  } else {
+    const englishToMatch = text.match(/(?:call|contact|meet|email)\s+(?:to\s+)?([A-Za-z\u0900-\u097F]+)/i);
+    if (englishToMatch && englishToMatch[1] && !["the", "a", "an", "all", "me", "him", "her", "karna", "karo", "kar"].includes(englishToMatch[1].toLowerCase())) {
+      contactName = englishToMatch[1].trim();
+    }
+  }
 
   // Clean reminder offset instructions out of title and extract offsets
   const reminderOffsets: number[] = [0];
-  const offsetMatch = lower.match(/(\d{1,2})\s*(?:min|minute|minutes|minut|minuts|मिनट|घंटा|hour|ghanta)\s*(?:pahle|pehle|before|earlier|er)/i);
+  const offsetMatch = lower.match(/(\d{1,2})\s*(?:minutes|minute|minuts|minut|mins|min|मिनट|घंटे|घंटा|hours|hour|ghante|ghanta)\s*(?:pahle|pehle|before|earlier)/i);
   if (offsetMatch && offsetMatch[1]) {
     let mins = parseInt(offsetMatch[1], 10);
-    if (lower.includes("घंटा") || lower.includes("hour") || lower.includes("ghanta")) {
+    if (lower.includes("घंटे") || lower.includes("घंटा") || lower.includes("hour") || lower.includes("ghant")) {
       mins = mins * 60;
     }
     if (mins > 0 && !reminderOffsets.includes(mins)) {
@@ -207,10 +215,10 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
 
   // Title formatting - strip command noise and reminder phrasing
   let cleanTitle = text
-    .replace(/(?:remind|yaad dilana|याद दिलाना|task banao|टास्क बनाओ|bana do|karo)/gi, "")
-    .replace(/\b\d{1,2}\s*(?:min|minute|minutes|minut|minuts|मिनट|घंटा|hour|ghanta)\s*(?:pahle|pehle|before|earlier|er)\s*(?:laga dena|alert|reminder)?/gi, "")
-    .replace(/,\s*$/g, "")
-    .replace(/\.\s*$/g, "")
+    .replace(/(?:[,\.]\s*)?\b\d{1,2}\s*(?:minutes|minute|minuts|minut|mins|min|मिनट|घंटे|घंटा|hours|hour|ghante|ghanta)\s*(?:pahle|pehle|before|earlier)?\s*(?:ka\s+)?(?:reminder|alert|yaad(?:\s+dila\s*(?:dena|do|karo))?)?\s*(?:laga\s*(?:dena|do|diye|karna|o)|set\s*(?:karo|karna|kardo)|kar\s*dena)?/gi, "")
+    .replace(/\b(?:remind me to|remind me|yaad dilana|याद दिलाना|task banao|टास्क बनाओ|bana do|karo)\b/gi, "")
+    .replace(/^[\s,.:;।]+|[\s,.:;।]+$/g, "")
+    .replace(/\s{2,}/g, " ")
     .trim() || text;
 
   // Recurrence
