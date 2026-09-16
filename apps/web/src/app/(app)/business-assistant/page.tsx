@@ -182,8 +182,14 @@ function BusinessAssistantContent() {
   async function loadInitial() {
     setLoading(true);
     try {
-      const res = await api<{ items: Channel[] }>("/api/v1/channels");
-      const chList = res.items || [];
+      const res = await api<any>("/api/v1/channels");
+      const chList: Channel[] = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.items)
+        ? res.items
+        : [];
       setChannels(chList);
       if (chList.length > 0) {
         setChannelId(chList[0].id);
@@ -230,13 +236,16 @@ function BusinessAssistantContent() {
           },
         });
       }
-    } catch {
-      /* ignore */
+    } catch (e: any) {
+      console.warn("Failed to load channel data", e);
     }
   }
 
   async function handleSaveOwnerPhone() {
-    if (!channelId) return;
+    if (!channelId) {
+      setFeedback({ type: "error", text: "No WhatsApp channel selected or connected." });
+      return;
+    }
     setSavingOwnerPhone(true);
     setFeedback(null);
     try {
@@ -256,6 +265,10 @@ function BusinessAssistantContent() {
   }
 
   async function handleSaveProfile() {
+    if (!channelId) {
+      setFeedback({ type: "error", text: "No WhatsApp channel selected or connected." });
+      return;
+    }
     setSaving(true);
     setFeedback(null);
     try {
@@ -263,8 +276,8 @@ function BusinessAssistantContent() {
         method: "PUT",
         body: JSON.stringify({
           channelId: channelId || null,
-          businessName: profile.businessName || "My Business",
-          assistantName: profile.assistantName.trim() || "TenSy",
+          businessName: profile.businessName,
+          assistantName: profile.assistantName,
           morningSlot: profile.morningSlot,
           morningEnabled: profile.morningEnabled,
           eodSlot: profile.eodSlot,
@@ -284,7 +297,11 @@ function BusinessAssistantContent() {
   }
 
   async function handleAddCommander() {
-    if (!channelId || !newName.trim() || !newPhone.trim()) {
+    if (!channelId) {
+      setFeedback({ type: "error", text: "No WhatsApp channel selected or connected. Please connect a WhatsApp channel first." });
+      return;
+    }
+    if (!newName.trim() || !newPhone.trim()) {
       setFeedback({ type: "error", text: "Please enter member name and WhatsApp number." });
       return;
     }
@@ -313,7 +330,7 @@ function BusinessAssistantContent() {
         setIsAdding(false);
         setFeedback({
           type: "success",
-          text: `${res.data.name} (${ROLE_INFO[res.data.role].label}) added to WhatsApp Team!`,
+          text: `${res.data.name} (${ROLE_INFO[res.data.role]?.label || res.data.role}) added to WhatsApp Team!`,
         });
       }
     } catch (e: any) {
