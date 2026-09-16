@@ -216,8 +216,9 @@ export async function summarizeImportantInboundMessages(input: {
   inputPhone: string;
   commanderName?: string;
   hoursLimit?: number;
+  showAll?: boolean;
 }): Promise<void> {
-  const { channel, inputPhone, commanderName, hoursLimit = 48 } = input;
+  const { channel, inputPhone, commanderName, hoursLimit = 48, showAll = false } = input;
 
   const since = new Date(Date.now() - hoursLimit * 60 * 60 * 1000);
 
@@ -284,7 +285,7 @@ export async function summarizeImportantInboundMessages(input: {
     const rawText = inboundMsg.body.trim();
     const classification = classifyInboundMessage(rawText);
 
-    if (!classification.isActionable) {
+    if (!classification.isActionable && !showAll) {
       casualCount++;
       continue;
     }
@@ -316,6 +317,10 @@ export async function summarizeImportantInboundMessages(input: {
       categoryLabel = "ग्राहक समस्या / शिकायत";
       categoryEmoji = "🚨";
       suggestedAction = "प्राथमिकता समाधान — तुरंत कॉल या मैसेज करें";
+    } else {
+      categoryLabel = "सामान्य संदेश / पूछताछ";
+      categoryEmoji = "💬";
+      suggestedAction = "ज़रूरत होने पर रिप्लाई करें";
     }
 
     importantItems.push({
@@ -361,7 +366,10 @@ export async function summarizeImportantInboundMessages(input: {
   }).catch(() => undefined);
 
   // Format WhatsApp Response Card
-  let card = `📬 *${botName} — महत्वपूर्ण ग्राहक संदेश व मीटिंग सारांश (${importantItems.length})*\n━━━━━━━━━━━━━━━━━━━━\n`;
+  const headerTitle = showAll
+    ? `आज के सभी ग्राहक संदेश (${importantItems.length})`
+    : `महत्वपूर्ण ग्राहक संदेश व मीटिंग सारांश (${importantItems.length})`;
+  let card = `📬 *${botName} — ${headerTitle}*\n━━━━━━━━━━━━━━━━━━━━\n`;
 
   importantItems.forEach((item) => {
     card += `${item.index}. ${item.categoryEmoji} *${item.contactName}* (${item.contactPhone})\n`;

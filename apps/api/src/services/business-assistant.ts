@@ -951,51 +951,6 @@ export async function handleOwnerCommand(input: {
     return true;
   }
 
-  // Inbound Customer Messages & Meeting Intelligence:
-  // "important message" / "important messages" / "aaj ke important message" / "meeting hai kya" / "customer summary" / "kisi ki meeting hai"
-  const isImportantMessagesQuery =
-    (upperText.includes("IMPORTANT") &&
-      (upperText.includes("MESSAGE") ||
-        upperText.includes("MSG") ||
-        upperText.includes("CHAT") ||
-        upperText.includes("BATAO") ||
-        upperText.includes("DIKHAO") ||
-        upperText.includes("AAJ") ||
-        upperText.includes("TODAY"))) ||
-    (upperText.includes("ज़रूरी") ||
-      upperText.includes("जरूरी") ||
-      upperText.includes("ZAROORI") ||
-      upperText.includes("JARURI") ||
-      upperText.includes("ZARURI")) ||
-    ((upperText.includes("MEETING") ||
-      upperText.includes("MEETINGS") ||
-      upperText.includes("मीटिंग")) &&
-      (upperText.includes("HAI KYA") ||
-        upperText.includes("KISI KI") ||
-        upperText.includes("UPDATE") ||
-        upperText.includes("BATAO") ||
-        upperText.includes("SUMMARY") ||
-        upperText.includes("AAJ") ||
-        upperText.includes("TODAY") ||
-        upperText.includes("STATUS") ||
-        upperText.includes("LIST") ||
-        upperText.includes("HAI"))) ||
-    (upperText.includes("CUSTOMER") &&
-      (upperText.includes("SUMMARY") ||
-        upperText.includes("MESSAGE") ||
-        upperText.includes("UPDATE") ||
-        upperText.includes("BATAO")));
-
-  if (isImportantMessagesQuery) {
-    await summarizeImportantInboundMessages({
-      channel,
-      inputPhone: input.phone,
-      commanderName: commander.name,
-      hoursLimit: 48,
-    });
-    return true;
-  }
-
   // Email Query & Search Commands ("email dikhao", "emails", "emails from Rahul", "unread email", "aaj ke email")
   if (
     upperText.includes("EMAIL") ||
@@ -1228,7 +1183,32 @@ export async function handleOwnerCommand(input: {
   // -------------------------------------------------------------
   // Task & Reminder Creation via Natural Language (Hindi, Hinglish, English)
   // -------------------------------------------------------------
+  const hasTimeIndicator =
+    upperText.includes("BAJE") ||
+    upperText.includes("बजे") ||
+    /\b\d{1,2}(?::\d{2})?\s*(?:AM|PM|A\.M|P\.M|बजे|BAJE)\b/i.test(text) ||
+    /\b(?:KAL|TOMORROW|AAJ|TODAY|PARSO|PARSON)\b/i.test(text);
+
+  const isMeetingStatement =
+    (upperText.includes("MEETING") || upperText.includes("MEET") || upperText.includes("मीटिंग")) &&
+    (upperText.includes("HAI") ||
+      upperText.includes("HE") ||
+      upperText.includes("H") ||
+      upperText.includes("SCHEDULE") ||
+      upperText.includes("FIX") ||
+      upperText.includes("SET") ||
+      upperText.includes("RAKH") ||
+      upperText.includes("KARNA") ||
+      upperText.includes("WITH") ||
+      hasTimeIndicator) &&
+    !upperText.includes("KISI KI") &&
+    !upperText.includes("AAYI") &&
+    !upperText.includes("DIKHAO") &&
+    !upperText.includes("BATAO") &&
+    !upperText.includes("SUMMARY");
+
   const isCreateTaskIntent =
+    isMeetingStatement ||
     upperText.startsWith("TASK ") ||
     upperText.startsWith("REMIND ") ||
     upperText.includes("REMIND") ||
@@ -1240,8 +1220,8 @@ export async function handleOwnerCommand(input: {
     upperText.includes("NEW TASK") ||
     upperText.includes("SCHEDULE MEETING") ||
     (upperText.includes("TASK") && (upperText.includes("ADD") || upperText.includes("BANAO") || upperText.includes("DAAL"))) ||
-    ((upperText.includes("CALL") || upperText.includes("MEETING") || upperText.includes("PAYMENT") || upperText.includes("INVOICE") || upperText.includes("GST")) &&
-      (upperText.includes("KARNA HAI") || upperText.includes("KARNI HAI") || upperText.includes("BAJE") || upperText.includes("PARSO") || (upperText.includes("KAL") && !upperText.includes("TOTAL CALL"))));
+    ((upperText.includes("CALL") || upperText.includes("PAYMENT") || upperText.includes("INVOICE") || upperText.includes("GST") || upperText.includes("FOLLOWUP")) &&
+      (upperText.includes("KARNA HAI") || upperText.includes("KARNI HAI") || upperText.includes("LENA HAI") || upperText.includes("DENA HAI") || hasTimeIndicator));
 
   if (isCreateTaskIntent) {
     try {
@@ -1340,6 +1320,56 @@ export async function handleOwnerCommand(input: {
       phone: input.phone,
       name: commander.name || "Boss",
       role: commander.role,
+    });
+    return true;
+  }
+
+  // -------------------------------------------------------------
+  // Inbound Customer Messages & Intelligence Query
+  // Triggered ONLY when the owner/commander explicitly asks to see/read incoming customer messages:
+  // e.g. "today all message", "today all messages", "aaj ka pura message dikhao", "aaj ke saare message dikhao",
+  // "important message", "important messages", "important message batao/dikhao", "customer messages", "kisi ka message aaya kya"
+  // -------------------------------------------------------------
+  const isAllMessagesRequest =
+    (upperText.includes("TODAY") || upperText.includes("AAJ") || upperText.includes("ALL") || upperText.includes("SAARE") || upperText.includes("SABHI")) &&
+    (upperText.includes("ALL MESSAGE") ||
+      upperText.includes("ALL MESSAGES") ||
+      upperText.includes("PURA MESSAGE") ||
+      upperText.includes("POORA MESSAGE") ||
+      upperText.includes("SAARE MESSAGE") ||
+      upperText.includes("SARE MESSAGE") ||
+      upperText.includes("SABHI MESSAGE") ||
+      upperText.includes("TODAY MESSAGE") ||
+      upperText.includes("TODAY MESSAGES") ||
+      upperText.includes("AAJ KE MESSAGE") ||
+      upperText.includes("AAJ KA MESSAGE") ||
+      upperText.includes("MESSAGES DIKHAO") ||
+      upperText.includes("MESSAGE DIKHAO") ||
+      upperText.includes("MESSAGES BATAO") ||
+      upperText.includes("MESSAGE BATAO"));
+
+  const isActionableMessagesRequest =
+    (upperText.includes("IMPORTANT") &&
+      (upperText.includes("MESSAGE") || upperText.includes("MESSAGES") || upperText.includes("CHAT") || upperText.includes("CHATS"))) ||
+    ((upperText.includes("ज़रूरी") || upperText.includes("जरूरी") || upperText.includes("ZAROORI") || upperText.includes("JARURI") || upperText.includes("ZARURI")) &&
+      (upperText.includes("MESSAGE") || upperText.includes("MESSAGES") || upperText.includes("संदेश") || upperText.includes("मैसेज") || upperText.includes("CHAT"))) ||
+    (upperText.includes("CUSTOMER") &&
+      (upperText.includes("SUMMARY") || upperText.includes("MESSAGES") || upperText.includes("MESSAGE") || upperText.includes("INBOX"))) ||
+    ((upperText.includes("KISI KA") || upperText.includes("KISI CLIENT") || upperText.includes("KOI NAYA") || upperText.includes("KISI KI")) &&
+      (upperText.includes("MESSAGE") || upperText.includes("MESSAGES") || upperText.includes("MEETING") || upperText.includes("AAYA") || upperText.includes("AAYI")));
+
+  const isCustomerMessagesQuery =
+    !isCreateTaskIntent &&
+    !isTaskListingQuery &&
+    (isAllMessagesRequest || isActionableMessagesRequest);
+
+  if (isCustomerMessagesQuery) {
+    await summarizeImportantInboundMessages({
+      channel,
+      inputPhone: input.phone,
+      commanderName: commander.name,
+      hoursLimit: 48,
+      showAll: isAllMessagesRequest,
     });
     return true;
   }

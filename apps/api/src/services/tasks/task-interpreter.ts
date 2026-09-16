@@ -173,7 +173,14 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
   if (timeMatch && timeMatch[1]) {
     hour = parseInt(timeMatch[1], 10);
     minute = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-    const isPm = lower.includes("shaam") || lower.includes("शाम") || lower.includes("pm") || lower.includes("dopahar") || lower.includes("दोपहर") || lower.includes("raat");
+    const isPm =
+      lower.includes("shaam") ||
+      lower.includes("शाम") ||
+      lower.includes("pm") ||
+      lower.includes("dopahar") ||
+      lower.includes("दोपहर") ||
+      lower.includes("raat") ||
+      (hour >= 1 && hour <= 6 && !lower.includes("subah") && !lower.includes("am") && !lower.includes("सुबह"));
     if (isPm && hour < 12) {
       hour += 12;
     }
