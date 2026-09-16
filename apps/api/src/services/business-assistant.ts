@@ -28,7 +28,7 @@ import {
   createTaskWithReminders,
   shiftPendingTasksToTomorrow,
 } from "./tasks/task-service.js";
-import { interpretTaskNaturalLanguage } from "./tasks/task-interpreter.js";
+import { interpretTaskNaturalLanguage, fallbackRegexTaskParser } from "./tasks/task-interpreter.js";
 import { sendMorningBriefing, sendEodReport } from "./daily-briefing.js";
 import {
   summarizeImportantInboundMessages,
@@ -277,6 +277,257 @@ export async function handleOwnerCommand(input: {
   });
 
   if (pendingAction) {
+    // 0. Handler for Due Task Reminders (1: Done, 2: Snooze 30m, 3: Tomorrow, 4: Call, 5: Delegate to AI)
+    if (pendingAction.actionType === "TASK_REMINDER_ACTION") {
+      const payload = pendingAction.payload as any;
+      const taskId = payload?.taskId;
+
+      // Option 1: Mark as Done
+      if (
+        upperText === "1" ||
+        upperText === "DONE" ||
+        upperText === "HO GAYA" ||
+        upperText === "COMPLETED" ||
+        upperText === "COMPLETE" ||
+        upperText.includes("DONE") ||
+        upperText.includes("HO GAYA") ||
+        upperText.includes("KHATAM")
+      ) {
+        if (taskId) {
+          await markTaskComplete(taskId, channel.organizationId);
+        }
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "APPROVED" },
+        });
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `✅ *कार्य पूर्ण हुआ (Marked DONE)!* 🎉\n━━━━━━━━━━━━━━━━━━━━\n📌 *टास्क:* ${payload?.title || "Task"}\nशानदार, ${commander.name || "Boss"}! WaCall OS में टास्क को 'Completed' मार्क कर दिया गया है।`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+
+      // Option 2: Snooze 30 mins
+      if (
+        upperText === "2" ||
+        upperText === "SNOOZE" ||
+        upperText.includes("30 MIN") ||
+        upperText.includes("SNOOZE") ||
+        upperText.includes("RUKO") ||
+        upperText.includes("BAAD ME")
+      ) {
+        if (payload?.reminderId) {
+          await snoozeTaskReminder(payload.reminderId, channel.organizationId, { minutes: 30 });
+        } else if (taskId) {
+          const rem = await prisma.taskReminder.findFirst({
+            where: { taskId, organizationId: channel.organizationId },
+            orderBy: { reminderAt: "desc" },
+          });
+          if (rem) {
+            await snoozeTaskReminder(rem.id, channel.organizationId, { minutes: 30 });
+          }
+        }
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "APPROVED" },
+        });
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `⏰ *रिमाइंडर 30 मिनट आगे बढ़ाया गया!* ⏳\n━━━━━━━━━━━━━━━━━━━━\n📌 *टास्क:* ${payload?.title || "Task"}\nTenSy आपको 30 मिनट बाद फिर से सूचित करेगा।`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+
+      // Option 3: Snooze to Tomorrow (9:00 AM IST)
+      if (
+        upperText === "3" ||
+        upperText === "TOMORROW" ||
+        upperText === "KAL" ||
+        upperText.includes("TOMORROW") ||
+        upperText.includes("KAL SUBAH") ||
+        upperText.includes("SHIFT")
+      ) {
+        if (payload?.reminderId) {
+          await snoozeTaskReminder(payload.reminderId, channel.organizationId, { tomorrow: true });
+        } else if (taskId) {
+          const rem = await prisma.taskReminder.findFirst({
+            where: { taskId, organizationId: channel.organizationId },
+            orderBy: { reminderAt: "desc" },
+          });
+          if (rem) {
+            await snoozeTaskReminder(rem.id, channel.organizationId, { tomorrow: true });
+          }
+        }
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "APPROVED" },
+        });
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `🌙 *टास्क कल सुबह के लिए शिफ्ट कर दिया गया!* 🌅\n━━━━━━━━━━━━━━━━━━━━\n📌 *टास्क:* ${payload?.title || "Task"}\n⏰ *नया समय:* कल सुबह 9:00 AM\nTenSy कल सुबह आपको समय पर याद दिलाएगा!`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+
+      // Option 4: Direct Call link
+      if (
+        upperText === "4" ||
+        upperText === "CALL" ||
+        upperText.includes("CALL KARO")
+      ) {
+        const contactPhone = payload?.contactPhone;
+        if (contactPhone) {
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: input.phone,
+            body: `📞 *कॉल लिंक:* tel:${contactPhone}\n\nसीधे कॉल करने के लिए ऊपर दिए गए लिंक पर टैप करें।`,
+            chatSource: "bot",
+          }).catch(() => undefined);
+          return true;
+        }
+      }
+
+      // Option 5: Delegate to AI (Autonomous Client Follow-up)
+      if (
+        upperText === "5" ||
+        upperText === "DELEGATE" ||
+        upperText.includes("DELEGATE") ||
+        upperText.includes("AI HANDLE") ||
+        upperText.includes("AI KARE")
+      ) {
+        if (taskId) {
+          await prisma.businessTask.update({
+            where: { id: taskId },
+            data: { status: "IN_PROGRESS" },
+          });
+        }
+        const clientPhone = payload?.contactPhone;
+        const clientName = payload?.contactName || "Client";
+        if (clientPhone) {
+          const clientGreeting = `नमस्ते ${clientName} जी,\nयह संदेश *${channel.displayName || "WaCall"}* की तरफ से है।\n\n📌 *विषय:* ${payload?.title || "Follow-up"}\nकृपया इस बारे में अपडेट साझा करें या सुविधा अनुसार समय बताएं जब आपसे बात हो सके। धन्यवाद!`;
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: clientPhone,
+            body: clientGreeting,
+            chatSource: "bot",
+          }).catch(() => undefined);
+        }
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "APPROVED" },
+        });
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: input.phone,
+          body: `🤖 *टास्क AI को सौंप दिया गया!* 🚀\n━━━━━━━━━━━━━━━━━━━━\n📌 *टास्क:* ${payload?.title || "Task"}\n${clientPhone ? `👤 *क्लाइंट:* ${clientName} (${clientPhone})\n💬 WaCall ने क्लाइंट को आधिकारिक WhatsApp फॉलो-अप संदेश भेज दिया है।` : "टास्क को 'प्रगति पर (In Progress)' मार्क कर दिया गया है।"}\n\nक्लाइंट का रिप्लाई आते ही आपको तुरंत सूचित किया जाएगा!`,
+          chatSource: "bot",
+        }).catch(() => undefined);
+        return true;
+      }
+    }
+
+    // 00. Handler for Incomplete Task Clarification
+    if (pendingAction.actionType === "TASK_CLARIFICATION_ACTION") {
+      const payload = pendingAction.payload as any;
+      const now = new Date();
+      const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+      const istNow = new Date(now.getTime() + istOffsetMs);
+
+      let targetDueAt: Date;
+
+      if (upperText === "1" || upperText.includes("3 PM") || upperText.includes("3:00")) {
+        // Today 3:00 PM IST (09:30 UTC)
+        targetDueAt = new Date(
+          Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 9, 30, 0, 0),
+        );
+        if (targetDueAt <= now) {
+          targetDueAt = new Date(targetDueAt.getTime() + 24 * 60 * 60 * 1000);
+        }
+      } else if (upperText === "2" || upperText.includes("6 PM") || upperText.includes("6:00")) {
+        // Today 6:00 PM IST (12:30 UTC)
+        targetDueAt = new Date(
+          Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 12, 30, 0, 0),
+        );
+        if (targetDueAt <= now) {
+          targetDueAt = new Date(targetDueAt.getTime() + 24 * 60 * 60 * 1000);
+        }
+      } else if (upperText === "3" || upperText.includes("11 AM") || upperText.includes("11:00")) {
+        // Tomorrow 11:00 AM IST (05:30 UTC)
+        const istTomorrow = new Date(istNow.getTime() + 24 * 60 * 60 * 1000);
+        targetDueAt = new Date(
+          Date.UTC(istTomorrow.getUTCFullYear(), istTomorrow.getUTCMonth(), istTomorrow.getUTCDate(), 5, 30, 0, 0),
+        );
+      } else {
+        // Custom natural language time response like "kal 4 baje"
+        const customParsed = fallbackRegexTaskParser(text, now);
+        targetDueAt = customParsed.dueAt;
+      }
+
+      // Create task with resolved time
+      const createdTask = await createTaskWithReminders({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        title: payload.title,
+        description: `Created after clarification from: "${payload.rawText}"`,
+        dueAt: targetDueAt,
+        timezone: "Asia/Kolkata",
+        priority: payload.priority || "MEDIUM",
+        source: "WHATSAPP",
+        contactName: payload.contactName,
+        contactPhone: payload.contactPhone,
+        assignedTo: payload.assignedTo || commander.name || "Me",
+        assignedPhone: payload.assignedPhone || commander.phone,
+        recurrence: "NEVER",
+        reminderOffsets: payload.reminderOffsets && payload.reminderOffsets.length > 0 ? payload.reminderOffsets : [0],
+      });
+
+      await prisma.pendingAction.update({
+        where: { id: pendingAction.id },
+        data: { status: "APPROVED" },
+      });
+
+      const dueFormatted = new Date(createdTask.dueAt || targetDueAt).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+
+      const confirmMsg = `✅ *Task Scheduled & Reminder Active!* 📌\n━━━━━━━━━━━━━━━━━━━━\n📌 *Task:* ${createdTask.title}\n⏰ *Due:* ${dueFormatted}\n🔔 *Reminder:* समय पर WhatsApp अलर्ट सक्रिय\n🎯 *Priority:* ${createdTask.priority}\n━━━━━━━━━━━━━━━━━━━━\nI will ping you on WhatsApp with 1-tap actions when it's time!`;
+
+      await sendWhatsAppText({
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        phone: input.phone,
+        body: confirmMsg,
+        chatSource: "bot",
+      }).catch(() => undefined);
+
+      if (payload.assignedPhone && payload.assignedPhone !== input.phone) {
+        const teamAlert = `📌 *नमस्ते ${payload.assignedTo}! आपको एक नया कार्य सौंपा गया है* 🎯\n━━━━━━━━━━━━━━━━━━━━\n👑 *असाइन किया गया:* ${commander.name || "Business Owner"} द्वारा\n📌 *कार्य:* ${createdTask.title}\n⏰ *समय:* ${dueFormatted}\n━━━━━━━━━━━━━━━━━━━━\nTenSy समय होने पर आपको WhatsApp पर रिमाइंडर और 1-क्लिक ऐक्शन विकल्प भेजेगा!`;
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: payload.assignedPhone,
+          body: teamAlert,
+          chatSource: "bot",
+        }).catch(() => undefined);
+      }
+
+      return true;
+    }
+
     // A. Special Handler for Call Intelligence Actions (1, 2, 3)
     if (pendingAction.actionType === "CALL_METRICS_ACTIONS") {
       const missedList = ((pendingAction.payload as any)?.missedCalls || []) as Array<{
@@ -1226,17 +1477,81 @@ export async function handleOwnerCommand(input: {
   if (isCreateTaskIntent) {
     try {
       const parsed = await interpretTaskNaturalLanguage(channel.organizationId, text);
-      if (parsed.isAmbiguous && parsed.clarificationQuestion) {
+
+      // Resolve assignee:
+      let targetAssigneeName = commander.name || "Me";
+      let targetAssigneePhone = commander.phone;
+      let isDelegatedToTeam = false;
+
+      if (parsed.assignedTo && parsed.assignedTo.toLowerCase() !== "me") {
+        // Search in team commanders
+        const teamMembers = await prisma.commanderMember.findMany({
+          where: { channelId: channel.id, enabled: true },
+        });
+        const matchedMember = teamMembers.find(
+          (m) =>
+            m.name.toLowerCase().includes(parsed.assignedTo!.toLowerCase()) ||
+            parsed.assignedTo!.toLowerCase().includes(m.name.toLowerCase()),
+        );
+
+        if (matchedMember) {
+          targetAssigneeName = matchedMember.name;
+          targetAssigneePhone = matchedMember.phone;
+          isDelegatedToTeam = true;
+        } else {
+          // Check contacts
+          const contact = await prisma.contact.findFirst({
+            where: {
+              organizationId: channel.organizationId,
+              name: { contains: parsed.assignedTo, mode: "insensitive" },
+            },
+          });
+          if (contact) {
+            targetAssigneeName = contact.name || parsed.assignedTo;
+            targetAssigneePhone = contact.phone;
+            isDelegatedToTeam = true;
+          }
+        }
+      }
+
+      // Step 3: Interactive Clarification for Ambiguous Tasks (no date/time provided)
+      if (parsed.isAmbiguous) {
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 mins
+        await prisma.pendingAction.create({
+          data: {
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            actionType: "TASK_CLARIFICATION_ACTION",
+            summary: `Clarify time for: ${parsed.title}`,
+            status: "PENDING",
+            expiresAt,
+            payload: {
+              rawText: text,
+              title: parsed.title,
+              contactName: parsed.contactName,
+              contactPhone: parsed.contactPhone,
+              priority: parsed.priority,
+              category: parsed.category,
+              assignedTo: targetAssigneeName,
+              assignedPhone: targetAssigneePhone,
+              reminderOffsets: parsed.reminderOffsets,
+            },
+          },
+        });
+
+        const promptCard = `❓ *टास्क का समय तय करें, ${commander.name || "Boss"}!* ⏰\n━━━━━━━━━━━━━━━━━━━━\n📌 *कार्य:* ${parsed.title}\n${parsed.contactName ? `👤 *संपर्क:* ${parsed.contactName}\n` : ""}\nकृपया समय चुनने के लिए रिप्लाई करें:\n1️⃣ *1* → आज दोपहर 3:00 PM\n2️⃣ *2* → आज शाम 6:00 PM\n3️⃣ *3* → कल सुबह 11:00 AM\n\nया कोई अन्य समय लिखकर बताएं:\n_उदा: "कल 4 बजे" या "शाम 5 बजे"_`;
+
         await sendWhatsAppText({
           organizationId: channel.organizationId,
           channelId: channel.id,
           phone: input.phone,
-          body: `❓ ${parsed.clarificationQuestion}`,
+          body: promptCard,
           chatSource: "bot",
         }).catch(() => undefined);
         return true;
       }
 
+      // Step 1: Create Task with assigned team member
       const createdTask = await createTaskWithReminders({
         organizationId: channel.organizationId,
         channelId: channel.id,
@@ -1248,8 +1563,8 @@ export async function handleOwnerCommand(input: {
         source: "WHATSAPP",
         contactName: parsed.contactName,
         contactPhone: parsed.contactPhone,
-        assignedTo: parsed.assignedTo || "ME",
-        assignedPhone: commander.phone,
+        assignedTo: targetAssigneeName,
+        assignedPhone: targetAssigneePhone,
         recurrence: parsed.recurrence || "NEVER",
         reminderOffsets: parsed.reminderOffsets && parsed.reminderOffsets.length > 0 ? parsed.reminderOffsets : [0],
       });
@@ -1268,14 +1583,16 @@ export async function handleOwnerCommand(input: {
       const remindersCount = (createdTask as any).reminders?.length || 1;
       const reminderSummary = remindersCount > 1 ? `At due time & ${remindersCount - 1} prior alerts` : `At due time`;
 
-      let confirmMsg = `✅ *Task Scheduled & Reminder Active!* ${priorityEmoji}\n━━━━━━━━━━━━━━━━━━━━\n📌 *Task:* ${createdTask.title}\n⏰ *Due:* ${dueFormatted}\n🔔 *Reminder:* ${reminderSummary}\n🎯 *Priority:* ${createdTask.priority}`;
+      let confirmMsg = isDelegatedToTeam
+        ? `✅ *Task Scheduled & Assigned to ${targetAssigneeName}!* ${priorityEmoji}\n━━━━━━━━━━━━━━━━━━━━\n📌 *Task:* ${createdTask.title}\n👤 *Assigned To:* ${targetAssigneeName} (${targetAssigneePhone})\n⏰ *Due:* ${dueFormatted}\n🔔 *Reminder:* ${targetAssigneeName} को WhatsApp पर अलर्ट भेजा गया है\n🎯 *Priority:* ${createdTask.priority}\n━━━━━━━━━━━━━━━━━━━━\nTenSy समय होने पर ${targetAssigneeName} को रिमाइंडर व 1-क्लिक ऐक्शन विकल्प भेजेगा!`
+        : `✅ *Task Scheduled & Reminder Active!* ${priorityEmoji}\n━━━━━━━━━━━━━━━━━━━━\n📌 *Task:* ${createdTask.title}\n⏰ *Due:* ${dueFormatted}\n🔔 *Reminder:* ${reminderSummary}\n🎯 *Priority:* ${createdTask.priority}\n━━━━━━━━━━━━━━━━━━━━\nI will ping you on WhatsApp with 1-tap actions when it's time!`;
+
       if (createdTask.recurrence && createdTask.recurrence !== "NEVER") {
         confirmMsg += `\n🔁 *Recurrence:* ${createdTask.recurrence}`;
       }
-      if (createdTask.contactName) {
+      if (createdTask.contactName && !isDelegatedToTeam) {
         confirmMsg += `\n👤 *Contact:* ${createdTask.contactName}${createdTask.contactPhone ? ` (${createdTask.contactPhone})` : ""}`;
       }
-      confirmMsg += `\n━━━━━━━━━━━━━━━━━━━━\nI will ping you on WhatsApp with 1-tap actions when it's time!`;
 
       await sendWhatsAppText({
         organizationId: channel.organizationId,
@@ -1284,6 +1601,24 @@ export async function handleOwnerCommand(input: {
         body: confirmMsg,
         chatSource: "bot",
       }).catch(() => undefined);
+
+      // Step 1 Dispatch: Alert the assigned team member on their WhatsApp
+      if (isDelegatedToTeam && targetAssigneePhone && targetAssigneePhone !== input.phone) {
+        const contactInfo = createdTask.contactName
+          ? `${createdTask.contactName}${createdTask.contactPhone ? ` (${createdTask.contactPhone})` : ""}`
+          : "";
+
+        const teamAlert = `📌 *नमस्ते ${targetAssigneeName}! आपको एक नया कार्य सौंपा गया है* 🎯\n━━━━━━━━━━━━━━━━━━━━\n👑 *असाइन किया गया:* ${commander.name || "Business Owner"} द्वारा\n📌 *कार्य:* ${createdTask.title}\n⏰ *समय:* ${dueFormatted}\n${contactInfo ? `👤 *क्लाइंट:* ${contactInfo}\n` : ""}🎯 *प्राथमिकता:* ${createdTask.priority}\n━━━━━━━━━━━━━━━━━━━━\nTenSy समय होने पर आपको WhatsApp पर रिमाइंडर और 1-क्लिक ऐक्शन विकल्प भेजेगा!`;
+
+        await sendWhatsAppText({
+          organizationId: channel.organizationId,
+          channelId: channel.id,
+          phone: targetAssigneePhone,
+          body: teamAlert,
+          chatSource: "bot",
+        }).catch(() => undefined);
+      }
+
       return true;
     } catch (tErr: any) {
       log.warn({ err: tErr?.message }, "Task interpretation / creation error");

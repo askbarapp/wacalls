@@ -161,7 +161,7 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
   const targetDate = new Date(now);
   if (lower.includes("kal") || lower.includes("कल") || lower.includes("tomorrow")) {
     targetDate.setDate(targetDate.getDate() + 1);
-  } else if (lower.includes("parson") || lower.includes("परसों")) {
+  } else if (lower.includes("parso") || lower.includes("parson") || lower.includes("परसों")) {
     targetDate.setDate(targetDate.getDate() + 2);
   }
 
@@ -173,14 +173,9 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
   if (timeMatch && timeMatch[1]) {
     hour = parseInt(timeMatch[1], 10);
     minute = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-    const isPm =
-      lower.includes("shaam") ||
-      lower.includes("शाम") ||
-      lower.includes("pm") ||
-      lower.includes("dopahar") ||
-      lower.includes("दोपहर") ||
-      lower.includes("raat") ||
-      (hour >= 1 && hour <= 6 && !lower.includes("subah") && !lower.includes("am") && !lower.includes("सुबह"));
+    const isExplicitAm = /\b(?:subah|am|a\.m|सुबह)\b/i.test(lower);
+    const isExplicitPm = /\b(?:shaam|शाम|pm|p\.m|dopahar|दोपहर|raat)\b/i.test(lower);
+    const isPm = isExplicitPm || (hour >= 1 && hour <= 6 && !isExplicitAm);
     if (isPm && hour < 12) {
       hour += 12;
     }
@@ -233,6 +228,25 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
   const isWeekly = lower.includes("weekly") || lower.includes("har somwar") || lower.includes("हर सोमवार");
   const recurrence = isDaily ? "DAILY" : isWeekly ? "WEEKLY" : "NEVER";
 
+  // Assignee extraction:
+  // e.g. "Rahul ko bolo", "Rahul ko assign karo", "Assign to Rahul", "Rahul ko task do", "Rahul dekhega/handle karega"
+  let assignedTo: string | null = null;
+  const assignPatterns = [
+    /\b(?:assign\s+to|assign\s+karo\s+to|task\s+do\s+to)\s+([A-Za-z\u0900-\u097F]+)/i,
+    /\b([A-Za-z\u0900-\u097F]+)\s+(?:ko\s+bolo|ko\s+assign\s+karo|ko\s+task\s+do|handle\s+karega|dekhega|karega)\b/i,
+  ];
+
+  for (const pat of assignPatterns) {
+    const match = text.match(pat);
+    if (match && match[1]) {
+      const candidate = match[1].trim();
+      if (!["aaj", "kal", "parso", "subah", "shaam", "sabko", "kisi", "me", "main", "unko", "is", "ye", "yeh", "client", "customer"].includes(candidate.toLowerCase())) {
+        assignedTo = candidate;
+        break;
+      }
+    }
+  }
+
   return {
     title: cleanTitle,
     description: `Created from WhatsApp: "${text}"`,
@@ -242,7 +256,7 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
     priority,
     category,
     reminderOffsets,
-    assignedTo: null,
+    assignedTo,
     recurrence,
     isAmbiguous: !lower.includes("kal") && !lower.includes("aaj") && !lower.includes("tomorrow") && !timeMatch,
     clarificationQuestion: null,
