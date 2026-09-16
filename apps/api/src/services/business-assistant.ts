@@ -474,11 +474,12 @@ export async function handleOwnerCommand(input: {
         }
       }
 
-      // Option 2: Create Task in WaCall
+      // Option 2: Create Task from Email in WaCall (Requires strict "2" or explicit "EMAIL TASK")
       if (
         upperText === "2" ||
-        upperText.includes("TASK") ||
-        upperText.includes("KAM")
+        upperText === "EMAIL TASK" ||
+        upperText === "CREATE EMAIL TASK" ||
+        upperText === "TASK FOR EMAIL"
       ) {
         const taskTitle = payload.suggestedAction || `Follow up on email: ${payload.subject}`;
         const dueDate = payload.detectedDeadline
@@ -1100,30 +1101,57 @@ export async function handleOwnerCommand(input: {
     upperText.includes("TASK LIST") ||
     upperText.includes("AAJ KE TASK") ||
     upperText.includes("TODAY TASKS") ||
+    upperText.includes("TODAY TASK") ||
+    upperText.includes("AAJ KA TASK") ||
+    upperText.includes("MERA TASK") ||
+    upperText.includes("MERI TASKS") ||
     upperText.includes("TASKS DIKHAO") ||
-    upperText.includes("TASK DIKHAO")
+    upperText.includes("TASK DIKHAO") ||
+    upperText.includes("TASK BATAO") ||
+    upperText.includes("SCHEDULE BATAO")
   ) {
+    // If sender is an executive or staff, only show tasks assigned to them
+    const isStaffMember = ["EXECUTIVE", "SUPPORT", "ACCOUNTS"].includes(commander.role);
+    const filterCondition: any = {
+      organizationId: channel.organizationId,
+      status: { in: ["TODO", "IN_PROGRESS", "PENDING", "OVERDUE"] },
+    };
+
+    if (isStaffMember && commander.name) {
+      filterCondition.OR = [
+        { assignedTo: { contains: commander.name, mode: "insensitive" } },
+        { assignedPhone: { contains: commander.phone.slice(-10) } },
+      ];
+    }
+
     const pendingTasks = await prisma.businessTask.findMany({
-      where: {
-        organizationId: channel.organizationId,
-        status: { in: ["TODO", "IN_PROGRESS", "PENDING", "OVERDUE"] },
+      where: filterCondition,
+      include: {
+        reminders: { where: { status: { in: ["PENDING", "SENT"] } }, orderBy: { reminderAt: "asc" } },
       },
       orderBy: { dueAt: "asc" },
       take: 8,
     });
+
+    // Fetch assistant name from BusinessProfile
+    const profile = await prisma.businessProfile.findFirst({
+      where: { organizationId: channel.organizationId },
+      select: { assistantName: true },
+    });
+    const botName = profile?.assistantName || "TenSy";
 
     if (pendingTasks.length === 0) {
       await sendWhatsAppText({
         organizationId: channel.organizationId,
         channelId: channel.id,
         phone: input.phone,
-        body: `✨ *No Pending Tasks!* 🎉\n━━━━━━━━━━━━━━━━━━━━\nYou're all caught up. To add a new task or reminder, just message me:\n_e.g., "कल 10 बजे Rahul को call करना है"_\nor open *https://wacall.in/tasks*`,
+        body: `✨ *कोई पेंडिंग टास्क नहीं है!* 🎉\n━━━━━━━━━━━━━━━━━━━━\nनमस्ते ${commander.name || "Sir"}! आपका आज का शेड्यूल पूरी तरह से खाली है।\n\nनया टास्क या मीटिंग शेड्यूल करने के लिए मुझे लिखकर या बोलकर बताएं:\n_उदा: "कल 11 बजे गुप्ता जी को कॉल करना है"_\nया *https://wacall.in/tasks* खोलें।`,
         chatSource: "bot",
       }).catch(() => undefined);
       return true;
     }
 
-    let taskListMsg = `📋 *Active Tasks & Reminders (${pendingTasks.length})*\n━━━━━━━━━━━━━━━━━━━━\n`;
+    let taskListMsg = `📋 *${botName} — आज के कार्य व शेड्यूल (${pendingTasks.length})*\n━━━━━━━━━━━━━━━━━━━━\n`;
     pendingTasks.forEach((t, idx) => {
       const pEmoji = t.priority === "URGENT" ? "🚨" : t.priority === "HIGH" ? "⚡" : "📌";
       const dueStr = t.dueAt
@@ -1135,11 +1163,18 @@ export async function handleOwnerCommand(input: {
             minute: "2-digit",
           })
         : "No due date";
-      const contactStr = t.contactName ? ` (${t.contactName})` : "";
-      taskListMsg += `${idx + 1}. ${pEmoji} *${t.title}*${contactStr}\n   ⏰ _${dueStr}_ [${t.status}]\n`;
+      const contactStr = t.contactName ? `\n   👤 *संपर्क:* ${t.contactName}${t.contactPhone ? ` (${t.contactPhone})` : ""}` : "";
+      const statusBadge = t.status === "IN_PROGRESS" ? "🔵 प्रगति पर (AI Delegated)" : t.status === "OVERDUE" ? "🔴 अतिदेय (Overdue)" : "⏳ लंबित (Pending)";
+      
+      const remindersList = (t.reminders || [])
+        .map(r => new Date(r.reminderAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }))
+        .join(", ");
+      const reminderStr = remindersList ? `\n   🔔 *अलर्ट समय:* ${remindersList}` : "";
+
+      taskListMsg += `${idx + 1}. ${pEmoji} *${t.title}*${contactStr}\n   ⏰ *समय:* ${dueStr}\n   📊 *स्थिति:* ${statusBadge}${reminderStr}\n\n`;
     });
 
-    taskListMsg += `━━━━━━━━━━━━━━━━━━━━\n💡 Open *https://wacall.in/tasks* to manage or mark done.`;
+    taskListMsg += `━━━━━━━━━━━━━━━━━━━━\n💡 कार्य पूरा होने पर *Done [नंबर]* लिखें, या AI को सौंपने के लिए *Delegate [नंबर]* लिखें।`;
 
     await sendWhatsAppText({
       organizationId: channel.organizationId,
@@ -1572,12 +1607,40 @@ export async function handleOwnerCommand(input: {
     }
   }
 
-  // Default Assistant Response to Commander
+  // Default Assistant Response to Commander (Warm, Human-like & Elegant)
+  const profile = await prisma.businessProfile.findFirst({
+    where: { organizationId: channel.organizationId },
+    select: { assistantName: true },
+  });
+  const botName = profile?.assistantName || "TenSy";
+
+  // Compute time-of-day greeting in IST
+  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+  const istNow = new Date(Date.now() + istOffsetMs);
+  const istHour = istNow.getUTCHours();
+  const timeGreeting = istHour < 12 ? "शुभ प्रभात (Good Morning)" : istHour < 17 ? "नमस्ते (Good Afternoon)" : "नमस्ते (Good Evening)";
+
+  const personName = commander.name || (commander.role === "OWNER" ? "सर" : "साथी");
+
+  const warmGreeting = `✨ *${botName} Executive Assistant*
+━━━━━━━━━━━━━━━━━━━━
+${timeGreeting}, *${personName}*! 🙏
+
+मैं *${botName}* हूँ, आपका व्यक्तिगत AI बिज़नेस असिस्टेंट। बताइए, आज मैं आपके लिए क्या कर सकता हूँ?
+
+आप मुझसे सामान्य बातचीत की तरह सीधे पूछ या बोल सकते हैं:
+• 📋 *आज के काम व शेड्यूल:* _"आज के टास्क बताओ"_
+• ⏰ *टास्क व रिमाइंडर:* _"कल 11 बजे गुप्ता जी को कॉल करना है"_
+• 💰 *फाइनेंशियल स्थिति:* _"कितना पेमेंट बाकी है?"_
+• 📞 *कॉल व टीम:* _"आज कितने कॉल आए?"_ या _"Call [नाम]"_
+
+या बस बोलकर (Voice Note) या लिखकर बताइए कि क्या काम निपटाना है! 🎯`;
+
   await sendWhatsAppText({
     organizationId: channel.organizationId,
     channelId: channel.id,
     phone: input.phone,
-    body: `👋 *नमस्ते ${commander.name || "Boss"}! WaCall OS Assistant Active*\n_${commander.role}_ भूमिका अधिकृत ✅\n\nआप मुझसे WhatsApp पर सीधे पूछ सकते हैं:\n• *"today total call"* / *"आज कितने call आए हैं"* (कॉल रिपोर्ट व 1-क्लिक फॉलो-अप)\n• *"कल 10 बजे Rahul को call करना है"* (AI Task & Reminder)\n• *"Tasks"* / *"आज के सारे काम बताओ"*\n• *"Hot leads निकालो"*\n• *"Diwali ka poster bana do"* (AI Creative Studio)\n• *"Logo छोटा करो" / "Final"* (Creative Edit/Lock)\n• *"Send quotation to [Name] for ₹[Amount]"*\n• *"Pending payments बताओ"*\n• *"Call [Name/Number]"*\n• *"जब भी कोई पूछे [प्रश्न], तो बोलो [उत्तर]"* (Rule सिखाएं)\n• या किसी भी ग्राहक का मैसेज/विजिटिंग कार्ड मुझे *Forward* कर दीजिए!`,
+    body: warmGreeting,
     chatSource: "bot",
   }).catch(() => undefined);
 

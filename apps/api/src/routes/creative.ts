@@ -63,6 +63,14 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
       logoUrl: z.string().optional().nullable(),
       creativePreferences: z.any().optional().nullable(),
       language: z.string().optional().default("Hindi + English"),
+      assistantName: z.string().optional().default("TenSy"),
+      morningSlot: z.string().optional().default("09:00"),
+      morningEnabled: z.boolean().optional().default(true),
+      eodSlot: z.string().optional().default("20:00"),
+      eodEnabled: z.boolean().optional().default(true),
+      middaySlot: z.string().optional().default("14:00"),
+      middayEnabled: z.boolean().optional().default(false),
+      reportMetrics: z.record(z.any()).optional(),
     });
 
     const body = schema.parse(req.body);
@@ -95,6 +103,14 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
             logoUrl: body.logoUrl,
             creativePreferences: body.creativePreferences !== undefined ? body.creativePreferences : undefined,
             language: body.language,
+            assistantName: body.assistantName,
+            morningSlot: body.morningSlot,
+            morningEnabled: body.morningEnabled,
+            eodSlot: body.eodSlot,
+            eodEnabled: body.eodEnabled,
+            middaySlot: body.middaySlot,
+            middayEnabled: body.middayEnabled,
+            reportMetrics: body.reportMetrics !== undefined ? body.reportMetrics : undefined,
           },
         })
       : await prisma.businessProfile.create({
@@ -114,8 +130,16 @@ export const creativeRoutes: FastifyPluginAsync = async (app) => {
             address: body.address,
             website: body.website,
             logoUrl: body.logoUrl,
-            creativePreferences: body.creativePreferences || undefined,
+            creativePreferences: body.creativePreferences !== undefined ? body.creativePreferences : undefined,
             language: body.language,
+            assistantName: body.assistantName,
+            morningSlot: body.morningSlot,
+            morningEnabled: body.morningEnabled,
+            eodSlot: body.eodSlot,
+            eodEnabled: body.eodEnabled,
+            middaySlot: body.middaySlot,
+            middayEnabled: body.middayEnabled,
+            reportMetrics: body.reportMetrics !== undefined ? body.reportMetrics : undefined,
           },
         });
 

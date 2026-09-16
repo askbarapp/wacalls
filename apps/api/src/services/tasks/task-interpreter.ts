@@ -192,9 +192,25 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
   const contactMatch = text.match(/(?:to|ko|को)\s+([A-Za-z\u0900-\u097F]+)/i);
   const contactName = contactMatch && contactMatch[1] ? contactMatch[1].trim() : null;
 
-  // Title formatting
-  const cleanTitle = text
+  // Clean reminder offset instructions out of title and extract offsets
+  const reminderOffsets: number[] = [0];
+  const offsetMatch = lower.match(/(\d{1,2})\s*(?:min|minute|minutes|minut|minuts|मिनट|घंटा|hour|ghanta)\s*(?:pahle|pehle|before|earlier|er)/i);
+  if (offsetMatch && offsetMatch[1]) {
+    let mins = parseInt(offsetMatch[1], 10);
+    if (lower.includes("घंटा") || lower.includes("hour") || lower.includes("ghanta")) {
+      mins = mins * 60;
+    }
+    if (mins > 0 && !reminderOffsets.includes(mins)) {
+      reminderOffsets.push(mins);
+    }
+  }
+
+  // Title formatting - strip command noise and reminder phrasing
+  let cleanTitle = text
     .replace(/(?:remind|yaad dilana|याद दिलाना|task banao|टास्क बनाओ|bana do|karo)/gi, "")
+    .replace(/\b\d{1,2}\s*(?:min|minute|minutes|minut|minuts|मिनट|घंटा|hour|ghanta)\s*(?:pahle|pehle|before|earlier|er)\s*(?:laga dena|alert|reminder)?/gi, "")
+    .replace(/,\s*$/g, "")
+    .replace(/\.\s*$/g, "")
     .trim() || text;
 
   // Recurrence
@@ -210,7 +226,7 @@ export function fallbackRegexTaskParser(text: string, now: Date = new Date()): P
     dueAt: istDate > now ? istDate : new Date(now.getTime() + 60 * 60 * 1000),
     priority,
     category,
-    reminderOffsets: [0],
+    reminderOffsets,
     assignedTo: null,
     recurrence,
     isAmbiguous: !lower.includes("kal") && !lower.includes("aaj") && !lower.includes("tomorrow") && !timeMatch,

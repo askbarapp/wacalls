@@ -40,6 +40,7 @@ export const NAV: Array<{
   superAdmin?: boolean;
 }> = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Overview" },
+  { href: "/business-assistant", label: "Business Assistant", icon: Sparkles, group: "Overview" },
   { href: "/dialer", label: "Dialer", icon: PhoneCall, group: "Calling" },
   { href: "/visits", label: "Website Visit", icon: Globe, group: "Calling" },
   { href: "/channels", label: "WhatsApp", icon: Phone, group: "Calling" },

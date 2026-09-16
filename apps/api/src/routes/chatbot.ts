@@ -405,7 +405,7 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
         channelId: z.string().uuid(),
         name: z.string().trim().min(1).max(100),
         phone: z.string().trim().min(8).max(30),
-        role: z.enum(["OWNER", "SALES_MANAGER", "ACCOUNTS", "SUPPORT"]).default("OWNER"),
+        role: z.enum(["OWNER", "MANAGER", "SUPERVISOR", "EXECUTIVE", "SALES_MANAGER", "ACCOUNTS", "SUPPORT"]).default("EXECUTIVE"),
         dailyMorning: z.boolean().default(true),
         dailyEod: z.boolean().default(true),
         missedAlert: z.boolean().default(true),
@@ -459,7 +459,7 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
       .object({
         name: z.string().trim().min(1).max(100).optional(),
         phone: z.string().trim().min(8).max(30).optional(),
-        role: z.enum(["OWNER", "SALES_MANAGER", "ACCOUNTS", "SUPPORT"]).optional(),
+        role: z.enum(["OWNER", "MANAGER", "SUPERVISOR", "EXECUTIVE", "SALES_MANAGER", "ACCOUNTS", "SUPPORT"]).optional(),
         dailyMorning: z.boolean().optional(),
         dailyEod: z.boolean().optional(),
         missedAlert: z.boolean().optional(),

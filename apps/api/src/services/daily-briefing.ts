@@ -17,17 +17,8 @@ export async function processDailyBriefingTick(): Promise<void> {
 
   const istHour = istTime.getUTCHours();
   const istMinutes = istTime.getUTCMinutes();
+  const currentSlotTime = `${String(istHour).padStart(2, "0")}:${String(istMinutes).padStart(2, "0")}`;
   const todayStr = istTime.toISOString().slice(0, 10); // YYYY-MM-DD
-
-  // Morning Briefing window: 9:00 AM to 9:10 AM IST
-  const isMorningWindow = istHour === 9 && istMinutes < 10;
-
-  // EOD Report window: 8:00 PM (20:00) to 8:10 PM IST
-  const isEodWindow = istHour === 20 && istMinutes < 10;
-
-  if (!isMorningWindow && !isEodWindow) {
-    return;
-  }
 
   // Find all channels with an active ownerPhone or active commander members
   const channels = await prisma.whatsAppChannel.findMany({
@@ -45,6 +36,27 @@ export async function processDailyBriefingTick(): Promise<void> {
   });
 
   for (const channel of channels) {
+    // Check customized schedule slots from BusinessProfile
+    const profile = await prisma.businessProfile.findFirst({
+      where: { organizationId: channel.organizationId },
+    });
+
+    const morningSlot = profile?.morningSlot || "09:00";
+    const morningEnabled = profile?.morningEnabled !== false;
+    const eodSlot = profile?.eodSlot || "20:00";
+    const eodEnabled = profile?.eodEnabled !== false;
+
+    const [mH = 9, mM = 0] = morningSlot.split(":").map(Number);
+    const [eH = 20, eM = 0] = eodSlot.split(":").map(Number);
+
+    // Slot match within a 10-minute window
+    const isMorningWindow = morningEnabled && istHour === mH && istMinutes >= mM && istMinutes < mM + 10;
+    const isEodWindow = eodEnabled && istHour === eH && istMinutes >= eM && istMinutes < eM + 10;
+
+    if (!isMorningWindow && !isEodWindow) {
+      continue;
+    }
+
     // Compile distinct authorized recipients
     const recipientsMap = new Map<string, { phone: string; name: string; role: string; dailyMorning: boolean; dailyEod: boolean }>();
 
