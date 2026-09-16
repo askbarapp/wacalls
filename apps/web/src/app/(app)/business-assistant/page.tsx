@@ -129,6 +129,8 @@ export default function BusinessAssistantPage() {
 function BusinessAssistantContent() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [channelId, setChannelId] = useState<string>("");
+  const [ownerPhone, setOwnerPhone] = useState<string>("");
+  const [savingOwnerPhone, setSavingOwnerPhone] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>("team");
   const [commanders, setCommanders] = useState<CommanderMember[]>([]);
   const [, setLoading] = useState(true);
@@ -170,6 +172,10 @@ function BusinessAssistantContent() {
   useEffect(() => {
     if (channelId) {
       loadChannelData(channelId);
+      const ch = channels.find((c) => c.id === channelId);
+      if (ch) {
+        setOwnerPhone(ch.ownerPhone || "");
+      }
     }
   }, [channelId]);
 
@@ -181,6 +187,7 @@ function BusinessAssistantContent() {
       setChannels(chList);
       if (chList.length > 0) {
         setChannelId(chList[0].id);
+        setOwnerPhone(chList[0].ownerPhone || "");
       }
     } catch (e: any) {
       setFeedback({ type: "error", text: e?.message || "Failed to load channels" });
@@ -225,6 +232,26 @@ function BusinessAssistantContent() {
       }
     } catch {
       /* ignore */
+    }
+  }
+
+  async function handleSaveOwnerPhone() {
+    if (!channelId) return;
+    setSavingOwnerPhone(true);
+    setFeedback(null);
+    try {
+      await api(`/api/v1/channels/${channelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ownerPhone: ownerPhone.trim() || null }),
+      });
+      setChannels((prev) =>
+        prev.map((c) => (c.id === channelId ? { ...c, ownerPhone: ownerPhone.trim() || null } : c))
+      );
+      setFeedback({ type: "success", text: "Primary Owner WhatsApp Line saved successfully!" });
+    } catch (e: any) {
+      setFeedback({ type: "error", text: e?.message || "Failed to save Owner Line" });
+    } finally {
+      setSavingOwnerPhone(false);
     }
   }
 
@@ -375,7 +402,7 @@ function BusinessAssistantContent() {
             <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-right">
               <div className="text-[11px] text-slate-400 font-medium">Connected Team</div>
               <div className="text-sm font-bold text-amber-300">
-                {commanders.filter((c) => c.enabled).length} Active Members
+                {commanders.filter((c) => c.enabled).length + (ownerPhone ? 1 : 0)} Active Members
               </div>
             </div>
           </div>
@@ -437,17 +464,52 @@ function BusinessAssistantContent() {
       {/* TAB 1: AI Team & WhatsApp Hierarchy */}
       {activeTab === "team" && (
         <div className="space-y-6">
-          {/* Intro Card */}
+          {/* 1. PRIMARY OWNER WHATSAPP LINE */}
+          <div className="rounded-xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-slate-900/90 to-slate-950 p-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-amber-300">👑 1. Primary Owner WhatsApp Line</span>
+                  <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 uppercase tracking-wide">
+                    Master Access
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                  Send direct commands to TenSy from this personal phone number, or use <b>Self-Chat</b> on your connected WhatsApp business line. Has full master access to all financials, call reports, creative posters, and team task delegations.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <input
+                  type="text"
+                  value={ownerPhone}
+                  onChange={(e) => setOwnerPhone(e.target.value)}
+                  placeholder="e.g. 918800101513"
+                  className="w-full sm:w-60 rounded-lg border border-white/10 bg-slate-950 px-3.5 py-2 text-xs font-mono text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveOwnerPhone}
+                  disabled={savingOwnerPhone}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition-colors shrink-0 shadow-sm"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  {savingOwnerPhone ? "Saving..." : "Save Line"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. AUTHORIZED TEAM COMMANDER LINES (HIERARCHY) */}
           <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Shield className="h-4 w-4 text-amber-400" />
-                  WhatsApp Team Hierarchy & Role-Based Access
+                  2. Authorized Team Commander Lines &amp; Hierarchy
                 </h3>
                 <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-                  Connect WhatsApp numbers of your employees or partners. TenSy intelligently isolates information:
-                  when staff (e.g., Amit) text <span className="text-amber-300 font-mono">&quot;Today task&quot;</span>, TenSy answers privately with only Amit&apos;s tasks. Company financials and owner commands remain strictly protected.
+                  Connect WhatsApp numbers of your employees or department heads. TenSy intelligently isolates information:
+                  when staff (e.g., Amit) texts <span className="text-amber-300 font-mono">&quot;Today task&quot;</span>, TenSy answers privately with only Amit&apos;s assigned tasks. Company financials and owner commands remain strictly protected.
                 </p>
               </div>
               <button
@@ -456,7 +518,7 @@ function BusinessAssistantContent() {
                 className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400 transition-colors shadow-sm"
               >
                 <Plus className="h-3.5 w-3.5" />
-                {isAdding ? "Cancel" : "Add Team Member"}
+                {isAdding ? "Cancel" : "+ Add Team Member"}
               </button>
             </div>
 
@@ -559,15 +621,15 @@ function BusinessAssistantContent() {
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-slate-400 px-1">
               <span>Registered WhatsApp Lines ({commanders.length})</span>
-              <span>Individual permissions apply automatically</span>
+              <span>Individual role filters apply automatically</span>
             </div>
 
             {commanders.length === 0 ? (
               <div className="rounded-xl border border-dashed border-white/10 p-8 text-center">
                 <Users className="mx-auto h-8 w-8 text-slate-600 mb-2" />
-                <div className="text-sm font-medium text-slate-300">No WhatsApp Team Lines Added</div>
+                <div className="text-sm font-medium text-slate-300">No Team Members Added Yet</div>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  Add your manager, executive, or supervisor numbers above so TenSy can coordinate business tasks with them directly on WhatsApp.
+                  Add your manager, executive, supervisor, or accounts numbers above so TenSy can coordinate business tasks with them directly on WhatsApp.
                 </p>
               </div>
             ) : (
@@ -662,7 +724,7 @@ function BusinessAssistantContent() {
             <div>
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-amber-400" />
-                Assistant Persona & Identity
+                Assistant Persona &amp; Identity
               </h3>
               <p className="text-xs text-slate-400 mt-1">
                 Customize what your AI assistant calls itself when greeting commanders and processing tasks on WhatsApp.

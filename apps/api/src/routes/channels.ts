@@ -85,6 +85,33 @@ export const channelRoutes: FastifyPluginAsync = async (app) => {
     return ok({ ...safe, hasCloudToken: Boolean(_token) });
   });
 
+  app.patch("/channels/:id", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("channels.manage")(req);
+    const { id } = req.params as { id: string };
+    const body = z
+      .object({
+        displayName: z.string().min(1).optional(),
+        ownerPhone: z.string().trim().optional().nullable(),
+      })
+      .parse(req.body);
+
+    const channel = await prisma.whatsAppChannel.findFirst({
+      where: { id, organizationId: auth.orgId },
+    });
+    if (!channel) throw new NotFoundError("Channel not found");
+
+    const updated = await prisma.whatsAppChannel.update({
+      where: { id },
+      data: {
+        ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
+        ...(body.ownerPhone !== undefined ? { ownerPhone: body.ownerPhone ? body.ownerPhone.trim() : null } : {}),
+      },
+    });
+    const { cloudAccessToken: _token, ...safe } = updated;
+    return ok({ ...safe, hasCloudToken: Boolean(_token) });
+  });
+
   app.post("/channels/:id/connect", async (req) => {
     const auth = await app.authenticate(req);
     await app.requirePermission("channels.manage")(req);

@@ -496,262 +496,27 @@ function ChatbotInner() {
       {tab === "setup" && bot ? (
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-white/10 bg-ink-900/80 p-5">
-            {/* WhatsApp Commander Hub (WaCall OS) */}
-            <div className="mb-5 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-ink-950/70 to-brand-500/10 p-4 sm:p-5 shadow-xl">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
-                <div>
+            {/* WhatsApp Commander Hub Banner (Moved & Enhanced to Business Assistant) */}
+            <div className="mb-6 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-ink-950/90 to-purple-950/30 p-5 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-amber-300">👑 WhatsApp Commander Hub (WaCall OS)</span>
-                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 uppercase tracking-wide">
-                      Hybrid OS
+                    <span className="text-sm font-bold text-amber-300">👑 WhatsApp Commander Hub ➔ Business Assistant (TenSy)</span>
+                    <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[10px] font-bold text-emerald-300 uppercase tracking-wide border border-emerald-500/30">
+                      Upgraded to TenSy
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-slate-300 leading-relaxed">
-                    Empower business owners and designated team members (Sales Head, Accounts, Support) to run operations, query reports, and execute commands directly via WhatsApp chat or voice notes.
+                  <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
+                    WhatsApp Commander Hub is now enhanced as the dedicated <b>Business Assistant (TenSy)</b>. Configure your Primary Owner WhatsApp line, multi-tier Team Hierarchy (Manager, Supervisor, Executive, Accounts), Custom Persona, and Executive Briefing Schedules.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingCommander(!isAddingCommander)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black transition-all hover:bg-amber-400 self-start sm:self-auto shrink-0 shadow-sm"
+                <Link
+                  href="/business-assistant"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 px-4 py-2.5 text-xs font-bold text-slate-950 shadow-md transition-all hover:from-amber-400 hover:to-yellow-300 shrink-0"
                 >
-                  <span>{isAddingCommander ? "✕ Close" : "+ Add Commander"}</span>
-                </button>
-              </div>
-
-              {/* Primary Owner Line */}
-              <div className="mt-3.5 space-y-1.5">
-                <label className="text-[11px] font-semibold text-amber-200/90 uppercase tracking-wide">
-                  1. Primary Owner WhatsApp Line
-                </label>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="e.g. 919876543210 (Your personal WhatsApp number)"
-                    className="flex-1 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
-                    value={bot.ownerPhone ?? bot.channel?.ownerPhone ?? ""}
-                    onChange={(e) => setBot({ ...bot, ownerPhone: e.target.value })}
-                  />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  💡 Send direct commands to WaCall from this phone number, or use <b>Self-Chat</b> on your connected WhatsApp business line. Click &quot;Save Changes&quot; below to apply.
-                </p>
-              </div>
-
-              {/* Add Commander Member Form (Expandable) */}
-              {isAddingCommander ? (
-                <div className="mt-4 rounded-xl border border-amber-400/30 bg-black/70 p-3.5 space-y-3">
-                  <div className="text-xs font-semibold text-amber-300 flex items-center justify-between">
-                    <span>➕ Add Authorized Team Commander Line</span>
-                    <span className="text-[10px] text-slate-400">Role-Based Access</span>
-                  </div>
-
-                  <div className="grid gap-2.5 sm:grid-cols-2">
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">Member Name & Title</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Rahul Sharma (Sales Head)"
-                        className="w-full rounded-lg border border-white/10 bg-black/60 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
-                        value={newCmdName}
-                        onChange={(e) => setNewCmdName(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">WhatsApp Phone Number (with Country Code)</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. 919876543210"
-                        className="w-full rounded-lg border border-white/10 bg-black/60 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
-                        value={newCmdPhone}
-                        onChange={(e) => setNewCmdPhone(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2.5 sm:grid-cols-2">
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">Role & Permissions</label>
-                      <select
-                        className="w-full rounded-lg border border-white/10 bg-black/60 px-3 py-1.5 text-xs text-white focus:border-amber-400 focus:outline-none"
-                        value={newCmdRole}
-                        onChange={(e) => setNewCmdRole(e.target.value as any)}
-                      >
-                        <option value="OWNER">👑 Owner (Full Access — Calls, Finance, Leads, Creatives)</option>
-                        <option value="SALES_MANAGER">🎯 Sales Head (Call Intelligence, Hot Leads, Campaigns)</option>
-                        <option value="ACCOUNTS">💼 Accounts (Invoices, Pending Dues, Mark Paid)</option>
-                        <option value="SUPPORT">🎧 Support (Call Logs, Auto-Reply Rules, Bot Status)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">Daily Automated Alerts & Reports</label>
-                      <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] text-slate-300">
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newCmdMorning}
-                            onChange={(e) => setNewCmdMorning(e.target.checked)}
-                            className="rounded border-white/20 bg-black/60 text-amber-500 focus:ring-0"
-                          />
-                          <span>🌅 9 AM Morning Briefing</span>
-                        </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newCmdEod}
-                            onChange={(e) => setNewCmdEod(e.target.checked)}
-                            className="rounded border-white/20 bg-black/60 text-amber-500 focus:ring-0"
-                          />
-                          <span>🌙 8 PM EOD Scorecard</span>
-                        </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newCmdAlert}
-                            onChange={(e) => setNewCmdAlert(e.target.checked)}
-                            className="rounded border-white/20 bg-black/60 text-amber-500 focus:ring-0"
-                          />
-                          <span>🚨 Missed Call Alerts</span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setIsAddingCommander(false)}
-                      className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-slate-400 hover:text-white"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={savingCommander || !newCmdName.trim() || !newCmdPhone.trim()}
-                      onClick={handleAddCommander}
-                      className="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
-                    >
-                      {savingCommander ? "Saving…" : "Add Commander"}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Authorized Commander Members List */}
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center justify-between text-[11px] font-semibold text-amber-200/90 uppercase tracking-wide">
-                  <span>2. Authorized Team Commander Lines ({commanders.length})</span>
-                  <span className="text-[10px] font-normal text-slate-400">Access via WhatsApp & Voice Notes</span>
-                </div>
-
-                {commanders.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-white/10 bg-black/30 p-3 text-center text-xs text-slate-400">
-                    No team commanders added yet. Click &quot;+ Add Commander&quot; above to authorize your Sales Head, Accounts, or Support line.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {commanders.map((cmd) => (
-                      <div
-                        key={cmd.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-white/10 bg-black/50 p-2.5 transition-all hover:border-amber-400/30"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-base">
-                            {cmd.role === "OWNER" ? "👑" : cmd.role === "SALES_MANAGER" ? "🎯" : cmd.role === "ACCOUNTS" ? "💼" : "🎧"}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-semibold text-white">{cmd.name}</span>
-                              <span
-                                className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                                  cmd.role === "OWNER"
-                                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                                    : cmd.role === "SALES_MANAGER"
-                                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                                    : cmd.role === "ACCOUNTS"
-                                    ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                                    : "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-                                }`}
-                              >
-                                {cmd.role === "OWNER" ? "Owner" : cmd.role === "SALES_MANAGER" ? "Sales Head" : cmd.role === "ACCOUNTS" ? "Accounts" : "Support"}
-                              </span>
-                              {!cmd.enabled && (
-                                <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-[9px] font-medium text-rose-300">
-                                  Disabled
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-slate-400 font-mono">{cmd.phone}</div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between sm:justify-end gap-3 pl-10 sm:pl-0">
-                          {/* Alert badges */}
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-                            {cmd.dailyMorning && <span title="9 AM Morning Briefing">🌅</span>}
-                            {cmd.dailyEod && <span title="8 PM EOD Report">🌙</span>}
-                            {cmd.missedAlert && <span title="Missed Call Alert">🚨</span>}
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleCommander(cmd)}
-                              className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${
-                                cmd.enabled
-                                  ? "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
-                                  : "bg-slate-700/50 text-slate-300 hover:bg-slate-700"
-                              }`}
-                            >
-                              {cmd.enabled ? "Active" : "Paused"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteCommander(cmd.id)}
-                              className="rounded p-1 text-slate-500 hover:bg-rose-500/20 hover:text-rose-300 transition-colors"
-                              title="Delete"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Natural Language Cheatsheet */}
-              <div className="mt-4 rounded-xl border border-white/5 bg-black/40 p-3 text-[11px] text-slate-300 space-y-2">
-                <div className="font-semibold text-amber-300 flex items-center gap-1.5">
-                  <span>⚡ WhatsApp Commander Cheatsheet &amp; Controls:</span>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2 text-slate-400">
-                  <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">📞 Call Intelligence &amp; Analytics:</div>
-                    <div>Ask &quot;today total call&quot;, &quot;missed call summary&quot;. Reply with <b>1</b> (send WhatsApp follow-up) or <b>2</b> (trigger AI auto-dialer).</div>
-                  </div>
-                  <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">🎙️ Voice Note Commands:</div>
-                    <div>Send any voice note on WhatsApp — WaCalls transcribes audio via Sarvam STT and processes your task or query instantly.</div>
-                  </div>
-                  <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">🔥 Hot Leads &amp; Task Management:</div>
-                    <div>Command &quot;Show hot leads&quot;, &quot;Today&apos;s pending tasks&quot;, or forward any customer chat directly to WaCalls to extract action items.</div>
-                  </div>
-                  <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">🎨 AI Creative Studio:</div>
-                    <div>Request &quot;Create Diwali discount poster&quot;. When generated, reply &quot;Final&quot; or &quot;Make logo smaller&quot; to edit.</div>
-                  </div>
-                  <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">💰 Accounts &amp; Invoicing:</div>
-                    <div>Query &quot;Show pending payments&quot;, &quot;Mark paid Rahul 25000&quot;, or &quot;Send invoice to Amit 15000&quot;.</div>
-                  </div>
-                  <div className="rounded-lg bg-white/5 p-2 space-y-0.5">
-                    <div className="font-medium text-white">🌅 Automated Scheduled Scorecards:</div>
-                    <div>Authorized lines receive an automated Morning Briefing at 9:00 AM and an EOD Performance Report at 8:00 PM daily.</div>
-                  </div>
-                </div>
+                  <span>Open Business Assistant</span>
+                  <span>➔</span>
+                </Link>
               </div>
             </div>
 
