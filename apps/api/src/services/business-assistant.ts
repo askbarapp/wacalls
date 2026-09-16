@@ -1910,18 +1910,20 @@ export async function handleOwnerCommand(input: {
     }
   }
 
-  // H. "Final" / Lock Creative Command
-  if (
+  // H. Creative Studio Approval ("Final", "Lock", "Approve", "फाइनल")
+  const isFinalIntent =
     upperText === "FINAL" ||
-    upperText === "FINAL KAR DO" ||
-    upperText === "FINAL HAI" ||
-    upperText === "LOCK KARO" ||
     upperText === "LOCK" ||
     upperText === "APPROVE" ||
     upperText === "APPROVED" ||
-    upperText === "YE SAHI HAI" ||
-    upperText === "YE THEEK HAI"
-  ) {
+    upperText.startsWith("FINAL ") ||
+    upperText.includes("POSTER FINAL") ||
+    upperText.includes("YE THEEK HAI") ||
+    text === "फाइनल" ||
+    text === "स्वीकृत" ||
+    text.includes("फाइनल कर दो");
+
+  if (isFinalIntent) {
     const latestAsset = await prisma.creativeAsset.findFirst({
       where: {
         organizationId: channel.organizationId,
@@ -1936,21 +1938,14 @@ export async function handleOwnerCommand(input: {
         organizationId: channel.organizationId,
         channelId: channel.id,
         phone: input.phone,
-        body: `🔒 *WaCall Creative Studio — Poster Finalized!*
-━━━━━━━━━━━━━━━━━━━━
-✨ *${latestAsset.title}*
-
-आपकी creative को *Final Locked* कर दिया गया है ✅
-अब यह सुरक्षित है। आप इसे:
-• WhatsApp Status पर लगा सकते हैं
-• WhatsApp Broadcast campaign में ग्राहकों को भेज सकते हैं!`,
+        body: `🔒 *TenSy Creative Studio — Poster Finalized!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${latestAsset.title}*\n\nआपकी creative को *Final Locked* कर दिया गया है ✅\nअब यह सुरक्षित है। आप इसे:\n• WhatsApp Status पर लगा सकते हैं\n• WhatsApp Broadcast campaign में ग्राहकों को भेज सकते हैं!`,
         chatSource: "bot",
       }).catch(() => undefined);
       return true;
     }
   }
 
-  // I. Creative Smart Edit / Revision Command (e.g. "Logo chhota karo", "Background blue karo", "Ek aur banao")
+  // I. Creative Smart Edit / Revision Command (e.g. "Logo chhota karo", "Background blue karo", "दूसरा बनाओ")
   const isEditIntent =
     upperText.includes("LOGO CHHOTA") ||
     upperText.includes("LOGO BADA") ||
@@ -1962,7 +1957,20 @@ export async function handleOwnerCommand(input: {
     upperText.startsWith("EDIT ") ||
     upperText.startsWith("UPDATE ") ||
     upperText.includes("POSTER ME") ||
-    upperText.includes("CREATIVE ME");
+    upperText.includes("CREATIVE ME") ||
+    upperText.includes("BADLO") ||
+    upperText.includes("BADAL DO") ||
+    upperText.includes("COLOR BADLO") ||
+    upperText.includes("RANG BADLO") ||
+    text.includes("बदलो") ||
+    text.includes("बदल दो") ||
+    text.includes("रंग बदलो") ||
+    text.includes("कलर बदलो") ||
+    text.includes("बैकग्राउंड") ||
+    text.includes("लोगो छोटा") ||
+    text.includes("लोगो बड़ा") ||
+    text.includes("दूसरा बनाओ") ||
+    text.includes("नया बनाओ");
 
   if (isEditIntent) {
     const recentAsset = await prisma.creativeAsset.findFirst({
@@ -1979,7 +1987,7 @@ export async function handleOwnerCommand(input: {
         organizationId: channel.organizationId,
         channelId: channel.id,
         phone: input.phone,
-        body: `🎨 *WaCall Creative Studio — Revision in Progress!*\n━━━━━━━━━━━━━━━━━━━━\nWaCall आपके निर्देश के अनुसार poster को update कर रहा है:\n✏️ *"${text}"*\n\n⏳ नया version तैयार होते ही 1-2 मिनट में यहीं भेजा जाएगा।`,
+        body: `🎨 *TenSy Creative Studio — Revision in Progress!*\n━━━━━━━━━━━━━━━━━━━━\nTenSy आपके निर्देश के अनुसार poster को update कर रहा है:\n✏️ *"${text}"*\n\n⏳ नया version तैयार होते ही 15-30 सेकंड में यहीं भेजा जाएगा।`,
         chatSource: "bot",
       }).catch(() => undefined);
 
@@ -2005,40 +2013,93 @@ export async function handleOwnerCommand(input: {
     }
   }
 
-  // J. Creative Studio Generation (e.g. "Diwali ka poster bana do", "Banner bana do", "Poster banao")
-  const isCreateIntent =
-    upperText.includes("POSTER BANA") ||
-    upperText.includes("POSTER CHAHIYE") ||
-    upperText.includes("BANNER BANA") ||
-    upperText.includes("BANNER CHAHIYE") ||
-    upperText.includes("CREATIVE BANA") ||
-    upperText.includes("CREATIVE CHAHIYE") ||
-    upperText.includes("CREATE POSTER") ||
-    upperText.includes("GENERATE POSTER") ||
-    upperText.includes("MAKE A POSTER") ||
-    upperText.includes("POSTER DESIGN");
+  // J. Creative Studio Generation (Hindi, Devanagari, Hinglish & English)
+  // e.g. "नवरात्रि का पोस्टर बनाओ", "दिवाली का पोस्टर बना दो", "Banner bana do", "poster banado", "Create banner"
+  const hasDevanagariPoster = text.includes("पोस्टर") || text.includes("बैनर") || text.includes("क्रिएटिव");
+  const hasDevanagariCreateAction =
+    text.includes("बना") ||
+    text.includes("चाहिए") ||
+    text.includes("तैयार") ||
+    text.includes("भेजो") ||
+    text.includes("डिज़ाइन") ||
+    text.includes("डिजाइन");
+
+  const isDevanagariCreateIntent = hasDevanagariPoster && (
+    hasDevanagariCreateAction ||
+    text.includes("का ") ||
+    text.includes("के लिए") ||
+    text.includes("नया ")
+  );
+
+  const hasLatinPosterKeyword = upperText.includes("POSTER") || upperText.includes("BANNER") || upperText.includes("CREATIVE");
+  const isHinglishCreateIntent =
+    hasLatinPosterKeyword && (
+      upperText.includes("BANA") || // BANAO, BANA DO, BANADO, BANAIYE, BANAYE, BANANA
+      upperText.includes("BNA") ||  // BNA DO, BNADO, BNAO
+      upperText.includes("CHAHIYE") ||
+      upperText.includes("READY") ||
+      upperText.includes("CREATE") ||
+      upperText.includes("MAKE") ||
+      upperText.includes("GENERATE") ||
+      upperText.includes("DESIGN") ||
+      upperText.includes("BHEJO") ||
+      upperText.includes("DIWALI") ||
+      upperText.includes("NAVRATRI") ||
+      upperText.includes("HOLI") ||
+      upperText.includes("FESTIVAL") ||
+      upperText.includes("OFFER") ||
+      upperText.includes("SALE") ||
+      upperText.includes("DISCOUNT")
+    );
+
+  const isEnglishCreateIntent =
+    upperText.startsWith("CREATE ") ||
+    upperText.startsWith("GENERATE ") ||
+    upperText.startsWith("MAKE ") ||
+    upperText.startsWith("DESIGN ") ||
+    upperText.includes("NEW POSTER") ||
+    upperText.includes("NEW BANNER");
+
+  const festivalMapping: Array<{ name: string; keywords: string[] }> = [
+    { name: "Diwali", keywords: ["DIWALI", "DEEPAVALI", "दिवाली", "दीपावली"] },
+    { name: "Navratri", keywords: ["NAVRATRI", "NAVATRI", "नवरात्रि", "नवरात्र"] },
+    { name: "Dussehra", keywords: ["DUSSEHRA", "दशहरा", "विजयादशमी"] },
+    { name: "Durga Puja", keywords: ["DURGA PUJA", "दुर्गा पूजा"] },
+    { name: "Ganesh Chaturthi", keywords: ["GANESH CHATURTHI", "गणेश चतुर्थी", "गणपति"] },
+    { name: "Holi", keywords: ["HOLI", "होली"] },
+    { name: "Eid", keywords: ["EID", "ईद"] },
+    { name: "Raksha Bandhan", keywords: ["RAKSHA BANDHAN", "रक्षाबंधन", "राखी"] },
+    { name: "Janmashtami", keywords: ["JANMASHTAMI", "जन्माष्टमी", "कृष्ण जन्माष्टमी"] },
+    { name: "New Year", keywords: ["NEW YEAR", "NEWYEAR", "नया साल"] },
+    { name: "Christmas", keywords: ["CHRISTMAS", "क्रिसमस"] },
+    { name: "Maha Shivratri", keywords: ["MAHA SHIVRATRI", "SHIVRATRI", "महाशिवरात्रि", "शिवरात्रि"] },
+    { name: "Independence Day", keywords: ["INDEPENDENCE DAY", "स्वतंत्रता दिवस", "15 AUGUST", "15TH AUGUST"] },
+    { name: "Republic Day", keywords: ["REPUBLIC DAY", "गणतंत्र दिवस", "26 JANUARY", "26TH JANUARY"] },
+    { name: "Mahavir Jayanti", keywords: ["MAHAVIR JAYANTI", "महावीर जयंती"] },
+  ];
+
+  let detectedFestival: string | undefined;
+  for (const fest of festivalMapping) {
+    if (fest.keywords.some((kw) => upperText.includes(kw) || text.includes(kw))) {
+      detectedFestival = fest.name;
+      break;
+    }
+  }
+
+  const isFestivalPosterIntent = Boolean(detectedFestival) && (hasLatinPosterKeyword || hasDevanagariPoster);
+  const isCreateIntent = isFestivalPosterIntent || isDevanagariCreateIntent || isHinglishCreateIntent || (hasLatinPosterKeyword && isEnglishCreateIntent);
 
   if (isCreateIntent) {
-    const festivalKeywords = [
-      "DIWALI", "DEEPAVALI", "HOLI", "EID", "INDEPENDENCE DAY", "REPUBLIC DAY",
-      "NAVRATRI", "DURGA PUJA", "DUSSEHRA", "RAKSHA BANDHAN", "JANMASHTAMI",
-      "GANESH CHATURTHI", "NEW YEAR", "CHRISTMAS", "MAHA SHIVRATRI", "MAHAVIR JAYANTI"
-    ];
-    let detectedFestival: string | undefined;
-    for (const fest of festivalKeywords) {
-      if (upperText.includes(fest)) {
-        detectedFestival = fest.charAt(0) + fest.slice(1).toLowerCase();
-        break;
-      }
-    }
+
+    const isBanner = upperText.includes("BANNER") || text.includes("बैनर");
 
     await sendWhatsAppText({
       organizationId: channel.organizationId,
       channelId: channel.id,
       phone: input.phone,
-      body: `🎨 *WaCall Creative Studio — Poster Design Started!*\n━━━━━━━━━━━━━━━━━━━━\n${
-        detectedFestival ? `🎉 *Festival:* ${detectedFestival}\n` : ""
-      }📝 *Requirement:* "${text}"\n\nWaCall आपकी business branding के अनुसार AI poster तैयार कर रहा है।\n⏳ 1-2 मिनट में creative तैयार होकर यहीं आ जाएगी!`,
+      body: `🎨 *TenSy Creative Studio — पोस्टर/बैनर डिज़ाइन शुरू!*\n━━━━━━━━━━━━━━━━━━━━\n${
+        detectedFestival ? `🎉 *त्यौहार / विषय:* ${detectedFestival}\n` : ""
+      }📝 *विवरण:* "${text}"\n\nTenSy आपकी business branding के अनुसार AI poster तैयार कर रहा है।\n⏳ 15-30 सेकंड में पोस्टर तैयार होकर यहीं भेजा जाएगा!`,
       chatSource: "bot",
     }).catch(() => undefined);
 
@@ -2048,8 +2109,8 @@ export async function handleOwnerCommand(input: {
         channelId: channel.id,
         userInstruction: text,
         festivalName: detectedFestival,
-        creativeType: upperText.includes("BANNER") ? "banner" : "poster",
-        aspect: "1:1",
+        creativeType: isBanner ? "banner" : "poster",
+        aspect: isBanner ? "16:9" : "1:1",
         notifyPhone: input.phone,
       });
     } catch (genErr: any) {

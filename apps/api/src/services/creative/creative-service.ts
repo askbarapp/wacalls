@@ -116,13 +116,31 @@ export async function createCreativeRequest(input: {
     showLogo: input.showLogo ?? true,
   });
 
-  const provider = await getCreativeProvider(input.organizationId);
+  let provider: any = null;
+  try {
+    provider = await getCreativeProvider(input.organizationId);
+  } catch (provErr: any) {
+    log.warn({ err: provErr?.message }, "Creative provider not configured, routing to fast FLUX fallback");
+  }
 
-  // 1. Create CreativeAsset record in GENERATING status
   const title = input.festivalName
     ? `${input.festivalName} Creative — ${profile?.businessName || "Business"}`
     : `Marketing Creative — ${profile?.businessName || "Business"}`;
 
+  if (!provider) {
+    return await generateWithFastFallback({
+      organizationId: input.organizationId,
+      channelId: input.channelId,
+      conversationId: input.conversationId,
+      prompt,
+      title,
+      concept: input.userInstruction,
+      aspect: input.aspect || "1:1",
+      notifyPhone: input.notifyPhone,
+    });
+  }
+
+  // 1. Create CreativeAsset record in GENERATING status
   const asset = await prisma.creativeAsset.create({
     data: {
       organizationId: input.organizationId,
@@ -152,6 +170,7 @@ export async function createCreativeRequest(input: {
     log.warn({ err: genErr?.message }, "UseVelix generation request failed, using high-speed fallback");
     return await generateWithFastFallback({
       organizationId: input.organizationId,
+      assetId: asset.id,
       channelId: input.channelId,
       conversationId: input.conversationId,
       prompt,
@@ -246,16 +265,49 @@ export async function smartEditCreativeRequest(input: {
   const imageUrl = latestVersion.imageUrl || `file://${latestVersion.localPath}`;
   const editPrompt = buildSmartEditPrompt(latestVersion.prompt, input.editInstruction);
 
-  const provider = await getCreativeProvider(input.organizationId);
-
-  // Call Provider Smart-Edit
-  const res = await provider.smartEdit({
-    imageUrl,
-    prompt: editPrompt,
-    type: "photorealistic",
-  });
+  let provider: any = null;
+  try {
+    provider = await getCreativeProvider(input.organizationId);
+  } catch (provErr: any) {
+    log.warn({ err: provErr?.message }, "Creative provider not configured for smart edit, routing to fast FLUX fallback");
+  }
 
   const nextVersionNum = latestVersion.version + 1;
+
+  if (!provider) {
+    return await generateWithFastFallback({
+      organizationId: input.organizationId,
+      assetId: asset.id,
+      channelId: input.channelId,
+      prompt: editPrompt,
+      title: `${asset.title} (v${nextVersionNum})`,
+      concept: input.editInstruction,
+      aspect: "1:1",
+      notifyPhone: input.notifyPhone,
+    });
+  }
+
+  // Call Provider Smart-Edit
+  let res: any;
+  try {
+    res = await provider.smartEdit({
+      imageUrl,
+      prompt: editPrompt,
+      type: "photorealistic",
+    });
+  } catch (editErr: any) {
+    log.warn({ err: editErr?.message }, "Smart edit failed on provider, falling back to fast FLUX");
+    return await generateWithFastFallback({
+      organizationId: input.organizationId,
+      assetId: asset.id,
+      channelId: input.channelId,
+      prompt: editPrompt,
+      title: `${asset.title} (v${nextVersionNum})`,
+      concept: input.editInstruction,
+      aspect: "1:1",
+      notifyPhone: input.notifyPhone,
+    });
+  }
 
   // If asset was locked, create new version and set status to REVISION
   await prisma.creativeAsset.update({
@@ -367,18 +419,27 @@ async function completeWithFastFallback(
     const dir = await ensureCreativeDir();
     const filename = `creative-${opts.assetId}-${opts.versionId}.jpg`;
     const localPath = path.join(dir, filename);
+    let fileSaved = false;
 
-    const imgRes = await fetch(fallbackUrl);
-    if (!imgRes.ok) throw new Error(`Fallback HTTP ${imgRes.status}`);
-    const buf = Buffer.from(await imgRes.arrayBuffer());
-    await fs.writeFile(localPath, buf);
+    try {
+      const imgRes = await fetch(fallbackUrl);
+      if (imgRes.ok) {
+        const buf = Buffer.from(await imgRes.arrayBuffer());
+        if (buf.length > 0) {
+          await fs.writeFile(localPath, buf);
+          fileSaved = true;
+        }
+      }
+    } catch (saveErr: any) {
+      log.warn({ err: saveErr?.message }, "Failed to write local fallback image");
+    }
 
     await prisma.creativeVersion.update({
       where: { id: opts.versionId },
       data: {
         status: "READY",
         imageUrl: fallbackUrl,
-        localPath,
+        localPath: fileSaved ? localPath : null,
         creditsUsed: 5,
       },
     });
@@ -407,9 +468,10 @@ async function completeWithFastFallback(
     }).catch(() => undefined);
 
     if (opts.channelId && opts.notifyPhone) {
-      const caption = `🎨 *WaCall Creative Studio — Poster Ready!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nHow do you like this creative? You can reply with revisions like:\n• *"Make the logo smaller"*\n• *"Change background to royal blue"*\n• *"Generate another variation"*\n• *"Final"* (to approve and lock)`;
+      const caption = `🎨 *TenSy Creative Studio — पोस्टर तैयार है!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nयह पोस्टर आपकी व्यावसायिक ब्रांडिंग के अनुसार तैयार किया गया है।\n\nबदलाव या सुधार के लिए आप बोल या लिख सकते हैं:\n• *"रंग बदलो"*\n• *"लोगो छोटा करो"*\n• *"दूसरा बनाओ"*\n• *"Final"* (स्वीकृत करने के लिए)`;
+
       await whatsappClient.sendText(opts.channelId, opts.notifyPhone, caption, {
-        imagePath: localPath,
+        imagePath: fileSaved ? localPath : undefined,
       }).catch((sendErr) => log.error({ err: sendErr?.message }, "Failed to dispatch creative to WhatsApp"));
     }
 
@@ -426,6 +488,7 @@ async function completeWithFastFallback(
  */
 async function generateWithFastFallback(input: {
   organizationId: string;
+  assetId?: string;
   channelId?: string | null;
   conversationId?: string | null;
   prompt: string;
@@ -434,16 +497,20 @@ async function generateWithFastFallback(input: {
   aspect: string;
   notifyPhone?: string;
 }) {
-  const asset = await prisma.creativeAsset.create({
-    data: {
-      organizationId: input.organizationId,
-      channelId: input.channelId || undefined,
-      conversationId: input.conversationId || undefined,
-      title: input.title,
-      concept: input.concept,
-      status: "GENERATING",
-    },
-  });
+  let assetId = input.assetId;
+  if (!assetId) {
+    const asset = await prisma.creativeAsset.create({
+      data: {
+        organizationId: input.organizationId,
+        channelId: input.channelId || undefined,
+        conversationId: input.conversationId || undefined,
+        title: input.title,
+        concept: input.concept,
+        status: "GENERATING",
+      },
+    });
+    assetId = asset.id;
+  }
 
   const fallbackJobId = `fast-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
@@ -461,10 +528,14 @@ async function generateWithFastFallback(input: {
     },
   });
 
+  const existingCount = await prisma.creativeVersion.count({
+    where: { assetId },
+  });
+
   const version = await prisma.creativeVersion.create({
     data: {
-      assetId: asset.id,
-      version: 1,
+      assetId,
+      version: existingCount + 1,
       prompt: input.prompt,
       provider: "flux-fast",
       providerJobId: fallbackJobId,
@@ -474,15 +545,15 @@ async function generateWithFastFallback(input: {
   });
 
   await prisma.creativeAsset.update({
-    where: { id: asset.id },
-    data: { currentVersionId: version.id },
+    where: { id: assetId },
+    data: { currentVersionId: version.id, status: "GENERATING" },
   });
 
   void completeWithFastFallback({
     organizationId: input.organizationId,
     channelId: input.channelId || undefined,
     jobId: fallbackJobId,
-    assetId: asset.id,
+    assetId,
     versionId: version.id,
     prompt: input.prompt,
     aspect: input.aspect,
@@ -491,7 +562,7 @@ async function generateWithFastFallback(input: {
   });
 
   return {
-    assetId: asset.id,
+    assetId,
     versionId: version.id,
     jobId: fallbackJobId,
     prompt: input.prompt,
@@ -534,15 +605,19 @@ async function pollJobUntilDone(opts: {
         const dir = await ensureCreativeDir();
         const filename = `creative-${opts.assetId}-${opts.versionId}.jpg`;
         const localPath = path.join(dir, filename);
+        let fileSaved = false;
 
         try {
           const imgRes = await fetch(status.imageUrl);
           if (imgRes.ok) {
             const buf = Buffer.from(await imgRes.arrayBuffer());
-            await fs.writeFile(localPath, buf);
+            if (buf.length > 0) {
+              await fs.writeFile(localPath, buf);
+              fileSaved = true;
+            }
           }
         } catch (downloadErr: any) {
-          log.warn({ err: downloadErr?.message }, "Failed to write local image; using remote URL");
+          log.warn({ err: downloadErr?.message }, "Failed to write local image");
         }
 
         // 2. Update CreativeVersion & CreativeAsset
@@ -551,7 +626,7 @@ async function pollJobUntilDone(opts: {
           data: {
             status: "READY",
             imageUrl: status.imageUrl,
-            localPath,
+            localPath: fileSaved ? localPath : null,
             creditsUsed: status.creditsUsed ?? 5,
           },
         });
@@ -583,10 +658,10 @@ async function pollJobUntilDone(opts: {
 
         // 5. Send directly to WhatsApp if notifyPhone is present!
         if (opts.channelId && opts.notifyPhone) {
-          const caption = `🎨 *WaCall Creative Studio — Poster Ready!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nHow do you like this creative? You can reply with revisions like:\n• *"Make the logo smaller"*\n• *"Change background to royal blue"*\n• *"Generate another variation"*\n• *"Final"* (to approve and lock)`;
+          const caption = `🎨 *TenSy Creative Studio — पोस्टर तैयार है!*\n━━━━━━━━━━━━━━━━━━━━\n✨ *${opts.title}*\n\nयह पोस्टर आपकी व्यावसायिक ब्रांडिंग के अनुसार तैयार किया गया है।\n\nबदलाव या सुधार के लिए आप बोल या लिख सकते हैं:\n• *"रंग बदलो"*\n• *"लोगो छोटा करो"*\n• *"दूसरा बनाओ"*\n• *"Final"* (स्वीकृत करने के लिए)`;
 
           await whatsappClient.sendText(opts.channelId, opts.notifyPhone, caption, {
-            imagePath: localPath,
+            imagePath: fileSaved ? localPath : undefined,
           }).catch((sendErr) => log.error({ err: sendErr?.message }, "Failed to dispatch creative to WhatsApp"));
         }
 

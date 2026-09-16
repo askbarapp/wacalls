@@ -44,6 +44,9 @@ export async function testImapConnection(config: ImapConnectionConfig): Promise<
     logger: false,
     emitLogs: false,
   });
+  (client as any).on("error", (err: any) => {
+    log.warn({ err: err?.message, host: config.host }, "ImapFlow error event caught in test");
+  });
 
   try {
     await client.connect();
@@ -84,6 +87,9 @@ export async function fetchNewEmails(account: {
     },
     logger: false,
     emitLogs: false,
+  });
+  (client as any).on("error", (err: any) => {
+    log.warn({ err: err?.message, user: account.imapUser }, "ImapFlow error event caught in sync");
   });
 
   const messages: ParsedEmailMessage[] = [];
