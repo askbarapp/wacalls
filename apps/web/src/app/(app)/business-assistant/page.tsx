@@ -1036,6 +1036,27 @@ function BusinessAssistantContent() {
                   </div>
                 </div>
               </div>
+
+              {/* Inbound Customer Intelligence & Meetings */}
+              <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-blue-300">
+                  <span>📬 Inbound Message Intelligence &amp; Meetings</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Scan incoming customer messages, extract meetings &amp; inquiries, and schedule or reply with 1 tap:
+                </p>
+                <div className="space-y-1.5 text-xs font-mono">
+                  <div className="rounded bg-white/5 p-2 text-blue-200">
+                    &quot;Aaj ke important message batao&quot; / &quot;Meeting hai kya&quot;
+                  </div>
+                  <div className="rounded bg-white/5 p-2 text-blue-200">
+                    &quot;Schedule 1&quot; (Creates meeting task with 15-min prior reminder)
+                  </div>
+                  <div className="rounded bg-white/5 p-2 text-blue-200">
+                    &quot;Reply 1 Haan kal 4 baje milte hain&quot; (Direct customer reply)
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Role privacy note */}

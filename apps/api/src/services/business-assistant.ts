@@ -30,6 +30,10 @@ import {
 } from "./tasks/task-service.js";
 import { interpretTaskNaturalLanguage } from "./tasks/task-interpreter.js";
 import { sendMorningBriefing, sendEodReport } from "./daily-briefing.js";
+import {
+  summarizeImportantInboundMessages,
+  handleInboundActionExecution,
+} from "./inbound-intelligence.js";
 
 const log = pino({ name: "business-assistant" });
 
@@ -754,6 +758,16 @@ export async function handleOwnerCommand(input: {
       }
     }
 
+    if (pendingAction.actionType === "INBOUND_MEETING_ACTION") {
+      const handled = await handleInboundActionExecution({
+        channel,
+        pendingAction,
+        text,
+        commander,
+      });
+      if (handled) return true;
+    }
+
     // Check Affirmative responses for standard proposals
     const isYes = [
       "YES",
@@ -911,6 +925,74 @@ export async function handleOwnerCommand(input: {
       body: card,
       chatSource: "bot",
     }).catch(() => undefined);
+    return true;
+  }
+
+  // Direct reply to customer: "Reply 9876543210 [message]" or "Reply +919876543210 [message]"
+  const directReplyMatch = text.match(/^reply\s+(\+?\d{10,15})\s+(.+)$/i);
+  if (directReplyMatch && directReplyMatch[1] && directReplyMatch[2]) {
+    const norm = normalizePhone(directReplyMatch[1]);
+    const targetPhone = norm.ok ? norm.e164 : directReplyMatch[1].replace(/\D/g, "");
+    const replyBody = directReplyMatch[2].trim();
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: targetPhone,
+      body: replyBody,
+      chatSource: "human_device",
+    });
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: input.phone,
+      body: `✅ *संदेश ग्राहक को भेज दिया गया!* 🚀\n━━━━━━━━━━━━━━━━━━━━\n👤 *नंबर:* ${targetPhone}\n💬 *संदेश:* "${replyBody}"`,
+      chatSource: "bot",
+    });
+    return true;
+  }
+
+  // Inbound Customer Messages & Meeting Intelligence:
+  // "important message" / "important messages" / "aaj ke important message" / "meeting hai kya" / "customer summary" / "kisi ki meeting hai"
+  const isImportantMessagesQuery =
+    (upperText.includes("IMPORTANT") &&
+      (upperText.includes("MESSAGE") ||
+        upperText.includes("MSG") ||
+        upperText.includes("CHAT") ||
+        upperText.includes("BATAO") ||
+        upperText.includes("DIKHAO") ||
+        upperText.includes("AAJ") ||
+        upperText.includes("TODAY"))) ||
+    (upperText.includes("ज़रूरी") ||
+      upperText.includes("जरूरी") ||
+      upperText.includes("ZAROORI") ||
+      upperText.includes("JARURI") ||
+      upperText.includes("ZARURI")) ||
+    ((upperText.includes("MEETING") ||
+      upperText.includes("MEETINGS") ||
+      upperText.includes("मीटिंग")) &&
+      (upperText.includes("HAI KYA") ||
+        upperText.includes("KISI KI") ||
+        upperText.includes("UPDATE") ||
+        upperText.includes("BATAO") ||
+        upperText.includes("SUMMARY") ||
+        upperText.includes("AAJ") ||
+        upperText.includes("TODAY") ||
+        upperText.includes("STATUS") ||
+        upperText.includes("LIST") ||
+        upperText.includes("HAI"))) ||
+    (upperText.includes("CUSTOMER") &&
+      (upperText.includes("SUMMARY") ||
+        upperText.includes("MESSAGE") ||
+        upperText.includes("UPDATE") ||
+        upperText.includes("BATAO")));
+
+  if (isImportantMessagesQuery) {
+    await summarizeImportantInboundMessages({
+      channel,
+      inputPhone: input.phone,
+      commanderName: commander.name,
+      hoursLimit: 48,
+    });
     return true;
   }
 
@@ -1673,8 +1755,10 @@ ${timeGreeting}, *${personName}*! 🙏
 आप मुझसे सामान्य बातचीत की तरह सीधे पूछ या बोल सकते हैं:
 • 📋 *आज के काम व शेड्यूल:* _"आज के टास्क बताओ"_
 • ⏰ *टास्क व रिमाइंडर:* _"कल 11 बजे गुप्ता जी को कॉल करना है"_
+• 📬 *ज़रूरी मैसेज व मीटिंग:* _"आज के ज़रूरी मैसेज बताओ"_ या _"मीटिंग है क्या"_
 • 💰 *फाइनेंशियल स्थिति:* _"कितना पेमेंट बाकी है?"_
 • 📞 *कॉल व टीम:* _"आज कितने कॉल आए?"_ या _"Call [नाम]"_
+• 💬 *ग्राहक को उत्तर:* _"Reply [नंबर] [संदेश]"_
 
 या बस बोलकर (Voice Note) या लिखकर बताइए कि क्या काम निपटाना है! 🎯`;
 
