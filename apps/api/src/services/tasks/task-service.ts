@@ -164,6 +164,74 @@ export async function markTaskComplete(taskId: string, organizationId: string) {
 }
 
 /**
+ * Marks all pending/todo/in-progress tasks as completed for today or all time.
+ */
+export async function completeAllTasks(input: {
+  organizationId: string;
+  channelId?: string;
+  assignedPhone?: string | null;
+  assignedName?: string | null;
+  scope?: "TODAY" | "ALL" | "OVERDUE";
+}): Promise<{ count: number; completedCount: number; tasks: Array<{ id: string; title: string }> }> {
+  const { startOfTodayUtc, endOfTodayUtc } = getIstDateBoundaries();
+
+  const whereClause: any = {
+    organizationId: input.organizationId,
+    status: { in: ["TODO", "IN_PROGRESS", "PENDING", "OVERDUE"] },
+  };
+
+  if (input.channelId) {
+    whereClause.channelId = input.channelId;
+  }
+
+  if (input.assignedPhone) {
+    whereClause.OR = [
+      { assignedPhone: input.assignedPhone },
+      ...(input.assignedName ? [{ assignedTo: input.assignedName }] : []),
+    ];
+  }
+
+  if (input.scope === "TODAY") {
+    whereClause.dueAt = { lte: endOfTodayUtc };
+  } else if (input.scope === "OVERDUE") {
+    whereClause.dueAt = { lt: startOfTodayUtc };
+  }
+
+  const tasksToComplete = await prisma.businessTask.findMany({
+    where: whereClause,
+    orderBy: { dueAt: "asc" },
+  });
+
+  if (tasksToComplete.length === 0) {
+    return { count: 0, completedCount: 0, tasks: [] };
+  }
+
+  const taskIds = tasksToComplete.map((t) => t.id);
+
+  await prisma.businessTask.updateMany({
+    where: { id: { in: taskIds } },
+    data: {
+      status: "COMPLETED",
+      completedAt: new Date(),
+    },
+  });
+
+  // Cancel all pending reminders for these tasks
+  await prisma.taskReminder.updateMany({
+    where: { taskId: { in: taskIds }, status: "PENDING" },
+    data: { status: "CANCELLED" },
+  });
+
+  log.info({ count: tasksToComplete.length, organizationId: input.organizationId }, "Completed all tasks in bulk");
+
+  return {
+    count: tasksToComplete.length,
+    completedCount: tasksToComplete.length,
+    tasks: tasksToComplete.map((t) => ({ id: t.id, title: t.title })),
+  };
+}
+
+/**
  * Snoozes a reminder by specified minutes or shifts to tomorrow.
  */
 export async function snoozeTaskReminder(
@@ -253,3 +321,195 @@ export async function shiftPendingTasksToTomorrow(organizationId: string) {
 
   return { shiftedCount: pendingTasks.length, newDueAt: tomorrowMorning };
 }
+
+export function getIstDateBoundaries(refDate: Date = new Date()) {
+  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+  const istNow = new Date(refDate.getTime() + istOffsetMs);
+
+  const y = istNow.getUTCFullYear();
+  const m = istNow.getUTCMonth();
+  const d = istNow.getUTCDate();
+
+  const startOfTodayUtc = new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - istOffsetMs);
+  const endOfTodayUtc = new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - istOffsetMs);
+
+  return {
+    startOfTodayUtc,
+    endOfTodayUtc,
+    istDateStr: `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+  };
+}
+
+export interface CategorizedTasks {
+  overdue: any[];
+  today: any[];
+  upcoming: any[];
+  formattedSummary: string;
+}
+
+/**
+ * Retrieves tasks strictly categorized by date in Asia/Kolkata (IST):
+ * - Overdue (Past uncompleted tasks with their original dates)
+ * - Today (Tasks scheduled for today)
+ * - Upcoming (Future scheduled tasks)
+ */
+export async function getTasksCategorized(params: {
+  organizationId: string;
+  assignedPhone?: string | null;
+  assignedName?: string | null;
+  botName?: string;
+}): Promise<CategorizedTasks> {
+  const { startOfTodayUtc, endOfTodayUtc } = getIstDateBoundaries();
+  const botName = params.botName || "TenSy";
+
+  const baseWhere: any = {
+    organizationId: params.organizationId,
+    status: { in: ["TODO", "IN_PROGRESS", "PENDING", "OVERDUE"] },
+  };
+
+  if (params.assignedPhone || params.assignedName) {
+    const filters: any[] = [];
+    if (params.assignedPhone) {
+      filters.push({ assignedPhone: { contains: params.assignedPhone.slice(-10) } });
+    }
+    if (params.assignedName) {
+      filters.push({ assignedTo: { contains: params.assignedName, mode: "insensitive" } });
+    }
+    if (filters.length > 0) {
+      baseWhere.OR = filters;
+    }
+  }
+
+  // 1. Overdue / Incomplete from past dates
+  const overdue = await prisma.businessTask.findMany({
+    where: {
+      ...baseWhere,
+      dueAt: { lt: startOfTodayUtc },
+    },
+    include: {
+      reminders: { where: { status: "PENDING" }, orderBy: { reminderAt: "asc" } },
+    },
+    orderBy: { dueAt: "asc" },
+    take: 10,
+  });
+
+  // 2. Today's tasks
+  const today = await prisma.businessTask.findMany({
+    where: {
+      ...baseWhere,
+      dueAt: { gte: startOfTodayUtc, lte: endOfTodayUtc },
+    },
+    include: {
+      reminders: { where: { status: "PENDING" }, orderBy: { reminderAt: "asc" } },
+    },
+    orderBy: { dueAt: "asc" },
+    take: 15,
+  });
+
+  // 3. Upcoming tasks (next 7 days)
+  const nextWeekUtc = new Date(endOfTodayUtc.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const upcoming = await prisma.businessTask.findMany({
+    where: {
+      ...baseWhere,
+      dueAt: { gt: endOfTodayUtc, lte: nextWeekUtc },
+    },
+    orderBy: { dueAt: "asc" },
+    take: 5,
+  });
+
+  const todayDateFormatted = new Date().toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+
+  let msg = `📋 *${botName} — कार्य व शेड्यूल विवरण* 🎯\n━━━━━━━━━━━━━━━━━━━━\n`;
+
+  // Section A: Overdue / Incomplete tasks from past dates
+  if (overdue.length > 0) {
+    msg += `\n🔴 *अधूरे कार्य (Incomplete / Past Dates - ${overdue.length}):*\n`;
+    overdue.forEach((t, i) => {
+      const pastDate = t.dueAt
+        ? new Date(t.dueAt).toLocaleDateString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            day: "numeric",
+            month: "short",
+          })
+        : "Past";
+      const contact = t.contactName ? ` (${t.contactName})` : "";
+      msg += `${i + 1}. [${pastDate}] *${t.title}*${contact} — ⏳ *अभी अधूरा है*\n`;
+    });
+  }
+
+  // Section B: Today's tasks
+  msg += `\n🟢 *आज के कार्य (Today, ${todayDateFormatted} - ${today.length}):*\n`;
+  if (today.length === 0) {
+    msg += `• _आज के लिए कोई पेंडिंग कार्य नहीं है।_\n`;
+  } else {
+    today.forEach((t, i) => {
+      const pEmoji = t.priority === "URGENT" ? "🚨" : t.priority === "HIGH" ? "⚡" : "📌";
+      const timeStr = t.dueAt
+        ? new Date(t.dueAt).toLocaleTimeString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "समय तय नहीं";
+      const contact = t.contactName ? ` (${t.contactName})` : "";
+      const statusText = t.status === "IN_PROGRESS" ? " [🔵 प्रगति पर]" : "";
+      msg += `${i + 1}. ${pEmoji} *${t.title}*${contact}\n   ⏰ ${timeStr}${statusText}\n`;
+    });
+  }
+
+  // Section C: Upcoming tasks (brief hint)
+  if (upcoming.length > 0) {
+    msg += `\n🔵 *आगामी कार्य (Upcoming - ${upcoming.length}):*\n`;
+    upcoming.slice(0, 3).forEach((t, i) => {
+      const upDate = t.dueAt
+        ? new Date(t.dueAt).toLocaleString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "Upcoming";
+      msg += `${i + 1}. *${t.title}* — ${upDate}\n`;
+    });
+  }
+
+  msg += `\n━━━━━━━━━━━━━━━━━━━━\n_किसी कार्य को पूर्ण करने पर "Done 1" या समय बदलने पर "Reschedule 1 kal 2 baje" लिखें।_`;
+
+  return {
+    overdue,
+    today,
+    upcoming,
+    formattedSummary: msg,
+  };
+}
+
+/**
+ * Creates multiple tasks at once (used in morning planner or multi-item voice notes).
+ */
+export async function createMultipleTasks(
+  organizationId: string,
+  channelId: string,
+  tasks: Array<Omit<CreateTaskInput, "organizationId" | "channelId">>,
+) {
+  const created: any[] = [];
+  for (const item of tasks) {
+    try {
+      const t = await createTaskWithReminders({
+        organizationId,
+        channelId,
+        ...item,
+      });
+      created.push(t);
+    } catch (err: any) {
+      log.warn({ err: err?.message, title: item.title }, "Failed to create one of multiple tasks");
+    }
+  }
+  return created;
+}
+

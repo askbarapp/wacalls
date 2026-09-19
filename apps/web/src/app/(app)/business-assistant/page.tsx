@@ -17,6 +17,17 @@ import {
   Moon,
   Save,
   Zap,
+  Lock,
+  Unlock,
+  Image as ImageIcon,
+  DollarSign,
+  Megaphone,
+  Check,
+  X,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
+  Info,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
@@ -29,6 +40,15 @@ type Role =
   | "SALES_MANAGER"
   | "ACCOUNTS"
   | "SUPPORT";
+
+type MemberPermissions = {
+  canMakeCalls: boolean;
+  canGenerateImages: boolean;
+  dailyImageQuota: number;
+  canViewFinance: boolean;
+  canManageCampaigns: boolean;
+  canAssignTasks: boolean;
+};
 
 type CommanderMember = {
   id: string;
@@ -110,8 +130,68 @@ const ROLE_INFO: Record<Role, { label: string; color: string; desc: string }> = 
   },
 };
 
+const DEFAULT_PERMISSIONS: Record<Role, MemberPermissions> = {
+  OWNER: {
+    canMakeCalls: true,
+    canGenerateImages: true,
+    dailyImageQuota: 999,
+    canViewFinance: true,
+    canManageCampaigns: true,
+    canAssignTasks: true,
+  },
+  MANAGER: {
+    canMakeCalls: false,
+    canGenerateImages: true,
+    dailyImageQuota: 10,
+    canViewFinance: false,
+    canManageCampaigns: true,
+    canAssignTasks: true,
+  },
+  SUPERVISOR: {
+    canMakeCalls: false,
+    canGenerateImages: true,
+    dailyImageQuota: 10,
+    canViewFinance: false,
+    canManageCampaigns: true,
+    canAssignTasks: true,
+  },
+  EXECUTIVE: {
+    canMakeCalls: false,
+    canGenerateImages: false,
+    dailyImageQuota: 0,
+    canViewFinance: false,
+    canManageCampaigns: false,
+    canAssignTasks: false,
+  },
+  SALES_MANAGER: {
+    canMakeCalls: false,
+    canGenerateImages: true,
+    dailyImageQuota: 10,
+    canViewFinance: false,
+    canManageCampaigns: true,
+    canAssignTasks: true,
+  },
+  ACCOUNTS: {
+    canMakeCalls: false,
+    canGenerateImages: false,
+    dailyImageQuota: 0,
+    canViewFinance: true,
+    canManageCampaigns: false,
+    canAssignTasks: false,
+  },
+  SUPPORT: {
+    canMakeCalls: false,
+    canGenerateImages: false,
+    dailyImageQuota: 0,
+    canViewFinance: false,
+    canManageCampaigns: false,
+    canAssignTasks: false,
+  },
+};
+
 const TABS = [
   { id: "team", label: "AI Team & WhatsApp Hierarchy", icon: Users },
+  { id: "matrix", label: "Roles & Permissions Matrix", icon: Shield },
   { id: "persona", label: "Assistant Persona & Briefings", icon: Clock },
   { id: "cheatsheet", label: "WhatsApp Commands Cheatsheet", icon: BookOpen },
 ] as const;
@@ -136,6 +216,12 @@ function BusinessAssistantContent() {
   const [, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Enterprise RBAC & Permissions State
+  const [memberPermissions, setMemberPermissions] = useState<Record<string, MemberPermissions>>({});
+  const [loadingPerms, setLoadingPerms] = useState<Record<string, boolean>>({});
+  const [savingPerms, setSavingPerms] = useState<Record<string, boolean>>({});
+  const [expandedPermsId, setExpandedPermsId] = useState<string | null>(null);
 
   // Profile & Persona state
   const [profile, setProfile] = useState<BusinessProfile>({
@@ -368,6 +454,76 @@ function BusinessAssistantContent() {
       setFeedback({ type: "success", text: "Team member removed." });
     } catch (e: any) {
       setFeedback({ type: "error", text: e?.message || "Failed to delete member" });
+    }
+  }
+
+  async function loadPermissions(memberId: string, role: Role) {
+    if (memberPermissions[memberId]) return;
+    setLoadingPerms((p) => ({ ...p, [memberId]: true }));
+    try {
+      const res = await api<any>(
+        `/api/v1/chatbots/commanders/${memberId}/permissions`
+      );
+      const data = res?.data || res;
+      if (data && typeof data.canMakeCalls === "boolean") {
+        setMemberPermissions((prev) => ({ ...prev, [memberId]: data }));
+      } else {
+        setMemberPermissions((prev) => ({ ...prev, [memberId]: DEFAULT_PERMISSIONS[role] }));
+      }
+    } catch {
+      setMemberPermissions((prev) => ({ ...prev, [memberId]: DEFAULT_PERMISSIONS[role] }));
+    } finally {
+      setLoadingPerms((p) => ({ ...p, [memberId]: false }));
+    }
+  }
+
+  async function handleTogglePerms(cmd: CommanderMember) {
+    if (expandedPermsId === cmd.id) {
+      setExpandedPermsId(null);
+    } else {
+      setExpandedPermsId(cmd.id);
+      await loadPermissions(cmd.id, cmd.role);
+    }
+  }
+
+  function handleUpdatePermissionField(
+    memberId: string,
+    field: keyof MemberPermissions,
+    value: any
+  ) {
+    setMemberPermissions((prev) => {
+      const current = prev[memberId] || DEFAULT_PERMISSIONS.EXECUTIVE;
+      return {
+        ...prev,
+        [memberId]: {
+          ...current,
+          [field]: value,
+        },
+      };
+    });
+  }
+
+  async function handleSavePermissions(memberId: string) {
+    const current = memberPermissions[memberId];
+    if (!current) return;
+    setSavingPerms((p) => ({ ...p, [memberId]: true }));
+    try {
+      const res = await api<any>(
+        `/api/v1/chatbots/commanders/${memberId}/permissions`,
+        {
+          method: "POST",
+          body: JSON.stringify(current),
+        }
+      );
+      const data = res?.data || res;
+      if (data && typeof data.canMakeCalls === "boolean") {
+        setMemberPermissions((prev) => ({ ...prev, [memberId]: data }));
+      }
+      setFeedback({ type: "success", text: "Security permissions & limits updated successfully!" });
+    } catch (e: any) {
+      setFeedback({ type: "error", text: e?.message || "Failed to update permissions" });
+    } finally {
+      setSavingPerms((p) => ({ ...p, [memberId]: false }));
     }
   }
 
@@ -706,9 +862,9 @@ function BusinessAssistantContent() {
                         </div>
                       </div>
 
-                      {/* Briefing Toggles Indicators */}
-                      <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
-                        <div className="flex items-center gap-3">
+                      {/* Briefing Toggles Indicators & Permissions Trigger */}
+                      <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                        <div className="flex flex-wrap items-center gap-2.5">
                           <span
                             className={cmd.dailyMorning ? "text-amber-300 font-medium" : "text-slate-600"}
                             title="Morning Executive Briefing"
@@ -728,7 +884,200 @@ function BusinessAssistantContent() {
                             🚨 Alert: {cmd.missedAlert ? "ON" : "OFF"}
                           </span>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePerms(cmd)}
+                          className="inline-flex items-center gap-1 text-amber-400 hover:text-amber-300 font-semibold transition-colors"
+                        >
+                          <Shield className="h-3 w-3" />
+                          <span>Permissions</span>
+                          {expandedPermsId === cmd.id ? (
+                            <ChevronUp className="h-3 w-3" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3" />
+                          )}
+                        </button>
                       </div>
+
+                      {/* Collapsible Permissions & Quota Editor */}
+                      {expandedPermsId === cmd.id && (
+                        <div className="mt-3 pt-3 border-t border-amber-500/20 bg-slate-950/60 rounded-lg p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+                              <Shield className="h-3.5 w-3.5" />
+                              Custom Permissions &amp; Limits: {cmd.name}
+                            </span>
+                            {loadingPerms[cmd.id] && (
+                              <span className="text-[10px] text-slate-400">Loading settings...</span>
+                            )}
+                          </div>
+
+                          {memberPermissions[cmd.id] ? (
+                            <div className="space-y-2.5">
+                              {/* 1. Outbound Call Guard */}
+                              <div className="flex items-center justify-between rounded-lg border border-white/5 bg-slate-900/80 p-2 text-xs">
+                                <div className="space-y-0.5 max-w-[240px]">
+                                  <div className="font-semibold text-white flex items-center gap-1.5">
+                                    <Phone className="h-3 w-3 text-cyan-400" />
+                                    <span>Direct Outbound Calling</span>
+                                    {memberPermissions[cmd.id].canMakeCalls ? (
+                                      <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded">
+                                        Active
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] bg-rose-500/20 text-rose-300 px-1.5 py-0.2 rounded">
+                                        Locked
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 leading-tight">
+                                    Allow this member to command AI to dial phone calls via PBX line.
+                                  </p>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={memberPermissions[cmd.id].canMakeCalls}
+                                  onChange={(e) =>
+                                    handleUpdatePermissionField(cmd.id, "canMakeCalls", e.target.checked)
+                                  }
+                                  className="h-4 w-4 rounded border-white/10 bg-slate-950 text-amber-500 focus:ring-0 cursor-pointer"
+                                />
+                              </div>
+
+                              {/* 2. AI Image Generation & Quota */}
+                              <div className="rounded-lg border border-white/5 bg-slate-900/80 p-2 text-xs space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="space-y-0.5">
+                                    <div className="font-semibold text-white flex items-center gap-1.5">
+                                      <ImageIcon className="h-3 w-3 text-purple-400" />
+                                      <span>AI Creative Posters &amp; Images</span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-400">
+                                      Can generate marketing &amp; festival posters on WhatsApp.
+                                    </p>
+                                  </div>
+                                  <input
+                                    type="checkbox"
+                                    checked={memberPermissions[cmd.id].canGenerateImages}
+                                    onChange={(e) =>
+                                      handleUpdatePermissionField(cmd.id, "canGenerateImages", e.target.checked)
+                                    }
+                                    className="h-4 w-4 rounded border-white/10 bg-slate-950 text-amber-500 focus:ring-0 cursor-pointer"
+                                  />
+                                </div>
+
+                                {memberPermissions[cmd.id].canGenerateImages && (
+                                  <div className="pt-1.5 border-t border-white/5 flex items-center justify-between gap-3 text-[11px]">
+                                    <span className="text-slate-300">Daily Image Quota:</span>
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={999}
+                                        value={memberPermissions[cmd.id].dailyImageQuota}
+                                        onChange={(e) =>
+                                          handleUpdatePermissionField(
+                                            cmd.id,
+                                            "dailyImageQuota",
+                                            parseInt(e.target.value, 10) || 0
+                                          )
+                                        }
+                                        className="w-16 rounded border border-white/10 bg-slate-950 px-2 py-0.5 text-center font-mono text-xs text-amber-300 focus:outline-none"
+                                      />
+                                      <span className="text-[10px] text-slate-400">
+                                        {memberPermissions[cmd.id].dailyImageQuota >= 900
+                                          ? "Unlimited"
+                                          : "images/day"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* 3. Finance & Invoices */}
+                              <div className="flex items-center justify-between rounded-lg border border-white/5 bg-slate-900/80 p-2 text-xs">
+                                <div className="space-y-0.5 max-w-[240px]">
+                                  <div className="font-semibold text-white flex items-center gap-1.5">
+                                    <DollarSign className="h-3 w-3 text-emerald-400" />
+                                    <span>Financials &amp; Invoice Creation</span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 leading-tight">
+                                    Access pending payment balances &amp; generate official invoices/quotes.
+                                  </p>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={memberPermissions[cmd.id].canViewFinance}
+                                  onChange={(e) =>
+                                    handleUpdatePermissionField(cmd.id, "canViewFinance", e.target.checked)
+                                  }
+                                  className="h-4 w-4 rounded border-white/10 bg-slate-950 text-amber-500 focus:ring-0 cursor-pointer"
+                                />
+                              </div>
+
+                              {/* 4. Campaigns */}
+                              <div className="flex items-center justify-between rounded-lg border border-white/5 bg-slate-900/80 p-2 text-xs">
+                                <div className="space-y-0.5 max-w-[240px]">
+                                  <div className="font-semibold text-white flex items-center gap-1.5">
+                                    <Megaphone className="h-3 w-3 text-indigo-400" />
+                                    <span>Manage Bulk Campaigns</span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 leading-tight">
+                                    Start, pause, and check automated calling &amp; messaging campaigns.
+                                  </p>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={memberPermissions[cmd.id].canManageCampaigns}
+                                  onChange={(e) =>
+                                    handleUpdatePermissionField(cmd.id, "canManageCampaigns", e.target.checked)
+                                  }
+                                  className="h-4 w-4 rounded border-white/10 bg-slate-950 text-amber-500 focus:ring-0 cursor-pointer"
+                                />
+                              </div>
+
+                              {/* 5. Task Delegation */}
+                              <div className="flex items-center justify-between rounded-lg border border-white/5 bg-slate-900/80 p-2 text-xs">
+                                <div className="space-y-0.5 max-w-[240px]">
+                                  <div className="font-semibold text-white flex items-center gap-1.5">
+                                    <Users className="h-3 w-3 text-amber-400" />
+                                    <span>Delegate Tasks to Others</span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 leading-tight">
+                                    If disabled, member can only see and manage their own private tasks.
+                                  </p>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={memberPermissions[cmd.id].canAssignTasks}
+                                  onChange={(e) =>
+                                    handleUpdatePermissionField(cmd.id, "canAssignTasks", e.target.checked)
+                                  }
+                                  className="h-4 w-4 rounded border-white/10 bg-slate-950 text-amber-500 focus:ring-0 cursor-pointer"
+                                />
+                              </div>
+
+                              {/* Save Button */}
+                              <div className="pt-2 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSavePermissions(cmd.id)}
+                                  disabled={savingPerms[cmd.id]}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition-colors shadow-sm"
+                                >
+                                  <Save className="h-3 w-3" />
+                                  {savingPerms[cmd.id] ? "Saving..." : "Apply Permissions"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-center py-2 text-xs text-slate-500">
+                              Default role permissions active. Adjust any setting above to customize.
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -738,7 +1087,332 @@ function BusinessAssistantContent() {
         </div>
       )}
 
-      {/* TAB 2: Assistant Persona & Briefings */}
+      {/* TAB 2: Roles & Permissions Matrix */}
+      {activeTab === "matrix" && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="rounded-xl border border-amber-500/20 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-5 shadow-lg">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-amber-400" />
+                  Enterprise WhatsApp Roles &amp; Permissions Matrix
+                </h3>
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  Every team member connected to your WhatsApp business line is assigned a specific operational role.
+                  This ensures strict information isolation: employees never see each other&apos;s tasks or company financials,
+                  while high-risk actions (such as direct phone calling) remain strictly locked by default.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("team")}
+                  className="rounded-lg bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/30 transition-colors"
+                >
+                  Manage Team Members →
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Comparative Matrix Table */}
+          <div className="overflow-x-auto rounded-xl border border-white/10 bg-slate-900/60 shadow-md">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-white/10 bg-slate-950/80 text-[11px] font-semibold text-slate-400">
+                <tr>
+                  <th className="px-4 py-3.5">Role &amp; Responsibility</th>
+                  <th className="px-4 py-3.5">📞 Direct Outbound Calls</th>
+                  <th className="px-4 py-3.5">🎨 AI Images &amp; Daily Quota</th>
+                  <th className="px-4 py-3.5">💰 Financials &amp; Quotes</th>
+                  <th className="px-4 py-3.5">📢 Bulk Campaigns</th>
+                  <th className="px-4 py-3.5">👥 Task Delegation</th>
+                  <th className="px-4 py-3.5">🔒 Data Isolation</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-slate-300">
+                {/* 1. OWNER */}
+                <tr className="bg-purple-950/10 hover:bg-purple-950/20 transition-colors">
+                  <td className="px-4 py-3.5">
+                    <div className="font-bold text-purple-300">👑 Owner / Founder</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Master Administrator</div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Full Access
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-purple-500/20 px-2 py-0.5 text-[11px] font-semibold text-purple-300">
+                      <Check className="h-3 w-3" /> Unlimited (999/day)
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Full Access
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Full Access
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Assign to Anyone
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-400">Master (Full Visibility)</td>
+                </tr>
+
+                {/* 2. MANAGER */}
+                <tr className="hover:bg-white/[0.02] transition-colors">
+                  <td className="px-4 py-3.5">
+                    <div className="font-bold text-indigo-300">👔 Manager</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Team Supervisor</div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
+                      <Lock className="h-3 w-3" /> Locked by Default
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-purple-500/20 px-2 py-0.5 text-[11px] font-semibold text-purple-300">
+                      <Check className="h-3 w-3" /> 10 Images / Day
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <X className="h-3 w-3" /> No Finance Access
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Start / Pause
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Team Delegation
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-400">Department Scope</td>
+                </tr>
+
+                {/* 3. SUPERVISOR */}
+                <tr className="hover:bg-white/[0.02] transition-colors">
+                  <td className="px-4 py-3.5">
+                    <div className="font-bold text-blue-300">📋 Supervisor</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Operations Oversight</div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
+                      <Lock className="h-3 w-3" /> Locked by Default
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-purple-500/20 px-2 py-0.5 text-[11px] font-semibold text-purple-300">
+                      <Check className="h-3 w-3" /> 10 Images / Day
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <X className="h-3 w-3" /> No Finance Access
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Start / Pause
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Team Delegation
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-400">Operations Scope</td>
+                </tr>
+
+                {/* 4. EXECUTIVE / STAFF */}
+                <tr className="bg-cyan-950/10 hover:bg-cyan-950/20 transition-colors">
+                  <td className="px-4 py-3.5">
+                    <div className="font-bold text-cyan-300">👤 Executive / Staff</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Frontline Employee</div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
+                      <Lock className="h-3 w-3" /> Strict Lock (₹0 dialed)
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <Lock className="h-3 w-3" /> Locked (0 Quota)
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
+                      <Lock className="h-3 w-3" /> Confidential Lock
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <X className="h-3 w-3" /> Disabled
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-cyan-500/20 px-2 py-0.5 text-[11px] font-semibold text-cyan-300">
+                      Private Tasks Only
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 font-semibold text-emerald-400">
+                    🛡️ 100% Private (Zero peer leaks)
+                  </td>
+                </tr>
+
+                {/* 5. SALES SPECIALIST */}
+                <tr className="hover:bg-white/[0.02] transition-colors">
+                  <td className="px-4 py-3.5">
+                    <div className="font-bold text-amber-300">💼 Sales Specialist</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Lead Conversion &amp; Quotes</div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
+                      <Lock className="h-3 w-3" /> Locked by Default
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-purple-500/20 px-2 py-0.5 text-[11px] font-semibold text-purple-300">
+                      <Check className="h-3 w-3" /> 10 Images / Day
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <X className="h-3 w-3" /> Draft Quotes Only
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Sales Campaigns
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                      Self &amp; Pipeline Tasks
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-400">Sales Pipeline Scope</td>
+                </tr>
+
+                {/* 6. ACCOUNTS */}
+                <tr className="hover:bg-white/[0.02] transition-colors">
+                  <td className="px-4 py-3.5">
+                    <div className="font-bold text-emerald-300">💰 Accounts &amp; Finance</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Billing, Invoices &amp; Balances</div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
+                      <Lock className="h-3 w-3" /> Locked by Default
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <Lock className="h-3 w-3" /> Locked (0 Quota)
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      <Check className="h-3 w-3" /> Full Billing &amp; Invoices
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <X className="h-3 w-3" /> Disabled
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      Own Tasks Only
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-400">Accounting Ledger Scope</td>
+                </tr>
+
+                {/* 7. SUPPORT */}
+                <tr className="hover:bg-white/[0.02] transition-colors">
+                  <td className="px-4 py-3.5">
+                    <div className="font-bold text-rose-300">🎧 Customer Support</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Tickets &amp; Customer Queries</div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
+                      <Lock className="h-3 w-3" /> Locked by Default
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <Lock className="h-3 w-3" /> Locked (0 Quota)
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <X className="h-3 w-3" /> No Finance Access
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      <X className="h-3 w-3" /> Disabled
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      Own Tasks Only
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-400">Support Desk Scope</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Detailed Security & Quota Explanations */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
+                <Phone className="h-4 w-4 text-amber-400" />
+                <span>1. Strict Outbound Calling Guard</span>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                By default, <b>no employee</b> can make direct phone calls through the server simply by texting on WhatsApp.
+                Only the Owner can dial calls freely. If a trusted manager needs calling privileges, the Owner can explicitly toggle calling access on their profile.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-purple-300">
+                <ImageIcon className="h-4 w-4 text-purple-400" />
+                <span>2. AI Creative Studio Quota Control</span>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Marketing posters and festival greeting images cost GPU credits. Staff members are blocked by default (0 quota),
+                while sales and marketing managers have a daily quota limit (e.g., 10 images/day) that resets automatically every midnight in IST.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-cyan-300">
+                <Shield className="h-4 w-4 text-cyan-400" />
+                <span>3. Zero-Interference Privacy</span>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                TenSy uses biometric phone authentication on WhatsApp. When Amit texts TenSy, he only sees tasks assigned to Amit.
+                TenSy never reveals confidential company bank balances, pending debtor lists, or peers&apos; agendas to regular staff.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: Assistant Persona & Briefings */}
       {activeTab === "persona" && (
         <div className="space-y-6">
           <div className="rounded-xl border border-white/10 bg-slate-900/60 p-5 space-y-6">

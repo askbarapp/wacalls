@@ -211,6 +211,7 @@ model Organization {
   emailMessages       EmailMessage[]
   emailRules          EmailRule[]
   taskReminders       TaskReminder[]
+  businessProjects    BusinessProject[]
 
   @@index([planId])
   @@index([status])
@@ -348,6 +349,7 @@ model WhatsAppChannel {
   commanderMembers   CommanderMember[]
   emailAccounts      EmailAccount[]
   taskReminders      TaskReminder[]
+  businessProjects   BusinessProject[]
 
   @@index([organizationId])
   @@index([status])
@@ -1335,17 +1337,20 @@ model BusinessTask {
   recurrence      String?   /// NEVER, DAILY, WEEKLY, MONTHLY, CUSTOM
   recurrenceRule  String?   @map("recurrence_rule")
   completedAt     DateTime? @map("completed_at")
+  projectId       String?   @map("project_id")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channel      WhatsAppChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
   conversation ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  project      BusinessProject?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
   reminders    TaskReminder[]
 
   @@index([organizationId, status])
   @@index([channelId])
   @@index([dueAt])
+  @@index([projectId])
   @@map("business_tasks")
 }
 
@@ -1768,4 +1773,81 @@ model EmailRule {
   @@index([organizationId])
   @@index([accountId])
   @@map("email_rules")
+}
+
+model BusinessProject {
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  channelId       String?   @map("channel_id")
+  projectCode     String    @map("project_code") /// e.g. PRJ-101
+  title           String
+  description     String?
+  clientName      String?   @map("client_name")
+  clientPhone     String?   @map("client_phone")
+  budget          Float?
+  currency        String    @default("INR")
+  startDate       DateTime  @default(now()) @map("start_date")
+  targetDeadline  DateTime? @map("target_deadline")
+  completedAt     DateTime? @map("completed_at")
+  status          String    @default("PLANNING") /// PLANNING, IN_PROGRESS, REVIEW, COMPLETED, ON_HOLD, CANCELLED
+  progressPercent Int       @default(0) @map("progress_percent")
+  healthStatus    String    @default("ON_TRACK") @map("health_status") /// ON_TRACK, AT_RISK, DELAYED
+  keyDeliverables Json?     @map("key_deliverables") /// string array or checklist items
+  nextStepAction  String?   @map("next_step_action")
+  nextStepOwner   String?   @map("next_step_owner")
+  nextStepDueAt   DateTime? @map("next_step_due_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  members      ProjectMember[]
+  tasks        BusinessTask[]
+  updates      ProjectUpdateLog[]
+
+  @@unique([organizationId, projectCode])
+  @@index([organizationId, status])
+  @@index([organizationId, healthStatus])
+  @@index([channelId])
+  @@map("business_projects")
+}
+
+model ProjectMember {
+  id             String   @id @default(uuid())
+  projectId      String   @map("project_id")
+  organizationId String   @map("organization_id")
+  name           String
+  phone          String
+  roleInProject  String   @default("Member") @map("role_in_project") /// e.g. Lead Designer, Site Engineer, Coordinator
+  isLead         Boolean  @default(false) @map("is_lead")
+  joinedAt       DateTime @default(now()) @map("joined_at")
+
+  project BusinessProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, phone])
+  @@index([organizationId, phone])
+  @@index([projectId])
+  @@map("project_members")
+}
+
+model ProjectUpdateLog {
+  id                String   @id @default(uuid())
+  projectId         String   @map("project_id")
+  organizationId    String   @map("organization_id")
+  authorName        String   @map("author_name")
+  authorPhone       String   @map("author_phone")
+  authorRole        String?  @map("author_role")
+  updateText        String   @map("update_text")
+  source            String   @default("WHATSAPP") /// WHATSAPP, WEB_PORTAL, VOICE_NOTE, SYSTEM
+  sentiment         String?  @default("NEUTRAL") /// POSITIVE, NEUTRAL, BLOCKED
+  blockers          String?
+  nextStepSuggested String?  @map("next_step_suggested")
+  mediaUrls         String[] @default([]) @map("media_urls")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  project BusinessProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([organizationId])
+  @@map("project_update_logs")
 }

@@ -12,6 +12,7 @@ import {
 } from "@wacalls/shared";
 import { okPage, pageMeta, pageQuerySchema, pageSkip } from "../lib/pagination.js";
 import { sendWhatsAppText } from "../services/messaging.js";
+import { getMemberPermissions, setMemberPermissions } from "../services/member-permissions.js";
 
 const botBody = z.object({
   channelId: z.string().uuid(),
@@ -496,5 +497,42 @@ export const chatbotRoutes: FastifyPluginAsync = async (app) => {
 
     await prisma.commanderMember.delete({ where: { id } });
     return ok({ success: true, deletedId: id });
+  });
+
+  app.get("/chatbots/commanders/:id/permissions", async (req) => {
+    const auth = await app.authenticate(req);
+    const { id } = req.params as { id: string };
+    const member = await prisma.commanderMember.findFirst({
+      where: { id, organizationId: auth.orgId },
+    });
+    if (!member) throw new NotFoundError("Commander member not found");
+
+    const permissions = await getMemberPermissions(member.channelId, member.id, member.role);
+    return ok(permissions);
+  });
+
+  app.post("/chatbots/commanders/:id/permissions", async (req) => {
+    const auth = await app.authenticate(req);
+    await app.requirePermission("chatbot.manage")(req);
+    const { id } = req.params as { id: string };
+    const member = await prisma.commanderMember.findFirst({
+      where: { id, organizationId: auth.orgId },
+    });
+    if (!member) throw new NotFoundError("Commander member not found");
+
+    const body = z
+      .object({
+        canMakeCalls: z.boolean().optional(),
+        canGenerateImages: z.boolean().optional(),
+        dailyImageQuota: z.number().int().min(0).max(999).optional(),
+        canViewFinance: z.boolean().optional(),
+        canManageCampaigns: z.boolean().optional(),
+        canAssignTasks: z.boolean().optional(),
+      })
+      .parse(req.body);
+
+    await setMemberPermissions(member.channelId, member.id, body);
+    const updated = await getMemberPermissions(member.channelId, member.id, member.role);
+    return ok(updated);
   });
 };

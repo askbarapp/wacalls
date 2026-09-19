@@ -27,6 +27,7 @@ import {
   Sparkles,
   Cpu,
   CheckSquare,
+  FolderKanban,
   type LucideIcon,
 } from "lucide-react";
 
@@ -46,6 +47,7 @@ export const NAV: Array<{
   { href: "/channels", label: "WhatsApp", icon: Phone, group: "Calling" },
   { href: "/live", label: "Live", icon: Radio, group: "Calling" },
   { href: "/messages", label: "Messages", icon: MessageSquare, group: "Workspace" },
+  { href: "/projects", label: "Projects", icon: FolderKanban, group: "Workspace" },
   { href: "/tasks", label: "Tasks", icon: CheckSquare, group: "Workspace" },
   { href: "/email", label: "Email Hub", icon: Mail, group: "Workspace" },
   { href: "/creative-studio", label: "Creative Studio", icon: Sparkles, group: "Workspace" },

@@ -49,9 +49,31 @@ export async function handleOutboundChat(input: {
   });
   if (!channel) return;
 
-  // If message is to/from an authorized Commander Line or self-chat, handle as Commander Command
-  const isOwner = await isOwnerPhone(channel.id, phone);
-  if (isOwner) {
+  // 1. If this outbound message was originated by the bot/system itself, ignore it (prevent echo loops)
+  if (input.messageId) {
+    const isBotMessage = await prisma.message.findFirst({
+      where: { channelId: channel.id, externalId: input.messageId },
+      select: { id: true },
+    });
+    if (isBotMessage) return;
+
+    const isBotChatMessage = await prisma.chatMessage.findFirst({
+      where: { externalId: input.messageId, source: { in: ["bot", "ai", "system"] } },
+      select: { id: true },
+    });
+    if (isBotChatMessage) return;
+  }
+
+  // 2. Outbound message handling:
+  // An outbound chat means the person using the WhatsApp device sent a message to 'phone'.
+  // ONLY if this is a TRUE SELF-CHAT (i.e. 'Message yourself' where recipient == channel's own paired phone)
+  // should it be treated as a Commander command to the AI assistant.
+  // If the human user texted ANY OTHER number (customer, employee, or friend), the bot must NEVER auto-reply!
+  const channelClean = (channel.phoneNumber || "").replace(/\D/g, "");
+  const recipientClean = phone.replace(/\D/g, "");
+  const isSelfChat = channelClean.length >= 8 && channelClean === recipientClean;
+
+  if (isSelfChat) {
     if (input.mediaType === "audio" && input.mediaBase64) {
       const handled = await handleVoiceNoteFromCommander({
         channelId: channel.id,

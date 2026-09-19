@@ -2,6 +2,7 @@ import pino from "pino";
 import { prisma } from "@wacalls/database";
 import { redis } from "../redis.js";
 import { sendWhatsAppText } from "./messaging.js";
+import { getTasksCategorized } from "./tasks/task-service.js";
 
 const log = pino({ name: "daily-briefing" });
 
@@ -131,15 +132,12 @@ export async function sendMorningBriefing(
   const startOfDay = new Date(`${todayStr}T00:00:00.000Z`);
   const endOfDay = new Date(`${todayStr}T23:59:59.999Z`);
 
-  const [pendingTasks, hotLeads, dueInvoices, appointments, importantEmails] = await Promise.all([
-    // Today's pending tasks
-    prisma.businessTask.findMany({
-      where: {
-        organizationId: orgId,
-        status: { in: ["TODO", "IN_PROGRESS", "PENDING"] },
-      },
-      orderBy: { dueAt: "asc" },
-      take: 5,
+  const [categorizedTasks, hotLeads, dueInvoices, appointments, importantEmails] = await Promise.all([
+    // Categorized tasks (Overdue/Incomplete + Today's)
+    getTasksCategorized({
+      organizationId: orgId,
+      assignedPhone: recipient.role !== "OWNER" ? recipient.phone : null,
+      assignedName: recipient.role !== "OWNER" ? recipient.name : null,
     }),
     // Hot leads awaiting action
     prisma.chatConversation.findMany({
@@ -204,14 +202,38 @@ export async function sendMorningBriefing(
     }
   }
 
-  // 2. Pending Tasks
+  // 2. Pending Tasks (Strictly Categorized: Overdue from past dates + Today)
   if (recipient.role !== "ACCOUNTS") {
-    card += `\n📋 *आज के मुख्य कार्य (Priority Tasks):*\n`;
-    if (pendingTasks.length === 0) {
-      card += `• कोई पेंडिंग टास्क नहीं है। आप बिल्कुल फ्री हैं!\n`;
+    // 2A. Overdue incomplete tasks from previous dates
+    if (categorizedTasks.overdue.length > 0) {
+      card += `\n🔴 *अधूरे कार्य (Incomplete from Previous Dates - ${categorizedTasks.overdue.length}):*\n`;
+      categorizedTasks.overdue.forEach((t, i) => {
+        const pastDate = t.dueAt
+          ? new Date(t.dueAt).toLocaleDateString("en-IN", {
+              timeZone: "Asia/Kolkata",
+              day: "numeric",
+              month: "short",
+            })
+          : "Past";
+        card += `${i + 1}. [${pastDate}] *${t.title}* — ⏳ *अभी अधूरा है*\n`;
+      });
+    }
+
+    // 2B. Today's Scheduled Tasks
+    card += `\n🟢 *आज के निर्धारित कार्य (Today's Tasks - ${categorizedTasks.today.length}):*\n`;
+    if (categorizedTasks.today.length === 0) {
+      card += `• _आज के लिए अभी कोई कार्य शेड्यूल नहीं है।_\n`;
     } else {
-      pendingTasks.forEach((t, i) => {
-        card += `${i + 1}. *${t.title}*${t.amount && recipient.role === "OWNER" ? ` (₹${t.amount.toLocaleString("en-IN")})` : ""}\n`;
+      categorizedTasks.today.forEach((t, i) => {
+        const pEmoji = t.priority === "URGENT" ? "🚨" : t.priority === "HIGH" ? "⚡" : "📌";
+        const timeStr = t.dueAt
+          ? new Date(t.dueAt).toLocaleTimeString("en-IN", {
+              timeZone: "Asia/Kolkata",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "समय तय नहीं";
+        card += `${i + 1}. ${pEmoji} *${t.title}* (⏰ ${timeStr})\n`;
       });
     }
   }
@@ -241,7 +263,8 @@ export async function sendMorningBriefing(
     }
   }
 
-  card += `\n━━━━━━━━━━━━━━━━━━━━\n💪 *शुभ प्रभात, ${recipient.name || "Boss"}! आज का दिन सफल और उत्पादक रहे!*\n(कॉल रिपोर्ट के लिए *"today total call"* या *"आज के काम"* भेजें)`;
+  // 6. Proactive Daily Planning Prompt
+  card += `\n━━━━━━━━━━━━━━━━━━━━\n🌅 *आज की कार्ययोजना (Daily Task Setup):*\nशुभ प्रभात, ${recipient.name || "Boss"}! आज आपके क्या-क्या कार्य/मीटिंग्स हैं?\n👉 _आप बोलकर (Voice Note) या लिखकर बताइए (उदा: "12 बजे राहुल को कॉल, 3 बजे मीटिंग") — मैं सभी के टास्क बनाकर समय पर रिमाइंडर लगा दूँगा!_`;
 
   await sendWhatsAppText({
     organizationId: orgId,
@@ -251,7 +274,11 @@ export async function sendMorningBriefing(
     chatSource: "bot",
   });
 
-  log.info({ channelId: channel.id, phone: recipient.phone, role: recipient.role }, "Sent morning briefing to commander");
+  // Set 4-hour morning task collection expectation in Redis
+  const cleanPhone = recipient.phone.replace(/\D/g, "");
+  await redis.set(`wacall:morning:collect:${channel.id}:${cleanPhone}`, "1", "EX", 4 * 3600).catch(() => undefined);
+
+  log.info({ channelId: channel.id, phone: recipient.phone, role: recipient.role }, "Sent morning briefing to commander with task collection prompt");
 }
 
 /**

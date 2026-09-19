@@ -89,7 +89,7 @@ ${options}`;
             actionType: "TASK_REMINDER_ACTION",
             summary: `Task Reminder: ${task.title}`,
             status: "PENDING",
-            expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000), // 12h validity
+            expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2h interactive window
             payload: {
               taskId: task.id,
               reminderId: reminder.id,

@@ -24,10 +24,13 @@ import {
 import { sendOutgoingEmail } from "./email/smtp-service.js";
 import {
   markTaskComplete,
+  completeAllTasks,
   snoozeTaskReminder,
   createTaskWithReminders,
   shiftPendingTasksToTomorrow,
+  getTasksCategorized,
 } from "./tasks/task-service.js";
+import { runAutonomousAgent } from "./agent/agent-controller.js";
 import { interpretTaskNaturalLanguage, fallbackRegexTaskParser } from "./tasks/task-interpreter.js";
 import { sendMorningBriefing, sendEodReport } from "./daily-briefing.js";
 import {
@@ -291,8 +294,56 @@ export async function handleOwnerCommand(input: {
         upperText === "COMPLETE" ||
         upperText.includes("DONE") ||
         upperText.includes("HO GAYA") ||
-        upperText.includes("KHATAM")
+        upperText.includes("KHATAM") ||
+        upperText.includes("पूर्ण") ||
+        upperText.includes("समाप्त")
       ) {
+        const isBulk =
+          upperText.includes("ALL") ||
+          upperText.includes("SARA") ||
+          upperText.includes("SARAA") ||
+          upperText.includes("SABHI") ||
+          upperText.includes("SAB") ||
+          upperText.includes("EVERY") ||
+          upperText.includes("सारा") ||
+          upperText.includes("सभी") ||
+          upperText.includes("सब") ||
+          upperText.includes("पूरे");
+
+        if (isBulk) {
+          const isRestrictedStaff = commander.role !== "OWNER";
+          const res = await completeAllTasks({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            assignedPhone: isRestrictedStaff ? input.phone : undefined,
+            assignedName: isRestrictedStaff ? commander.name : undefined,
+            scope: upperText.includes("TODAY") || upperText.includes("AAJ") || upperText.includes("आज") ? "TODAY" : "ALL",
+          });
+
+          await prisma.pendingAction.updateMany({
+            where: {
+              channelId: channel.id,
+              status: "PENDING",
+              actionType: "TASK_REMINDER_ACTION",
+            },
+            data: { status: "APPROVED" },
+          });
+
+          const taskBullets = res.tasks.length > 0
+            ? res.tasks.map((t, idx) => `${idx + 1}. ~${t.title}~`).join("\n")
+            : "";
+          const body = `✅ *सभी कार्य पूर्ण दर्ज किए गए (All Tasks Completed)!* 🎉\n━━━━━━━━━━━━━━━━━━━━\n📊 *कुल पूर्ण किए गए कार्य:* ${res.completedCount}\n${taskBullets}\n\nशानदार! आज के सभी कार्य सफलतापूर्वक मार्क डन कर दिए गए हैं। 🚀`;
+
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: input.phone,
+            body,
+            chatSource: "bot",
+          }).catch(() => undefined);
+          return true;
+        }
+
         if (taskId) {
           await markTaskComplete(taskId, channel.organizationId);
         }
@@ -469,11 +520,22 @@ export async function handleOwnerCommand(input: {
         targetDueAt = new Date(
           Date.UTC(istTomorrow.getUTCFullYear(), istTomorrow.getUTCMonth(), istTomorrow.getUTCDate(), 5, 30, 0, 0),
         );
-      } else {
+      } else if (
+        /\b(?:BAJE|बजे|AM|PM|KAL|AAJ|PARSO|TODAY|TOMORROW|\d{1,2}:\d{2}|\d{1,2}\s*(?:AM|PM|बजे))\b/i.test(text)
+      ) {
         // Custom natural language time response like "kal 4 baje"
         const customParsed = fallbackRegexTaskParser(text, now);
         targetDueAt = customParsed.dueAt;
+      } else {
+        // User asked or said something else; cancel clarification so message can be processed normally
+        await prisma.pendingAction.update({
+          where: { id: pendingAction.id },
+          data: { status: "CANCELLED" },
+        });
+        targetDueAt = null as any;
       }
+
+      if (targetDueAt) {
 
       // Create task with resolved time
       const createdTask = await createTaskWithReminders({
@@ -526,6 +588,7 @@ export async function handleOwnerCommand(input: {
       }
 
       return true;
+      }
     }
 
     // A. Special Handler for Call Intelligence Actions (1, 2, 3)
@@ -800,8 +863,56 @@ export async function handleOwnerCommand(input: {
         upperText.includes("HO GYA") ||
         upperText.includes("DONE") ||
         upperText.includes("COMPLETED") ||
-        upperText.includes("FINISHED")
+        upperText.includes("FINISHED") ||
+        upperText.includes("पूर्ण") ||
+        upperText.includes("समाप्त")
       ) {
+        const isBulk =
+          upperText.includes("ALL") ||
+          upperText.includes("SARA") ||
+          upperText.includes("SARAA") ||
+          upperText.includes("SABHI") ||
+          upperText.includes("SAB") ||
+          upperText.includes("EVERY") ||
+          upperText.includes("सारा") ||
+          upperText.includes("सभी") ||
+          upperText.includes("सब") ||
+          upperText.includes("पूरे");
+
+        if (isBulk) {
+          const isRestrictedStaff = commander.role !== "OWNER";
+          const res = await completeAllTasks({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            assignedPhone: isRestrictedStaff ? input.phone : undefined,
+            assignedName: isRestrictedStaff ? commander.name : undefined,
+            scope: upperText.includes("TODAY") || upperText.includes("AAJ") || upperText.includes("आज") ? "TODAY" : "ALL",
+          });
+
+          await prisma.pendingAction.updateMany({
+            where: {
+              channelId: channel.id,
+              status: "PENDING",
+              actionType: "TASK_REMINDER_ACTION",
+            },
+            data: { status: "APPROVED" },
+          });
+
+          const taskBullets = res.tasks.length > 0
+            ? res.tasks.map((t, idx) => `${idx + 1}. ~${t.title}~`).join("\n")
+            : "";
+          const body = `✅ *सभी कार्य पूर्ण दर्ज किए गए (All Tasks Completed)!* 🎉\n━━━━━━━━━━━━━━━━━━━━\n📊 *कुल पूर्ण किए गए कार्य:* ${res.completedCount}\n${taskBullets}\n\nशानदार! आज के सभी कार्य सफलतापूर्वक मार्क डन कर दिए गए हैं। 🚀`;
+
+          await sendWhatsAppText({
+            organizationId: channel.organizationId,
+            channelId: channel.id,
+            phone: input.phone,
+            body,
+            chatSource: "bot",
+          }).catch(() => undefined);
+          return true;
+        }
+
         if (payload.taskId) {
           await markTaskComplete(payload.taskId, channel.organizationId);
         }
@@ -1355,77 +1466,25 @@ export async function handleOwnerCommand(input: {
   const isTaskListingQuery = isDirectTaskKeyword || (hasTaskSubject && hasTaskInquiry && !isTaskCreationSignal);
 
   if (isTaskListingQuery) {
-    // If sender is an executive or staff, only show tasks assigned to them
-    const isStaffMember = ["EXECUTIVE", "SUPPORT", "ACCOUNTS"].includes(commander.role);
-    const filterCondition: any = {
-      organizationId: channel.organizationId,
-      status: { in: ["TODO", "IN_PROGRESS", "PENDING", "OVERDUE"] },
-    };
-
-    if (isStaffMember && commander.name) {
-      filterCondition.OR = [
-        { assignedTo: { contains: commander.name, mode: "insensitive" } },
-        { assignedPhone: { contains: commander.phone.slice(-10) } },
-      ];
-    }
-
-    const pendingTasks = await prisma.businessTask.findMany({
-      where: filterCondition,
-      include: {
-        reminders: { where: { status: { in: ["PENDING", "SENT"] } }, orderBy: { reminderAt: "asc" } },
-      },
-      orderBy: { dueAt: "asc" },
-      take: 8,
-    });
-
-    // Fetch assistant name from BusinessProfile
     const profile = await prisma.businessProfile.findFirst({
       where: { organizationId: channel.organizationId },
       select: { assistantName: true },
     });
     const botName = profile?.assistantName || "TenSy";
 
-    if (pendingTasks.length === 0) {
-      await sendWhatsAppText({
-        organizationId: channel.organizationId,
-        channelId: channel.id,
-        phone: input.phone,
-        body: `✨ *कोई पेंडिंग टास्क नहीं है!* 🎉\n━━━━━━━━━━━━━━━━━━━━\nनमस्ते ${commander.name || "Sir"}! आपका आज का शेड्यूल पूरी तरह से खाली है।\n\nनया टास्क या मीटिंग शेड्यूल करने के लिए मुझे लिखकर या बोलकर बताएं:\n_उदा: "कल 11 बजे गुप्ता जी को कॉल करना है"_\nया *https://wacall.in/tasks* खोलें।`,
-        chatSource: "bot",
-      }).catch(() => undefined);
-      return true;
-    }
-
-    let taskListMsg = `📋 *${botName} — आज के कार्य व शेड्यूल (${pendingTasks.length})*\n━━━━━━━━━━━━━━━━━━━━\n`;
-    pendingTasks.forEach((t, idx) => {
-      const pEmoji = t.priority === "URGENT" ? "🚨" : t.priority === "HIGH" ? "⚡" : "📌";
-      const dueStr = t.dueAt
-        ? new Date(t.dueAt).toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : "No due date";
-      const contactStr = t.contactName ? `\n   👤 *संपर्क:* ${t.contactName}${t.contactPhone ? ` (${t.contactPhone})` : ""}` : "";
-      const statusBadge = t.status === "IN_PROGRESS" ? "🔵 प्रगति पर (AI Delegated)" : t.status === "OVERDUE" ? "🔴 अतिदेय (Overdue)" : "⏳ लंबित (Pending)";
-      
-      const remindersList = (t.reminders || [])
-        .map(r => new Date(r.reminderAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }))
-        .join(", ");
-      const reminderStr = remindersList ? `\n   🔔 *अलर्ट समय:* ${remindersList}` : "";
-
-      taskListMsg += `${idx + 1}. ${pEmoji} *${t.title}*${contactStr}\n   ⏰ *समय:* ${dueStr}\n   📊 *स्थिति:* ${statusBadge}${reminderStr}\n\n`;
+    const isStaffMember = ["EXECUTIVE", "SUPPORT", "ACCOUNTS"].includes(commander.role);
+    const categorized = await getTasksCategorized({
+      organizationId: channel.organizationId,
+      assignedPhone: isStaffMember ? commander.phone : null,
+      assignedName: isStaffMember ? commander.name : null,
+      botName,
     });
-
-    taskListMsg += `━━━━━━━━━━━━━━━━━━━━\n💡 कार्य पूरा होने पर *Done [नंबर]* लिखें, या AI को सौंपने के लिए *Delegate [नंबर]* लिखें।`;
 
     await sendWhatsAppText({
       organizationId: channel.organizationId,
       channelId: channel.id,
       phone: input.phone,
-      body: taskListMsg,
+      body: categorized.formattedSummary,
       chatSource: "bot",
     }).catch(() => undefined);
     return true;
@@ -2157,44 +2216,24 @@ export async function handleOwnerCommand(input: {
     }
   }
 
-  // Default Assistant Response to Commander (Warm, Human-like & Elegant)
-  const profile = await prisma.businessProfile.findFirst({
-    where: { organizationId: channel.organizationId },
-    select: { assistantName: true },
-  });
-  const botName = profile?.assistantName || "TenSy";
-
-  // Compute time-of-day greeting in IST
-  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
-  const istNow = new Date(Date.now() + istOffsetMs);
-  const istHour = istNow.getUTCHours();
-  const timeGreeting = istHour < 12 ? "शुभ प्रभात (Good Morning)" : istHour < 17 ? "नमस्ते (Good Afternoon)" : "नमस्ते (Good Evening)";
-
-  const personName = commander.name || (commander.role === "OWNER" ? "सर" : "साथी");
-
-  const warmGreeting = `✨ *${botName} Executive Assistant*
-━━━━━━━━━━━━━━━━━━━━
-${timeGreeting}, *${personName}*! 🙏
-
-मैं *${botName}* हूँ, आपका व्यक्तिगत AI बिज़नेस असिस्टेंट। बताइए, आज मैं आपके लिए क्या कर सकता हूँ?
-
-आप मुझसे सामान्य बातचीत की तरह सीधे पूछ या बोल सकते हैं:
-• 📋 *आज के काम व शेड्यूल:* _"आज के टास्क बताओ"_
-• ⏰ *टास्क व रिमाइंडर:* _"कल 11 बजे गुप्ता जी को कॉल करना है"_
-• 📬 *ज़रूरी मैसेज व मीटिंग:* _"आज के ज़रूरी मैसेज बताओ"_ या _"मीटिंग है क्या"_
-• 💰 *फाइनेंशियल स्थिति:* _"कितना पेमेंट बाकी है?"_
-• 📞 *कॉल व टीम:* _"आज कितने कॉल आए?"_ या _"Call [नाम]"_
-• 💬 *ग्राहक को उत्तर:* _"Reply [नंबर] [संदेश]"_
-
-या बस बोलकर (Voice Note) या लिखकर बताइए कि क्या काम निपटाना है! 🎯`;
-
-  await sendWhatsAppText({
+  // Autonomous AI Agent Loop with Tool Calling & Conversational Memory
+  const agentRes = await runAutonomousAgent({
     organizationId: channel.organizationId,
     channelId: channel.id,
-    phone: input.phone,
-    body: warmGreeting,
-    chatSource: "bot",
-  }).catch(() => undefined);
+    commander,
+    text,
+  });
+
+  if (agentRes.handled && agentRes.replyText) {
+    await sendWhatsAppText({
+      organizationId: channel.organizationId,
+      channelId: channel.id,
+      phone: input.phone,
+      body: agentRes.replyText,
+      chatSource: "bot",
+    }).catch(() => undefined);
+    return true;
+  }
 
   return true;
 }
@@ -2999,24 +3038,9 @@ export async function queryBusinessMemory(
     }
 
     // 3. Task or Schedule questions
-    if (qLower.includes("task") || qLower.includes("meeting") || qLower.includes("agenda") || qLower.includes("schedule")) {
-      const tasks = await prisma.businessTask.findMany({
-        where: {
-          organizationId,
-          status: { in: ["TODO", "IN_PROGRESS", "PENDING"] },
-        },
-        orderBy: { dueAt: "asc" },
-        take: 4,
-      });
-      if (tasks.length === 0) {
-        return `✨ *कोई पेंडिंग टास्क नहीं है!* आप पूरी तरह से फ्री हैं। नया टास्क बनाने के लिए बस बोलें या लिखें।`;
-      }
-      let resp = `📋 *आपके शेड्यूल किए गए टास्क:*\n━━━━━━━━━━━━━━━━━━━━\n`;
-      tasks.forEach((t, i) => {
-        const due = t.dueAt ? new Date(t.dueAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }) : "Today";
-        resp += `${i + 1}. *${t.title}* — ⏰ ${due} [${t.priority}]\n`;
-      });
-      return resp;
+    if (qLower.includes("task") || qLower.includes("टास्क") || qLower.includes("meeting") || qLower.includes("agenda") || qLower.includes("schedule")) {
+      const categorized = await getTasksCategorized({ organizationId });
+      return categorized.formattedSummary;
     }
 
     return null;
