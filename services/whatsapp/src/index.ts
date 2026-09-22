@@ -293,6 +293,15 @@ app.get("/internal/channels/:id/status", async (req) => {
   return { status: await engine.getStatus(id) };
 });
 
+app.get("/internal/channels/:id/groups", async (req) => {
+  const { id } = req.params as { id: string };
+  if (!engine.listGroups) {
+    return { groups: [] };
+  }
+  const groups = await engine.listGroups(id);
+  return { groups };
+});
+
 app.post("/internal/messages", async (req, reply) => {
   const body = req.body as { channelId: string; phone: string; text: string };
   try {

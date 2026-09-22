@@ -16,6 +16,7 @@ import {
   normalizePhone,
 } from "@wacalls/shared";
 import type { ChatInboundJob } from "@wacalls/queue";
+import { routeInboundLead } from "./lead-router.js";
 import pino from "pino";
 
 const log = pino({ name: "chatbot", level: process.env.LOG_LEVEL ?? "info" });
@@ -74,7 +75,7 @@ export async function ensureChatBot(organizationId: string, channelId: string) {
       aiConfigId: firstAi?.id ?? null,
       knowledgeBaseId: firstAi?.knowledgeBaseId ?? null,
       keywords: {
-        create: DEFAULT_CHAT_KEYWORDS.map((k) => ({
+        create: (DEFAULT_CHAT_KEYWORDS as any[]).map((k: any) => ({
           organizationId,
           trigger: k.trigger,
           matchType: k.matchType,
@@ -314,6 +315,24 @@ export async function processChatInbound(job: ChatInboundJob) {
     body: text,
     externalId: job.externalId,
   });
+
+  // Check Inbound Lead Routing Rules (Facebook / Instagram / Website ad texts)
+  const leadRoutingResult = await routeInboundLead({
+    organizationId: job.organizationId,
+    channelId: job.channelId,
+    phone,
+    text,
+    conversationId: conversation.id,
+    contactId: conversation.contactId,
+  });
+
+  if (leadRoutingResult.matched) {
+    log.info(
+      { phone, ruleId: leadRoutingResult.ruleId, assignType: leadRoutingResult.assignType },
+      "chatbot: inbound message handled by lead router",
+    );
+    return { action: "lead_routed", ...leadRoutingResult };
+  }
 
   if (!bot.enabled) return { skipped: "disabled" };
 

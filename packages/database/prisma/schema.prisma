@@ -212,6 +212,8 @@ model Organization {
   emailRules          EmailRule[]
   taskReminders       TaskReminder[]
   businessProjects    BusinessProject[]
+  leadRoutingRules    LeadRoutingRule[]
+  leadRoutingLogs     LeadRoutingLog[]
 
   @@index([planId])
   @@index([status])
@@ -236,6 +238,8 @@ model User {
   auditLogs      AuditLog[]
   callsAsAgent          Call[]              @relation("CallAgent")
   assignedChats         ChatConversation[]  @relation("ChatAssignee")
+  assignedLeadRules     LeadRoutingRule[]   @relation("LeadRuleAssignee")
+  routedLeadLogs        LeadRoutingLog[]    @relation("LeadLogAssignee")
 
   @@index([email])
   @@map("users")
@@ -350,6 +354,7 @@ model WhatsAppChannel {
   emailAccounts      EmailAccount[]
   taskReminders      TaskReminder[]
   businessProjects   BusinessProject[]
+  leadRoutingRules   LeadRoutingRule[]
 
   @@index([organizationId])
   @@index([status])
@@ -1850,4 +1855,71 @@ model ProjectUpdateLog {
   @@index([projectId, createdAt])
   @@index([organizationId])
   @@map("project_update_logs")
+}
+
+model LeadRoutingRule {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  channelId          String?  @map("channel_id")
+  name               String
+  sourcePlatform     String   @default("FACEBOOK") @map("source_platform") /// FACEBOOK, INSTAGRAM, WEBSITE, GOOGLE, OTHER
+  matchType          String   @default("CONTAINS") @map("match_type") /// CONTAINS, EXACT, STARTS_WITH, REGEX
+  matchContent       String   @map("match_content")
+  assignType         String   @default("USER") @map("assign_type") /// USER, GROUP, ROUND_ROBIN, NONE
+  assignedUserId     String?  @map("assigned_user_id")
+  assignedGroupJid   String?  @map("assigned_group_jid")
+  assignedGroupName  String?  @map("assigned_group_name")
+  roundRobinUserIds  String[] @default([]) @map("round_robin_user_ids")
+  lastAssignedIndex  Int      @default(0) @map("last_assigned_index")
+  notifyGroup        Boolean  @default(false) @map("notify_group")
+  notifyGroupJid     String?  @map("notify_group_jid")
+  notifyGroupName    String?  @map("notify_group_name")
+  notifyAssignee     Boolean  @default(true) @map("notify_assignee")
+  autoReplyCustomer  Boolean  @default(false) @map("auto_reply_customer")
+  autoReplyText      String?  @map("auto_reply_text")
+  leadTags           String[] @default(["lead"]) @map("lead_tags")
+  leadStage          String   @default("NEW") @map("lead_stage")
+  leadValue          Float?   @map("lead_value")
+  enabled            Boolean  @default(true)
+  priority           Int      @default(0)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      WhatsAppChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  assignedUser User?            @relation("LeadRuleAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  logs         LeadRoutingLog[]
+
+  @@index([organizationId, enabled])
+  @@index([channelId])
+  @@map("lead_routing_rules")
+}
+
+model LeadRoutingLog {
+  id                String   @id @default(uuid())
+  organizationId    String   @map("organization_id")
+  ruleId            String?  @map("rule_id")
+  phone             String
+  senderName        String?  @map("sender_name")
+  incomingText      String   @map("incoming_text")
+  assignType        String   @map("assign_type")
+  assignedUserId    String?  @map("assigned_user_id")
+  assignedUserName  String?  @map("assigned_user_name")
+  assignedGroupJid  String?  @map("assigned_group_jid")
+  assignedGroupName String?  @map("assigned_group_name")
+  notifiedGroupJid  String?  @map("notified_group_jid")
+  notifiedGroupName String?  @map("notified_group_name")
+  autoReplied       Boolean  @default(false) @map("auto_replied")
+  status            String   @default("SUCCESS") /// SUCCESS, FAILED, SKIPPED
+  notes             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rule         LeadRoutingRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  assignedUser User?            @relation("LeadLogAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([phone])
+  @@index([ruleId])
+  @@map("lead_routing_logs")
 }

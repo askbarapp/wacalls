@@ -32,6 +32,7 @@ type BaileysSock = {
   end?: (err?: Error) => void;
   logout?: () => Promise<void>;
   sendMessage?: (jid: string, content: { text: string }) => Promise<{ key?: { id?: string } }>;
+  groupFetchAllParticipating?: () => Promise<Record<string, any>>;
   onWhatsApp?: (jid: string | string[]) => Promise<Array<{ jid: string; exists: boolean; lid?: string }>>;
   sendPresenceUpdate?: (type: string, jid?: string) => Promise<void>;
   user?: { id?: string; name?: string };
@@ -331,9 +332,27 @@ export class SelfHostedWhatsAppEngine implements CallingEngine {
         "WhatsApp Web session is not CONNECTED. Open WhatsApp → Reconnect, scan QR if asked, then send again.",
       );
     }
-    const digits = digitsOnly(phoneNumber);
-    const result = await runtime.sock.sendMessage(`${digits}@s.whatsapp.net`, { text });
+    const clean = phoneNumber.trim();
+    const targetJid = clean.includes("@") ? clean : `${digitsOnly(clean)}@s.whatsapp.net`;
+    const result = await runtime.sock.sendMessage(targetJid, { text });
     return { id: result?.key?.id };
+  }
+
+  async listGroups(channelId: string): Promise<Array<{ id: string; subject: string; size?: number }>> {
+    const runtime = this.channels.get(channelId);
+    if (!runtime?.sock?.groupFetchAllParticipating) {
+      return [];
+    }
+    try {
+      const groups = await (runtime.sock as any).groupFetchAllParticipating();
+      return Object.values(groups).map((g: any) => ({
+        id: String(g.id),
+        subject: String(g.subject || "WhatsApp Group"),
+        size: typeof g.size === "number" ? g.size : g.participants?.length,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   onCallEvent(handler: CallEventHandler): () => void {

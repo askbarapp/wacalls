@@ -58,6 +58,10 @@ export const whatsappClient = {
       body: JSON.stringify({ muted }),
     }),
   capabilities: () => request<{ capabilities: Record<string, boolean>; name: string }>("/internal/capabilities"),
+  listGroups: (channelId: string) =>
+    request<{ groups: Array<{ id: string; subject: string; size?: number }> }>(
+      `/internal/channels/${channelId}/groups`,
+    ),
   sendText: (
     channelId: string,
     phone: string,

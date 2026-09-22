@@ -102,6 +102,7 @@ export interface CallingEngine {
   sendAudio(callId: string, pcm: Float32Array): Promise<void>;
   sendText(channelId: string, phoneNumber: string, text: string): Promise<{ id?: string }>;
   getProfilePicture?(channelId: string, phoneNumber: string): Promise<string | null>;
+  listGroups?(channelId: string): Promise<Array<{ id: string; subject: string; size?: number }>>;
 
   onCallEvent(handler: CallEventHandler): () => void;
   onInboundText(handler: InboundTextHandler): () => void;

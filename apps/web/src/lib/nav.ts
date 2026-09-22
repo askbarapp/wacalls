@@ -28,6 +28,7 @@ import {
   Cpu,
   CheckSquare,
   FolderKanban,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 
@@ -52,6 +53,7 @@ export const NAV: Array<{
   { href: "/email", label: "Email Hub", icon: Mail, group: "Workspace" },
   { href: "/creative-studio", label: "Creative Studio", icon: Sparkles, group: "Workspace" },
   { href: "/chatbot", label: "Chatbot", icon: MessagesSquare, group: "Workspace" },
+  { href: "/lead-routing", label: "Lead Routing", icon: Target, group: "Workspace" },
   { href: "/auto-reply", label: "Call follow-up", icon: Reply, group: "Workspace" },
   { href: "/contacts", label: "Contacts", icon: Users, group: "Workspace" },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone, group: "Workspace" },
