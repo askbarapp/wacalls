@@ -348,7 +348,7 @@ export default function LeadRoutingPage() {
       {/* Top Page Header */}
       <PageHeader
         title="Inbound Lead Routing & Assignment"
-        subtitle="Facebook Ads, Instagram Ads, और Landing Page से आने वाले WhatsApp prefilled messages को single person, WhatsApp group, या round-robin pool में automatically assign और alert करें।"
+        subtitle="Automatically capture prefilled inbound WhatsApp messages from Facebook Ads, Instagram Ads, and Landing Pages to route them to team members or WhatsApp groups."
         tone="from-violet-400 to-fuchsia-400"
         actions={
           <div className="flex items-center gap-3">
@@ -791,8 +791,8 @@ export default function LeadRoutingPage() {
                         onChange={(e) => setFormData({ ...formData, matchType: e.target.value as any })}
                         className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none"
                       >
-                        <option value="CONTAINS">Contains (आंशिक शब्द)</option>
-                        <option value="EXACT">Exact Match (हूबहू)</option>
+                        <option value="CONTAINS">Contains (Keyword / Substring)</option>
+                        <option value="EXACT">Exact Match (Full Text)</option>
                         <option value="STARTS_WITH">Starts With</option>
                         <option value="REGEX">Regular Expression</option>
                       </select>
@@ -811,8 +811,7 @@ export default function LeadRoutingPage() {
                     </div>
                   </div>
                   <p className="text-[11px] text-slate-400">
-                    💡 जब भी Facebook/Instagram Ad या Landing page से customer इस text के साथ message करेगा, यह rule
-                    trigger होगा।
+                    💡 When a customer clicks your Ad or Landing Page button and sends this message, this routing rule will trigger.
                   </p>
                 </div>
 
@@ -820,7 +819,7 @@ export default function LeadRoutingPage() {
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-5 space-y-5">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-fuchsia-400">
-                      Step 3: Assignment Target (किसे Assign करें)
+                      Step 3: Assignment Target
                     </h4>
                   </div>
 
@@ -840,7 +839,7 @@ export default function LeadRoutingPage() {
                         <span className="font-semibold text-sm text-white">1. Single Person</span>
                       </div>
                       <p className="mt-2 text-[11px] leading-relaxed">
-                        सीधे किसी तय sales agent को assign हो (चाहे वो ग्रुप में हो या न हो)।
+                        Assign directly to a dedicated team member (even if they are not in the WhatsApp group).
                       </p>
                     </div>
 
@@ -858,7 +857,7 @@ export default function LeadRoutingPage() {
                         <span className="font-semibold text-sm text-white">2. WhatsApp Group</span>
                       </div>
                       <p className="mt-2 text-[11px] leading-relaxed">
-                        Lead पूरी की पूरी किसी WhatsApp Group में assign और forward हो।
+                        Forward and assign the inbound lead directly to a WhatsApp Group.
                       </p>
                     </div>
 
@@ -873,10 +872,10 @@ export default function LeadRoutingPage() {
                     >
                       <div className="flex items-center gap-2">
                         <Share2 className="h-4 w-4 text-pink-400" />
-                        <span className="font-semibold text-sm text-white">3. Round-Robin</span>
+                        <span className="font-semibold text-sm text-white">3. Round-Robin Pool</span>
                       </div>
                       <p className="mt-2 text-[11px] leading-relaxed">
-                        टीम मेंबर्स के बीच बारी-बारी से बराबर leads distribute हों।
+                        Distribute incoming leads evenly in rotation across selected team members.
                       </p>
                     </div>
                   </div>
@@ -1004,8 +1003,7 @@ export default function LeadRoutingPage() {
                       </span>
                     </label>
                     <p className="text-[11px] text-slate-400 pl-7">
-                      चाहे lead किसी single person को assign हो या round robin में, इस group में तुरंत lead details +
-                      assigned person का नाम alert card के रूप में चला जाएगा।
+                      Whether a lead is assigned to a single person or round-robin, an instant alert card with lead details and assigned agent will be forwarded to this group.
                     </p>
 
                     {formData.notifyGroup && (
@@ -1109,9 +1107,9 @@ export default function LeadRoutingPage() {
                         onChange={(e) => setFormData({ ...formData, leadStage: e.target.value })}
                         className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
                       >
-                        <option value="NEW">NEW (नई लीड)</option>
-                        <option value="CONTACTED">CONTACTED (संपर्क किया)</option>
-                        <option value="QUALIFIED">QUALIFIED (योग्य)</option>
+                        <option value="NEW">NEW (Uncontacted)</option>
+                        <option value="CONTACTED">CONTACTED (Follow-up)</option>
+                        <option value="QUALIFIED">QUALIFIED (Hot)</option>
                       </select>
                     </div>
                   </div>
