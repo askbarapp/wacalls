@@ -5,11 +5,11 @@ import { Image as ImageIcon, List, MousePointerClick, Type } from "lucide-react"
 import { api, apiUpload, getAccessToken } from "@/lib/api";
 
 export const TEMPLATE_KINDS = [
-  { id: "TEXT", label: "Text", hint: "Plain WhatsApp message" },
-  { id: "SIMPLE", label: "Simple", hint: "Title, message, and footer" },
-  { id: "MEDIA", label: "Media", hint: "Image plus caption" },
-  { id: "BUTTON", label: "Button", hint: "Reply, website, or call buttons" },
-  { id: "LIST", label: "List", hint: "Menu of options" },
+  { id: "TEXT", label: "Text", hint: "100% Working (अनुशंसित)" },
+  { id: "SIMPLE", label: "Simple", hint: "Header, message, footer" },
+  { id: "MEDIA", label: "Media", hint: "Image + Caption (100% Working)" },
+  { id: "BUTTON", label: "Button (Not Working)", hint: "WhatsApp Web पर ब्लॉक है" },
+  { id: "LIST", label: "List (Not Working)", hint: "WhatsApp Web पर ब्लॉक है" },
 ] as const;
 
 export type TemplateKind = (typeof TEMPLATE_KINDS)[number]["id"];
@@ -126,27 +126,56 @@ export function MessageTemplateForm({ onSaved }: { onSaved: () => Promise<void> 
     <form onSubmit={(e) => void save(e)} className="mb-6 rounded-2xl border border-white/10 bg-ink-900/70 p-5">
       <div className="mb-3 text-sm font-medium text-white">New WhatsApp template</div>
       {error ? <p className="mb-3 text-sm text-rose-300">{error}</p> : null}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-        {TEMPLATE_KINDS.map((k) => (
-          <button
-            key={k.id}
-            type="button"
-            onClick={() => setKind(k.id)}
-            className={`rounded-xl border px-3 py-2 text-left ${
-              form.kind === k.id ? "border-brand-400 bg-brand-500/15" : "border-white/10 bg-ink-950/40"
-            }`}
-          >
-            <div className="flex items-center gap-1.5 text-sm font-medium text-white">
-              {k.id === "MEDIA" ? <ImageIcon className="h-3.5 w-3.5" /> : null}
-              {k.id === "BUTTON" ? <MousePointerClick className="h-3.5 w-3.5" /> : null}
-              {k.id === "LIST" ? <List className="h-3.5 w-3.5" /> : null}
-              {k.id === "TEXT" || k.id === "SIMPLE" ? <Type className="h-3.5 w-3.5" /> : null}
-              {k.label}
-            </div>
-            <p className="mt-1 text-[11px] text-slate-500">{k.hint}</p>
-          </button>
-        ))}
+
+      {/* Recommended Advice Notice */}
+      <div className="mb-4 rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-xs text-sky-200">
+        <span className="font-semibold text-sky-300">💡 महत्वपूर्ण सुझाव:</span> WhatsApp वेब लाइन्स पर <strong>Buttons</strong> और <strong>Lists</strong> काम नहीं कर रहे हैं। कृपया करके केवल <strong>Text message</strong> का ही use करें, जिसमें <strong>Media (Image)</strong> use हो सकता है।
       </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {TEMPLATE_KINDS.map((k) => {
+          const isBroken = k.id === "BUTTON" || k.id === "LIST";
+          return (
+            <button
+              key={k.id}
+              type="button"
+              onClick={() => setKind(k.id)}
+              className={`rounded-xl border px-3 py-2 text-left transition-all ${
+                form.kind === k.id
+                  ? isBroken
+                    ? "border-amber-500/60 bg-amber-500/20"
+                    : "border-brand-400 bg-brand-500/15"
+                  : isBroken
+                  ? "border-amber-500/20 bg-ink-950/30 opacity-75 hover:opacity-100"
+                  : "border-white/10 bg-ink-950/40"
+              }`}
+            >
+              <div className="flex items-center gap-1.5 text-sm font-medium text-white">
+                {k.id === "MEDIA" ? <ImageIcon className="h-3.5 w-3.5 text-emerald-400" /> : null}
+                {k.id === "BUTTON" ? <MousePointerClick className="h-3.5 w-3.5 text-amber-400" /> : null}
+                {k.id === "LIST" ? <List className="h-3.5 w-3.5 text-amber-400" /> : null}
+                {k.id === "TEXT" || k.id === "SIMPLE" ? <Type className="h-3.5 w-3.5 text-brand-400" /> : null}
+                <span className={isBroken ? "text-amber-200" : ""}>{k.label}</span>
+              </div>
+              <p className={`mt-1 text-[11px] ${isBroken ? "text-amber-400/80 font-medium" : "text-slate-400"}`}>{k.hint}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {(form.kind === "BUTTON" || form.kind === "LIST") && (
+        <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-amber-200">
+          <div className="flex items-center gap-2 font-semibold text-amber-300 text-sm">
+            <span>⚠️ यह फ़ीचर अभी वर्किंग नहीं है (Not Working on WhatsApp Web)</span>
+          </div>
+          <p className="mt-1.5 text-slate-200 leading-relaxed">
+            WhatsApp / Meta की नीति के कारण लिंक्ड वेब (Multi-Device) लाइनों पर इंटरैक्टिव <strong>Buttons</strong> और <strong>Lists</strong> रिसीवर के फोन पर प्रदर्शित नहीं होते हैं।
+          </p>
+          <div className="mt-2.5 rounded-lg bg-black/40 p-2.5 text-emerald-300 font-medium">
+            👉 <strong>कृपया करके Text message का ही use करें, जिसमें Media (Image) use हो सकता है। यह 100% सही तरीके से डिलीवर होता है।</strong>
+          </div>
+        </div>
+      )}
       <div className="grid gap-2">
         <input
           className="min-h-11"
@@ -313,9 +342,17 @@ export function MessageTemplateForm({ onSaved }: { onSaved: () => Promise<void> 
 }
 
 export function TemplateKindBadge({ kind }: { kind?: string }) {
+  const isBroken = kind === "BUTTON" || kind === "LIST";
   return (
-    <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+    <span
+      className={`rounded-md px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+        isBroken
+          ? "border border-amber-500/40 bg-amber-500/15 text-amber-300 font-medium"
+          : "bg-white/10 text-slate-400"
+      }`}
+    >
       {kindLabel(kind)}
+      {isBroken ? " · Not working" : ""}
     </span>
   );
 }

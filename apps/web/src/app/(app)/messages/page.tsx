@@ -273,6 +273,11 @@ function MessagesInner() {
                   <p className="mt-2 text-xs text-slate-500">
                     This template sends as {selectedTemplate.kind === "MEDIA" ? "an image with caption" : selectedTemplate.kind === "BUTTON" ? "buttons" : "a list menu"}.
                   </p>
+                  {(selectedTemplate.kind === "BUTTON" || selectedTemplate.kind === "LIST") && (
+                    <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-200">
+                      ⚠️ <strong>WhatsApp Limitation:</strong> WhatsApp वेब लाइन्स पर Buttons और Lists काम नहीं कर रहे हैं (रिसीवर के फोन पर बटन्स शो नहीं होते)। कृपया <strong>Text</strong> या <strong>Media (Image)</strong> टेम्पलेट का ही उपयोग करें।
+                    </div>
+                  )}
                 </div>
               ) : (
                 <textarea

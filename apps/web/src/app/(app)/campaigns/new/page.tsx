@@ -946,7 +946,14 @@ export default function NewCampaignPage() {
               </button>
             </div>
             {selectedTemplate && form.messageTemplateId ? (
-              <p className="mt-2 rounded-lg bg-ink-950/50 p-3 text-xs text-slate-400">{selectedTemplate.body}</p>
+              <div className="mt-2 space-y-2">
+                <p className="rounded-lg bg-ink-950/50 p-3 text-xs text-slate-400">{selectedTemplate.body}</p>
+                {(selectedTemplate.kind === "BUTTON" || selectedTemplate.kind === "LIST") && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-200">
+                    ⚠️ <strong>WhatsApp Notice:</strong> Buttons और Lists वेब लाइनों पर काम नहीं करते हैं। कृपया <strong>Text</strong> या <strong>Media</strong> टेम्पलेट का चयन करें ताकि संदेश सही रूप से डिलीवर हो सके।
+                  </div>
+                )}
+              </div>
             ) : null}
             {!form.messageTemplateId ? (
               <textarea
