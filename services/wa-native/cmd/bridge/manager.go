@@ -1068,6 +1068,36 @@ func (ch *Channel) Mute(callID string, muted bool) {
 	lc.muted = muted
 }
 
+func (ch *Channel) ListGroups(ctx context.Context) ([]map[string]any, error) {
+	if ch.client == nil || !ch.client.IsConnected() {
+		return nil, fmt.Errorf("channel is not connected")
+	}
+	groups, err := ch.client.GetJoinedGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res := make([]map[string]any, 0, len(groups))
+	for _, g := range groups {
+		if g == nil {
+			continue
+		}
+		subject := g.GroupName.Name
+		if subject == "" {
+			subject = "WhatsApp Group"
+		}
+		count := g.ParticipantCount
+		if count == 0 {
+			count = len(g.Participants)
+		}
+		res = append(res, map[string]any{
+			"id":      g.JID.String(),
+			"subject": subject,
+			"size":    count,
+		})
+	}
+	return res, nil
+}
+
 func (ch *Channel) SendText(ctx context.Context, phone, text string) (string, error) {
 	return ch.SendChat(ctx, phone, ChatPayload{Text: text}, 0)
 }
@@ -1103,8 +1133,19 @@ type ChatPayload struct {
 }
 
 func (ch *Channel) SendChat(ctx context.Context, phone string, payload ChatPayload, typing time.Duration) (string, error) {
-	digits := digitsOnly(phone)
-	jid := types.NewJID(digits, types.DefaultUserServer)
+	clean := strings.TrimSpace(phone)
+	var jid types.JID
+	if strings.Contains(clean, "@") {
+		var err error
+		jid, err = types.ParseJID(clean)
+		if err != nil {
+			digits := digitsOnly(clean)
+			jid = types.NewJID(digits, types.DefaultUserServer)
+		}
+	} else {
+		digits := digitsOnly(clean)
+		jid = types.NewJID(digits, types.DefaultUserServer)
+	}
 	if typing > 0 {
 		_ = ch.client.SendChatPresence(ctx, jid, types.ChatPresenceComposing, types.ChatPresenceMediaText)
 		timer := time.NewTimer(typing)

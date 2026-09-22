@@ -19,6 +19,7 @@ func (h *Hub) Routes() http.Handler {
 	mux.HandleFunc("GET /internal/channels/{id}/qr", h.auth(h.handleQR))
 	mux.HandleFunc("GET /internal/channels/{id}/status", h.auth(h.handleStatus))
 	mux.HandleFunc("GET /internal/channels/{id}/avatar", h.auth(h.handleAvatar))
+	mux.HandleFunc("GET /internal/channels/{id}/groups", h.auth(h.handleGroups))
 	mux.HandleFunc("POST /internal/channels/{id}/on-whatsapp", h.auth(h.handleOnWhatsApp))
 	mux.HandleFunc("POST /internal/messages", h.auth(h.handleMessage))
 	mux.HandleFunc("POST /internal/calls", h.auth(h.handleCall))
@@ -196,6 +197,22 @@ func (h *Hub) handleOnWhatsApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+func (h *Hub) handleGroups(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ch := h.getChannel(id)
+	if ch == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"groups": []any{}})
+		return
+	}
+	groups, err := ch.ListGroups(r.Context())
+	if err != nil {
+		h.log.Warn("failed to fetch groups", "channel", id, "err", err)
+		writeJSON(w, http.StatusOK, map[string]any{"groups": []any{}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"groups": groups})
 }
 
 func (h *Hub) handleMessage(w http.ResponseWriter, r *http.Request) {

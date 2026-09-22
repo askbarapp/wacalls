@@ -127,11 +127,21 @@ export const leadRoutingRoutes: FastifyPluginAsync = async (app) => {
 
     let channelId = q.channelId;
     if (!channelId) {
-      const firstChannel = await prisma.whatsAppChannel.findFirst({
-        where: { organizationId: auth.orgId, status: "CONNECTED" },
+      const activeChannel = await prisma.whatsAppChannel.findFirst({
+        where: {
+          organizationId: auth.orgId,
+          OR: [{ status: "CONNECTED" }, { sessionStatus: "CONNECTED" }],
+        },
         select: { id: true },
       });
-      channelId = firstChannel?.id;
+      channelId = activeChannel?.id;
+      if (!channelId) {
+        const anyChannel = await prisma.whatsAppChannel.findFirst({
+          where: { organizationId: auth.orgId },
+          select: { id: true },
+        });
+        channelId = anyChannel?.id;
+      }
     }
 
     if (!channelId) {
@@ -141,7 +151,8 @@ export const leadRoutingRoutes: FastifyPluginAsync = async (app) => {
     try {
       const res = await whatsappClient.listGroups(channelId);
       return ok({ groups: res.groups || [] });
-    } catch {
+    } catch (err: any) {
+      app.log.warn({ err: err?.message, channelId }, "Failed to fetch whatsapp groups");
       return ok({ groups: [] });
     }
   });
