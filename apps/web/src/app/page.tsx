@@ -2,8 +2,6 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { Syne } from "next/font/google";
 import {
   ArrowRight,
   Bot,
@@ -19,7 +17,7 @@ import {
 import { BrandMark, useBranding } from "@/components/branding-provider";
 import { getAccessToken } from "@/lib/api";
 
-const display = Syne({ subsets: ["latin"], weight: ["600", "700", "800"] });
+const display = { className: "" };
 
 const STEPS = [
   {
