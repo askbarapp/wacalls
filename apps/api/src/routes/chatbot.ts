@@ -87,7 +87,7 @@ async function ensureBot(organizationId: string, channelId: string) {
       enabled: true,
       aiEnabled: true,
       greetingEnabled: true,
-      greetingMessage: "नमस्ते! WaCalls में आपका स्वागत है। हम आपकी क्या सहायता कर सकते हैं?",
+      greetingMessage: "Hello! Welcome to our WhatsApp service. How can we help you today?",
       greetingCooldownDays: 14,
       aiConfigId: firstAi?.id ?? null,
       knowledgeBaseId: firstAi?.knowledgeBaseId ?? null,

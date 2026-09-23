@@ -11,7 +11,15 @@ export async function resolveSarvamApiKey(organizationId: string): Promise<strin
   const row = await prisma.setting.findFirst({
     where: { organizationId, key: "sarvam_api_key" },
   });
-  const key = extractSarvamApiKey(row?.value) || process.env.SARVAM_API_KEY || process.env.AI_API_KEY || "";
+  let key = extractSarvamApiKey(row?.value) || process.env.SARVAM_API_KEY || process.env.AI_API_KEY || "";
+  if (!key) {
+    // Fallback: check if any organization has a configured key (system default)
+    const anyRow = await prisma.setting.findFirst({
+      where: { key: "sarvam_api_key" },
+      orderBy: { createdAt: "desc" },
+    });
+    key = extractSarvamApiKey(anyRow?.value) || "";
+  }
   if (!key) {
     throw new ConflictError(
       "Sarvam AI API key is not configured. Add it on AI calling → API keys, or set SARVAM_API_KEY.",
@@ -33,7 +41,15 @@ export async function resolveGeminiApiKey(organizationId: string): Promise<strin
   const row = await prisma.setting.findFirst({
     where: { organizationId, key: "gemini_api_key" },
   });
-  const key = extractGeminiApiKey(row?.value) || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+  let key = extractGeminiApiKey(row?.value) || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+  if (!key) {
+    // Fallback: check if any organization has a configured key (system default)
+    const anyRow = await prisma.setting.findFirst({
+      where: { key: "gemini_api_key" },
+      orderBy: { createdAt: "desc" },
+    });
+    key = extractGeminiApiKey(anyRow?.value) || "";
+  }
   if (!key) {
     throw new ConflictError(
       "Google Gemini API key is not configured. Add it on AI calling → API keys, or set GEMINI_API_KEY.",

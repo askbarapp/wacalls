@@ -20,6 +20,7 @@ import {
   handleImageFromCommander,
   transcribeAudioBuffer,
 } from "./multimodal-assistant.js";
+import { routeInboundLead, type RouteInboundLeadResult } from "./lead-router.js";
 
 const log = pino({ name: "chatbot-engine" });
 
@@ -330,6 +331,27 @@ export async function handleInboundChat(input: {
 
   void cancelActiveCadenceOnReply(channel.organizationId, phone).catch(() => undefined);
 
+  // Check Inbound Lead Routing Rules (Facebook / Instagram / Website ad texts)
+  const leadRoutingResult = await routeInboundLead({
+    organizationId: channel.organizationId,
+    channelId: channel.id,
+    phone,
+    text,
+    conversationId: conversation.id,
+    contactId: contact.id,
+  }).catch((err) => {
+    log.warn({ err }, "lead routing check failed");
+    return { matched: false } as RouteInboundLeadResult;
+  });
+
+  if (leadRoutingResult?.matched) {
+    log.info(
+      { phone, ruleId: leadRoutingResult.ruleId, assignType: leadRoutingResult.assignType },
+      "chatbot: inbound message handled by lead router",
+    );
+    return;
+  }
+
   const upperText = text.toUpperCase();
 
   // 1. Unsubscribe / Resubscribe handling
@@ -339,6 +361,7 @@ export async function handleInboundChat(input: {
       data: { optOut: false, status: "OPEN", activeAiConfigId: null },
     });
     conversation.activeAiConfigId = null;
+    conversation.status = "OPEN";
     await sendWhatsAppText({
       organizationId: channel.organizationId,
       channelId: channel.id,
@@ -363,13 +386,41 @@ export async function handleInboundChat(input: {
     return;
   }
 
-  // 2. Human Takeover Check (Auto-Pause)
+  // 2. Human Takeover Check (Auto-Pause with Smart Inactivity Timeout)
   if (conversation.status === "HANDOFF") {
-    log.info(
-      { conversationId: conversation.id, phone },
-      "Conversation in HANDOFF mode (human agent active); AI chatbot remains silent",
-    );
-    return;
+    // Check when human agent last sent a message from the physical device/web
+    const lastHumanMsg = await prisma.chatMessage.findFirst({
+      where: {
+        conversationId: conversation.id,
+        direction: "OUT",
+        source: { in: ["human_device", "agent", "manual"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+
+    const lastHumanTime = lastHumanMsg ? new Date(lastHumanMsg.createdAt).getTime() : 0;
+    const inactiveMs = Date.now() - lastHumanTime;
+    const isRecentlyActive = lastHumanTime > 0 && inactiveMs < 30 * 60 * 1000; // 30 minutes threshold
+
+    if (isRecentlyActive) {
+      log.info(
+        { conversationId: conversation.id, phone, inactiveMins: Math.round(inactiveMs / 60000) },
+        "Conversation in active HANDOFF mode (human agent active within 30m); AI chatbot remains silent",
+      );
+      return;
+    } else {
+      // Auto-resume to OPEN so bot doesn't abandon customer forever
+      await prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: { status: "OPEN" },
+      });
+      conversation.status = "OPEN";
+      log.info(
+        { conversationId: conversation.id, phone },
+        "Smart auto-resume: Conversation transitioned from HANDOFF to OPEN after 30+ mins of agent inactivity",
+      );
+    }
   }
 
   // 3. Manual Handoff keywords
@@ -378,8 +429,8 @@ export async function handleInboundChat(input: {
       where: { id: conversation.id },
       data: { status: "HANDOFF" },
     });
-    const bot = await prisma.chatBot.findUnique({ where: { channelId: channel.id } });
-    const reply = bot?.handoffMessage || "Connecting you with a teammate. You can keep messaging here.";
+    const existingBot = await prisma.chatBot.findUnique({ where: { channelId: channel.id } });
+    const reply = existingBot?.handoffMessage || "Connecting you with a teammate. You can keep messaging here.";
     await sendWhatsAppText({
       organizationId: channel.organizationId,
       channelId: channel.id,
@@ -390,8 +441,8 @@ export async function handleInboundChat(input: {
     return;
   }
 
-  // 4. Load ChatBot Configuration (Master ON/OFF Check)
-  const bot = await prisma.chatBot.findUnique({
+  // 4. Load ChatBot Configuration (with Auto-Initialization if missing)
+  let bot = await prisma.chatBot.findUnique({
     where: { channelId: channel.id },
     include: {
       keywords: {
@@ -410,6 +461,47 @@ export async function handleInboundChat(input: {
       },
     },
   });
+
+  if (!bot) {
+    // Auto-create ChatBot for this channel so it works immediately out of the box!
+    const defaultAi =
+      (await prisma.aiConfig.findFirst({
+        where: { organizationId: channel.organizationId },
+        orderBy: { createdAt: "asc" },
+      })) ||
+      (await prisma.aiConfig.findFirst({ orderBy: { createdAt: "asc" } }));
+
+    bot = await prisma.chatBot.create({
+      data: {
+        organizationId: channel.organizationId,
+        channelId: channel.id,
+        enabled: true,
+        aiEnabled: true,
+        aiConfigId: defaultAi?.id ?? null,
+        greetingEnabled: true,
+        greetingMessage: "Hello! Welcome to our WhatsApp service. How can we help you today?",
+        fallbackMessage: "Thank you for reaching out. Our team has received your message and will reply shortly.",
+        handoffMessage: "Connecting you with a team member. You can continue messaging here.",
+      },
+      include: {
+        keywords: {
+          where: { enabled: true },
+          orderBy: { sortOrder: "asc" },
+        },
+        aiConfig: {
+          include: {
+            knowledgeBase: {
+              include: { documents: { take: 40 } },
+            },
+          },
+        },
+        knowledgeBase: {
+          include: { documents: { take: 40 } },
+        },
+      },
+    });
+    log.info({ channelId: channel.id }, "Auto-initialized ChatBot configuration for channel");
+  }
 
   if (!bot || !bot.enabled) {
     log.info({ channelId: channel.id }, "ChatBot is disabled (OFF) for channel; skipping response");

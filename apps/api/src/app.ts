@@ -40,6 +40,7 @@ import { emailRoutes } from "./routes/email.js";
 import { taskRoutes } from "./routes/tasks.js";
 import { projectRoutes } from "./routes/projects.js";
 import { leadRoutingRoutes } from "./routes/lead-routing.js";
+import { aiMeterRoutes } from "./routes/ai-meter.js";
 import { registerAuth } from "./plugins/auth.js";
 import { registerWs } from "./ws.js";
 import { AppError } from "@wacalls/shared";
@@ -125,6 +126,7 @@ export async function buildApp() {
   await app.register(taskRoutes, { prefix: "/api/v1" });
   await app.register(projectRoutes, { prefix: "/api/v1" });
   await app.register(leadRoutingRoutes, { prefix: "/api/v1" });
+  await app.register(aiMeterRoutes, { prefix: "/api/v1" });
   await app.register(widgetRoutes);
 
   app.setErrorHandler((err, req, reply) => {

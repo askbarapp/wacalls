@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ListPagination } from "@/components/list-pagination";
 import { emptyMeta, type ListMeta, type PageSize } from "@/lib/csv";
+import { AiMeterWidget } from "@/components/ai-meter-widget";
 
 type CommanderMember = {
   id: string;
@@ -457,6 +458,10 @@ function ChatbotInner() {
           {msg}
         </div>
       ) : null}
+
+      {/* Real-Time AI Engine & Key Quota Meter ("Kilometer Gauge") */}
+      <AiMeterWidget onRefreshParent={() => void loadInbox()} />
+
       <div className="mb-6 grid grid-cols-2 gap-2 rounded-xl bg-ink-900 p-1">
         {TABS.map((t) => (
           <button
@@ -1295,7 +1300,17 @@ function ChatbotInner() {
                         >
                           <div className="flex justify-between gap-2 text-white">
                             <span className="truncate font-medium">{c.contact?.name || c.phone}</span>
-                            <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{c.status}</span>
+                            {c.status === "HANDOFF" ? (
+                              <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                                ⏸️ HUMAN
+                              </span>
+                            ) : c.status === "OPEN" ? (
+                              <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
+                                🤖 AI BOT
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{c.status}</span>
+                            )}
                           </div>
 
                           {/* Work Categorization & Badges */}
