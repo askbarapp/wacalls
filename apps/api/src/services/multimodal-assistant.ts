@@ -52,7 +52,7 @@ export async function transcribeAudioBuffer(
       const apiKey = await resolveGeminiApiKey(organizationId);
       const effectiveMime = mimeType && mimeType.includes("ogg") ? "audio/ogg" : "audio/wav";
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -136,7 +136,7 @@ Return ONLY valid JSON adhering strictly to this schema:
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
