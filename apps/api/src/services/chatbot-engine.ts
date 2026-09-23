@@ -59,10 +59,28 @@ export async function handleOutboundChat(input: {
     if (isBotMessage) return;
 
     const isBotChatMessage = await prisma.chatMessage.findFirst({
-      where: { externalId: input.messageId, source: { in: ["bot", "ai", "system"] } },
+      where: {
+        externalId: input.messageId,
+        source: { in: ["bot", "ai", "system", "api", "lead_router"] },
+      },
       select: { id: true },
     });
     if (isBotChatMessage) return;
+  }
+
+  // Also check if a bot message with the same text was sent to this phone recently (within 20s)
+  const recentOutboundBotMsg = await prisma.chatMessage.findFirst({
+    where: {
+      direction: "OUT",
+      source: { in: ["bot", "ai", "system", "api", "lead_router"] },
+      createdAt: { gte: new Date(Date.now() - 20000) },
+      conversation: { phone, channelId: channel.id },
+    },
+    select: { id: true, body: true },
+  });
+  if (recentOutboundBotMsg && (text === recentOutboundBotMsg.body || !text)) {
+    log.info({ phone, messageId: input.messageId }, "Skipping outbound echo from recent bot/system message");
+    return;
   }
 
   // 2. Outbound message handling:

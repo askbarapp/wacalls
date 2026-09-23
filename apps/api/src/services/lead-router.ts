@@ -177,7 +177,8 @@ export async function routeInboundLead(input: RouteInboundLeadInput): Promise<Ro
         leadStage: matchedRule.leadStage ?? "NEW",
         workCategory: matchedRule.sourcePlatform,
         intent: matchedRule.name,
-        status: "HANDOFF",
+        // Keep status OPEN so AI bot continues assisting until an agent takes over
+        status: "OPEN",
       },
     });
   } catch (err) {
@@ -225,8 +226,23 @@ export async function routeInboundLead(input: RouteInboundLeadInput): Promise<Ro
   // 8. Auto-reply to customer if configured
   let autoReplied = false;
   if (matchedRule.autoReplyCustomer && matchedRule.autoReplyText) {
-    void sendWhatsAppMessage(channelId, phone, matchedRule.autoReplyText);
+    const replyText = matchedRule.autoReplyText;
+    const extId = await sendWhatsAppMessage(channelId, phone, replyText);
     autoReplied = true;
+    try {
+      await prisma.chatMessage.create({
+        data: {
+          organizationId,
+          conversationId,
+          direction: "OUT",
+          source: "bot",
+          body: replyText,
+          externalId: extId || undefined,
+        },
+      });
+    } catch {
+      /* ignore */
+    }
   }
 
   // 9. Record LeadRoutingLog for historical tracking and portal analytics

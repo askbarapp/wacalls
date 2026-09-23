@@ -18,7 +18,7 @@ import { callResultLabel, formatCallDuration, type CallRow } from "@/lib/call-lo
 import { assertUploadAudioDuration } from "@/lib/audio-upload";
 import { assertUploadVideoFile } from "@/lib/video-upload";
 import { startCallAudio, type CallAudioHandle } from "@/lib/call-audio";
-import { playDialTone } from "@/lib/dtmf";
+import { playDialTone, startRingbackTone } from "@/lib/dtmf";
 import { ConnectionBadge } from "@/components/status-badge";
 import {
   DialerModePanel,
@@ -136,11 +136,14 @@ export default function DialerPage() {
   const [uploadSuccess, setUploadSuccess] = useState("");
   const [busy, setBusy] = useState(false);
   const audioRef = useRef<CallAudioHandle | null>(null);
+  const ringbackRef = useRef<{ stop: () => void } | null>(null);
   const numberInputRef = useRef<HTMLInputElement>(null);
   const inCallRef = useRef(false);
   const showPadRef = useRef(false);
 
   function resetLocalCall() {
+    ringbackRef.current?.stop();
+    ringbackRef.current = null;
     setCallId(null);
     setStarted(null);
     setMuted(false);
@@ -229,6 +232,21 @@ export default function DialerPage() {
       clearInterval(t);
     };
   }, [callId]);
+
+  useEffect(() => {
+    if (status === "CONNECTING" || status === "RINGING") {
+      if (!ringbackRef.current) {
+        ringbackRef.current = startRingbackTone();
+      }
+    } else {
+      ringbackRef.current?.stop();
+      ringbackRef.current = null;
+    }
+    return () => {
+      ringbackRef.current?.stop();
+      ringbackRef.current = null;
+    };
+  }, [status]);
 
   const channel = channels.find((c) => c.id === channelId);
   const connected = channel?.status === "CONNECTED";

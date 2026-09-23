@@ -62,3 +62,64 @@ export function playDialTone(digit: string) {
     }
   }, 180);
 }
+
+/**
+ * Play a standard realistic telephone ringback tone (440Hz + 480Hz)
+ * while the dialer is waiting for the recipient to answer.
+ */
+export function startRingbackTone(): { stop: () => void } {
+  const ac = audioContext();
+  if (!ac) return { stop: () => {} };
+  void ac.resume();
+
+  let stopped = false;
+  let interval: any = null;
+  const activeNodes: Array<{ stop?: () => void; disconnect: () => void }> = [];
+
+  const playPulse = () => {
+    if (stopped) return;
+    const now = ac.currentTime;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.07, now + 0.05);
+    gain.gain.setValueAtTime(0.07, now + 1.4);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
+    gain.connect(ac.destination);
+
+    for (const freq of [440, 480]) {
+      const osc = ac.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      osc.start(now);
+      osc.stop(now + 1.5);
+      activeNodes.push(osc);
+    }
+    activeNodes.push(gain);
+  };
+
+  playPulse();
+  interval = setInterval(() => {
+    if (stopped) {
+      clearInterval(interval);
+      return;
+    }
+    playPulse();
+  }, 3500);
+
+  return {
+    stop: () => {
+      stopped = true;
+      if (interval) clearInterval(interval);
+      for (const node of activeNodes) {
+        try {
+          if (node.stop) node.stop();
+          node.disconnect();
+        } catch {
+          /* ignore */
+        }
+      }
+      activeNodes.length = 0;
+    },
+  };
+}

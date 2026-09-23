@@ -869,7 +869,11 @@ func (ch *Channel) wireCall(lc *liveCall) {
 		case core.CallStateIncomingRinging, core.CallStateRinging:
 			ch.emitCall(lc, "ringing", "")
 		case core.CallStateConnecting:
-			ch.emitCall(lc, "connecting", "")
+			if info.StateData.AcceptedAt != nil {
+				ch.emitCall(lc, "answered", "")
+			} else {
+				ch.emitCall(lc, "connecting", "")
+			}
 		case core.CallStateActive:
 			ch.startRecording(lc)
 			ch.emitCall(lc, "answered", "")

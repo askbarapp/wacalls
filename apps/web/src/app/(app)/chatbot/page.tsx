@@ -381,7 +381,30 @@ function ChatbotInner() {
     void loadInbox(page, pageSize, channelId, inboxFilter).catch((err) =>
       setError(err instanceof Error ? err.message : "Failed to load inbox"),
     );
+    const interval = setInterval(() => {
+      void loadInbox(page, pageSize, channelId, inboxFilter).catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(interval);
   }, [tab, page, pageSize, channelId, inboxFilter]);
+
+  useEffect(() => {
+    if (!openId) return;
+    const interval = setInterval(async () => {
+      try {
+        const r = await api<{ success: true; data: Thread }>(`/api/v1/chat/conversations/${openId}`);
+        setThread((prev) => {
+          if (!prev || prev.id !== openId) return r.data;
+          if (prev.messages.length !== r.data.messages.length || prev.status !== r.data.status) {
+            return r.data;
+          }
+          return prev;
+        });
+      } catch {
+        /* ignore */
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [openId]);
 
   async function saveBot() {
     if (!bot) return;
